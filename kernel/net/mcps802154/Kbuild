@@ -1,0 +1,21 @@
+obj-m := mcps802154.o
+
+mcps802154-y := \
+	ca.o \
+	default_region.o \
+	fproc.o \
+	fproc_broken.o \
+	fproc_multi.o \
+	fproc_rx.o \
+	fproc_stopped.o \
+	fproc_tx.o \
+	frame.o \
+	main.o \
+	nl.o \
+	ops.o \
+	regions.o \
+	simple_ranging_region.o \
+	schedule.o \
+	trace.o
+
+CFLAGS_trace.o := -I$(src) -I$(srctree)/$(src)

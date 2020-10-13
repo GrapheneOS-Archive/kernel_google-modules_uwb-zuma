@@ -1,0 +1,6 @@
+ifdef CONFIG_SPI_MASTER
+ifdef CONFIG_ARCH_QCOM
+# Build spi-geni-qcom-lowlatency.ko only if SPI and Qualcomm arch are supported on target kernel.
+obj-m += spi-geni-qcom-lowlatency.o
+endif
+endif

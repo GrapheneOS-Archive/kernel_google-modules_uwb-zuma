@@ -1,0 +1,16 @@
+obj-$(CONFIG_MCPS_FAKE) := mcps802154_fake.o
+
+ccflags-$(CONFIG_DW3000_DEBUG) := -DDEBUG -g
+
+dw3000-y := dw3000_spi.o \
+		dw3000_core.o \
+		dw3000_mcps.o \
+		dw3000_stm.o \
+		dw3000_trc.o
+
+CFLAGS_dw3000_trc.o := -I$(src) -I$(srctree)/$(src)
+
+ifdef CONFIG_SPI_MASTER
+# Build dw3000.ko only if SPI supported on target kernel.
+obj-m += dw3000.o
+endif
