@@ -463,6 +463,8 @@ static inline s64 difference_timestamp_rctu(struct mcps802154_llhw *llhw,
 					    u64 timestamp_a_rctu,
 					    u64 timestamp_b_rctu)
 {
+	/* RCTU time is an unsigned encoded over 40 bytes. This function
+	   calculate the signed difference between two unsigned 40 bytes */
 	static const u64 rctu_rollover = 1ll << 40;
 	static const u64 rctu_mask = rctu_rollover - 1;
 	s64 diff_rctu = (timestamp_a_rctu - timestamp_b_rctu) & rctu_mask;
