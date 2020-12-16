@@ -610,7 +610,8 @@ static int set_hw_addr_filt(struct mcps802154_llhw *llhw,
 			    unsigned long changed)
 {
 	struct dw3000 *dw = llhw->priv;
-	struct do_set_hw_addr_filt_params params = { filt, changed };
+	struct do_set_hw_addr_filt_params params = { .filt = filt,
+						     .changed = changed };
 	struct dw3000_stm_command cmd = { do_set_hw_addr_filt, &params, NULL };
 	int ret;
 
