@@ -501,16 +501,19 @@ static int compute_frame_duration_dtu(struct mcps802154_llhw *llhw,
 	       (sts_chips + phr_chips + data_chips) / DW3000_CHIP_PER_DTU;
 }
 
+struct do_set_channel_params {
+	u8 channel;
+	u8 preamble_code;
+};
+
 static int do_set_channel(struct dw3000 *dw, void *in, void *out)
 {
 	struct dw3000_config *config = &dw->config;
-	u8 *params = (u8 *)in;
-	u8 channel = params[0];
-	u8 preamble_code = params[1];
+	struct do_set_channel_params *params = in;
 	/* Update configuration structure */
-	config->chan = channel;
-	config->txCode = preamble_code;
-	config->rxCode = preamble_code;
+	config->chan = params->channel;
+	config->txCode = params->preamble_code;
+	config->rxCode = params->preamble_code;
 	/* Reconfigure the chip with it */
 	return dw3000_configure_chan(dw);
 }
@@ -519,8 +522,10 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 		       u8 preamble_code)
 {
 	struct dw3000 *dw = llhw->priv;
-	u8 params[2] = { channel, preamble_code };
-	struct dw3000_stm_command cmd = { do_set_channel, params, NULL };
+	struct do_set_channel_params params = {
+		.channel = channel, .preamble_code = preamble_code
+	};
+	struct dw3000_stm_command cmd = { do_set_channel, &params, NULL };
 	int ret;
 
 	trace_dw3000_mcps_set_channel(dw, page, channel, preamble_code);
@@ -532,7 +537,7 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 	switch (preamble_code) {
 	case 0:
 		/* Set default value if MCPS don't give one to driver */
-		params[1] = 9;
+		params.preamble_code = 9;
 		break;
 	/* DW3000_PRF_16M */
 	case 3:
