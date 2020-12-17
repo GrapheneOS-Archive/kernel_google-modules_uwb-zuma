@@ -21,6 +21,8 @@
  * Qorvo.
  * Please contact Qorvo to inquire about licensing terms.
  */
+#ifndef __DW3000_CHIP_H
+#define __DW3000_CHIP_H
 
 /* Forward declaration */
 struct dw3000;
@@ -60,3 +62,5 @@ struct dw3000_chip_version {
 /* Declaration of version specific chip operations */
 extern const struct dw3000_chip_ops dw3000_chip_c0_ops;
 extern const struct dw3000_chip_ops dw3000_chip_d0_ops;
+
+#endif /* __DW3000_CHIP_H */

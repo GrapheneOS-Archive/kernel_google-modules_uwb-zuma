@@ -21,6 +21,9 @@
  * Qorvo.
  * Please contact Qorvo to inquire about licensing terms.
  */
+#ifndef __DW3000_COMPAT_REG_H
+#define __DW3000_COMPAT_REG_H
+
 #define MAX_CHIP_VERSIONS 2
 
 #ifdef DEFINE_COMPAT_REGISTERS
@@ -174,3 +177,5 @@ REG_ADDR(__ldo_bias_kick, 0x180, 0x200);
 #define DW3000_BIAS_CTRL_DIG_BIAS_CTRL_TC_R3_ULV_BIT_MASK \
 	REG(__bias_ctrl_dig_bias_ctrl_tc_r3_ulv_bit_mask)
 #define DW3000_LDO_BIAS_KICK REG(__ldo_bias_kick)
+
+#endif /* __DW3000_COMPAT_REG_H */

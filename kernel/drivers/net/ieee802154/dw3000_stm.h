@@ -69,4 +69,4 @@ int dw3000_state_init(struct dw3000 *dw, unsigned int cpu);
 int dw3000_state_start(struct dw3000 *dw);
 int dw3000_state_stop(struct dw3000 *dw);
 
-#endif
+#endif /* __DW3000_STM_H */
