@@ -30,6 +30,7 @@
 #include <net/mcps802154_nl.h>
 
 #include "mcps802154_i.h"
+#include "llhw-ops.h"
 #include "nl.h"
 
 #define ATTR_STRING_SIZE 20
@@ -43,6 +44,14 @@ static u32 ranging_report_portid;
 
 static struct genl_family mcps802154_nl_family;
 
+static const struct nla_policy
+	mcps802154_nl_calibration_policy[MCPS802154_CALIBRATIONS_ATTR_MAX + 1] = {
+		[MCPS802154_CALIBRATIONS_ATTR_KEY] = { .type = NLA_NUL_STRING,
+						       .len = 64 },
+		[MCPS802154_CALIBRATIONS_ATTR_VALUE] = { .type = NLA_BINARY },
+		[MCPS802154_CALIBRATIONS_ATTR_STATUS] = { .type = NLA_S32 },
+	};
+
 static const struct nla_policy mcps802154_nl_ranging_request_policy
 	[MCPS802154_RANGING_REQUEST_ATTR_MAX + 1] = {
 		[MCPS802154_RANGING_REQUEST_ATTR_ID] = { .type = NLA_U32 },
@@ -54,10 +63,17 @@ static const struct nla_policy mcps802154_nl_ranging_request_policy
 static const struct nla_policy mcps802154_nl_policy[MCPS802154_ATTR_MAX + 1] = {
 	[MCPS802154_ATTR_HW] = { .type = NLA_U32 },
 	[MCPS802154_ATTR_WPAN_PHY_NAME] = ATTR_STRING_POLICY,
-	[MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_NAME] = ATTR_STRING_POLICY,
+	[MCPS802154_ATTR_SCHEDULER_NAME] = ATTR_STRING_POLICY,
+	[MCPS802154_ATTR_SCHEDULER_PARAMS] = { .type = NLA_NESTED },
+	[MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU] = { .type = NLA_S32 },
+	[MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU] = { .type = NLA_S32 },
+	[MCPS802154_ATTR_CALIBRATIONS] = { .type = NLA_NESTED },
+
+#ifdef CONFIG_MCPS802154_TESTMODE
+	[MCPS802154_ATTR_TESTDATA] = { .type = NLA_NESTED },
+#endif
 	[MCPS802154_ATTR_RANGING_REQUESTS] =
 		NLA_POLICY_NESTED_ARRAY(mcps802154_nl_ranging_request_policy),
-	[MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_PARAMS] = { .type = NLA_NESTED },
 };
 
 /**
@@ -86,9 +102,9 @@ static int mcps802154_nl_send_hw(struct mcps802154_local *local,
 			   wpan_phy_name(local->hw->phy)))
 		goto error;
 
-	if (local->ca.schedule_region_handler &&
-	    nla_put_string(msg, MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_NAME,
-			   local->ca.schedule_region_handler->handler->name))
+	if (local->ca.scheduler &&
+	    nla_put_string(msg, MCPS802154_ATTR_SCHEDULER_NAME,
+			   local->ca.scheduler->ops->name))
 		goto error;
 
 	genlmsg_end(msg, hdr);
@@ -151,21 +167,20 @@ static int mcps802154_nl_dump_hw(struct sk_buff *skb,
 }
 
 /**
- * mcps802154_nl_set_params_region_handler() - Set region handler parameters.
+ * mcps802154_nl_set_scheduler_params() - Set scheduler parameters.
  * @skb: Request message.
  * @info: Request information.
  *
  * Return: 0 or error.
  */
-static int mcps802154_nl_set_params_region_handler(struct sk_buff *skb,
-						   struct genl_info *info)
+static int mcps802154_nl_set_scheduler_params(struct sk_buff *skb,
+					      struct genl_info *info)
 {
 	struct mcps802154_local *local = info->user_ptr[0];
 	int r;
 	struct nlattr *params_attr =
-		info->attrs[MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_PARAMS];
-	struct nlattr *name_attr =
-		info->attrs[MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_NAME];
+		info->attrs[MCPS802154_ATTR_SCHEDULER_PARAMS];
+	struct nlattr *name_attr = info->attrs[MCPS802154_ATTR_SCHEDULER_NAME];
 	char name[ATTR_STRING_SIZE];
 
 	if (!name_attr || !params_attr)
@@ -173,48 +188,137 @@ static int mcps802154_nl_set_params_region_handler(struct sk_buff *skb,
 	nla_strlcpy(name, name_attr, sizeof(name));
 
 	mutex_lock(&local->fsm_lock);
-	r = mcps802154_ca_set_schedule_region_handler_parameters(
-		local, name, params_attr, info->extack, false);
+	r = mcps802154_ca_scheduler_set_parameters(local, name, params_attr,
+						   info->extack);
 	mutex_unlock(&local->fsm_lock);
 
 	return r;
 }
 
 /**
- * mcps802154_nl_set_schedule_region_handler() - Set region handler used to
- * manage the schedule.
+ * mcps802154_nl_set_scheduler() - Set the scheduler which manage the schedule.
  * @skb: Request message.
  * @info: Request information.
  *
  * Return: 0 or error.
  */
-static int mcps802154_nl_set_schedule_region_handler(struct sk_buff *skb,
-						     struct genl_info *info)
+static int mcps802154_nl_set_scheduler(struct sk_buff *skb,
+				       struct genl_info *info)
 {
 	struct mcps802154_local *local = info->user_ptr[0];
 	struct nlattr *params_attr =
-		info->attrs[MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_PARAMS];
+		info->attrs[MCPS802154_ATTR_SCHEDULER_PARAMS];
 	char name[ATTR_STRING_SIZE];
 	int r;
 
-	if (!info->attrs[MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_NAME])
+	if (!info->attrs[MCPS802154_ATTR_SCHEDULER_NAME])
 		return -EINVAL;
-	nla_strlcpy(name,
-		    info->attrs[MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_NAME],
+	nla_strlcpy(name, info->attrs[MCPS802154_ATTR_SCHEDULER_NAME],
 		    sizeof(name));
 
 	mutex_lock(&local->fsm_lock);
 	if (local->started)
 		r = -EBUSY;
-	else if (!params_attr)
-		r = mcps802154_ca_set_schedule_region_handler(local, name);
 	else
-		r = mcps802154_ca_set_schedule_region_handler_parameters(
-			local, name, params_attr, info->extack, true);
+		r = mcps802154_ca_set_scheduler(local, name, params_attr,
+						info->extack);
 	mutex_unlock(&local->fsm_lock);
 
 	return r;
 }
+
+#ifdef CONFIG_MCPS802154_TESTMODE
+/**
+ * mcps802154_nl_testmode_do() - Run a testmode command.
+ * @skb: Request message.
+ * @info: Request information.
+ *
+ * This function is a passthrough to send testmode command to
+ * the driver.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_testmode_do(struct sk_buff *skb,
+				     struct genl_info *info)
+{
+	struct mcps802154_local *local = info->user_ptr[0];
+	int r;
+
+	if (!local->ops->testmode_cmd)
+		return -EOPNOTSUPP;
+
+	if (!info->attrs[MCPS802154_ATTR_TESTDATA])
+		return -EINVAL;
+
+	mutex_lock(&local->fsm_lock);
+	local->cur_cmd_info = info;
+	r = llhw_testmode_cmd(local,
+			      nla_data(info->attrs[MCPS802154_ATTR_TESTDATA]),
+			      nla_len(info->attrs[MCPS802154_ATTR_TESTDATA]));
+	local->cur_cmd_info = NULL;
+	mutex_unlock(&local->fsm_lock);
+	return r;
+}
+
+struct sk_buff *
+mcps802154_testmode_alloc_reply_skb(struct mcps802154_llhw *llhw, int approxlen)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+	struct sk_buff *skb;
+	void *hdr;
+	struct nlattr *data;
+
+	if (WARN_ON(!local->cur_cmd_info))
+		return NULL;
+
+	skb = nlmsg_new(approxlen + 100, GFP_KERNEL);
+	if (!skb)
+		return NULL;
+
+	/* Append testmode header to the netlink message */
+	hdr = genlmsg_put(skb, local->cur_cmd_info->snd_portid,
+			  local->cur_cmd_info->snd_seq, &mcps802154_nl_family,
+			  0, MCPS802154_CMD_TESTMODE);
+	if (!hdr)
+		goto nla_put_failure;
+
+	/* Start putting nested testmode data into the netlink message */
+	data = nla_nest_start(skb, MCPS802154_ATTR_TESTDATA);
+	if (!data)
+		goto nla_put_failure;
+
+	/* We put our private variables there to keep them across layers */
+	((void **)skb->cb)[0] = hdr;
+	((void **)skb->cb)[1] = data;
+
+	return skb;
+nla_put_failure:
+	kfree_skb(skb);
+	return NULL;
+}
+EXPORT_SYMBOL(mcps802154_testmode_alloc_reply_skb);
+
+int mcps802154_testmode_reply(struct mcps802154_llhw *llhw, struct sk_buff *skb)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+	void *hdr = ((void **)skb->cb)[0];
+	struct nlattr *data = ((void **)skb->cb)[1];
+
+	/* Clear CB data for netlink core to own from now on */
+	memset(skb->cb, 0, sizeof(skb->cb));
+
+	if (WARN_ON(!local->cur_cmd_info)) {
+		kfree_skb(skb);
+		return -EINVAL;
+	}
+
+	/* Stop putting nested testmode data into the netlink message */
+	nla_nest_end(skb, data);
+	genlmsg_end(skb, hdr);
+	return genlmsg_reply(skb, local->cur_cmd_info);
+}
+EXPORT_SYMBOL(mcps802154_testmode_reply);
+#endif
 
 /**
  * mcps802154_nl_set_ranging_requests() - Set ranging requests for a device.
@@ -234,8 +338,7 @@ static int mcps802154_nl_set_ranging_requests(struct sk_buff *skb,
 	unsigned int n_requests = 0;
 	int r, rem;
 
-	if (!local->ca.schedule_region_handler ||
-	    !local->ca.schedule_region_handler->handler->ranging_setup)
+	if (!local->ca.scheduler || !local->ca.scheduler->ops->ranging_setup)
 		return -EOPNOTSUPP;
 
 	if (!info->attrs[MCPS802154_ATTR_RANGING_REQUESTS])
@@ -275,8 +378,8 @@ static int mcps802154_nl_set_ranging_requests(struct sk_buff *skb,
 	}
 
 	mutex_lock(&local->fsm_lock);
-	r = local->ca.schedule_region_handler->handler->ranging_setup(
-		local->ca.schedule_region_handler, requests, n_requests);
+	r = local->ca.scheduler->ops->ranging_setup(local->ca.scheduler,
+						    requests, n_requests);
 	mutex_unlock(&local->fsm_lock);
 	if (r)
 		return r;
@@ -369,6 +472,330 @@ int mcps802154_nl_ranging_report(struct mcps802154_llhw *llhw, int id,
 	return r;
 }
 
+/**
+ * mcps802154_nl_set_calibration() - Set calibrations parameters.
+ * @skb: Request message.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_set_calibration(struct sk_buff *skb,
+					 struct genl_info *info)
+{
+	struct nlattr *attrs[MCPS802154_CALIBRATIONS_ATTR_MAX + 1];
+	struct mcps802154_local *local = info->user_ptr[0];
+	int rx_rmarker_offset_rctu, tx_rmarker_offset_rctu;
+	struct nlattr *calibrations, *calibration;
+	struct nlattr *input;
+	struct sk_buff *msg;
+	void *hdr;
+	int err;
+
+	if (!local->ops->set_calibration)
+		return -EOPNOTSUPP;
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	hdr = genlmsg_put(msg, info->snd_portid, info->snd_seq,
+			  &mcps802154_nl_family, 0,
+			  MCPS802154_CMD_SET_CALIBRATIONS);
+	if (!hdr) {
+		err = -ENOBUFS;
+		goto failure;
+	}
+
+	tx_rmarker_offset_rctu = local->llhw.tx_rmarker_offset_rctu;
+	rx_rmarker_offset_rctu = local->llhw.rx_rmarker_offset_rctu;
+
+	if (info->attrs[MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU]) {
+		tx_rmarker_offset_rctu = nla_get_s32(
+			info->attrs[MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU]);
+		if (tx_rmarker_offset_rctu < 0)
+			return -EINVAL;
+	}
+	if (info->attrs[MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU]) {
+		rx_rmarker_offset_rctu = nla_get_s32(
+			info->attrs[MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU]);
+		if (rx_rmarker_offset_rctu < 0)
+			return -EINVAL;
+	}
+
+	// Set rmarkers together.
+	local->llhw.tx_rmarker_offset_rctu = tx_rmarker_offset_rctu;
+	local->llhw.rx_rmarker_offset_rctu = rx_rmarker_offset_rctu;
+
+	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx)) {
+		err = -EMSGSIZE;
+		goto nla_put_failure;
+	}
+
+	calibrations = nla_nest_start(
+		msg, NLA_F_NESTED | MCPS802154_ATTR_CALIBRATIONS);
+	if (info->attrs[MCPS802154_ATTR_CALIBRATIONS]) {
+		int rem;
+
+		nla_for_each_nested (
+			input, info->attrs[MCPS802154_ATTR_CALIBRATIONS], rem) {
+			char *key;
+			int r;
+
+			r = nla_parse_nested(
+				attrs, MCPS802154_CALIBRATIONS_ATTR_MAX, input,
+				mcps802154_nl_calibration_policy, info->extack);
+			if (r)
+				continue;
+
+			if (!attrs[MCPS802154_CALIBRATIONS_ATTR_KEY])
+				continue;
+			key = nla_data(attrs[MCPS802154_CALIBRATIONS_ATTR_KEY]);
+
+			if (!attrs[MCPS802154_CALIBRATIONS_ATTR_VALUE])
+				r = -EINVAL;
+			else {
+				struct nlattr *value;
+
+				value = attrs[MCPS802154_CALIBRATIONS_ATTR_VALUE];
+				r = llhw_set_calibration(local, key,
+							 nla_data(value),
+							 nla_len(value));
+			}
+
+			// Put the result in the response message.
+			calibration = nla_nest_start(msg, NLA_F_NESTED | 1);
+			if (!calibration) {
+				err = -EMSGSIZE;
+				goto nla_put_failure;
+			}
+			if (nla_put_string(msg,
+					   MCPS802154_CALIBRATIONS_ATTR_KEY,
+					   key) ||
+			    nla_put_s32(msg,
+					MCPS802154_CALIBRATIONS_ATTR_STATUS,
+					r)) {
+				err = -EMSGSIZE;
+				goto nla_put_failure;
+			}
+			nla_nest_end(msg, calibration);
+		}
+	}
+	nla_nest_end(msg, calibrations);
+
+	genlmsg_end(msg, hdr);
+	return genlmsg_reply(msg, info);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+failure:
+	nlmsg_free(msg);
+	return err;
+}
+
+/**
+ * mcps802154_nl_put_calibration() - put on calibration in msg.
+ * @msg: Request message.
+ * @key: calibration name
+ * @status: status of reading operation.
+ * @data: calibration value.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_put_calibration(struct sk_buff *msg, const char *key,
+					 int status, void *data)
+{
+	struct nlattr *calibration;
+
+	calibration = nla_nest_start(msg, NLA_F_NESTED | 1);
+	if (!calibration)
+		return -ENOMEM;
+
+	nla_put_string(msg, MCPS802154_CALIBRATIONS_ATTR_KEY, key);
+	if (status < 0)
+		nla_put_s32(msg, MCPS802154_CALIBRATIONS_ATTR_STATUS, status);
+	else
+		// when positive, the status represent the data length.
+		nla_put(msg, MCPS802154_CALIBRATIONS_ATTR_VALUE, status, data);
+	nla_nest_end(msg, calibration);
+
+	return 0;
+}
+
+/**
+ * mcps802154_nl_get_calibration() - Set calibrations parameters.
+ * @skb: Request message.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_get_calibration(struct sk_buff *skb,
+					 struct genl_info *info)
+{
+	struct nlattr *attrs[MCPS802154_CALIBRATIONS_ATTR_MAX + 1];
+	struct mcps802154_local *local = info->user_ptr[0];
+	struct nlattr *calibrations;
+	struct nlattr *input;
+	struct sk_buff *msg;
+	void *hdr;
+	char *key;
+	u32 tmp[7];
+	int err;
+	int r;
+
+	if (!local->ops->get_calibration)
+		return -EOPNOTSUPP;
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	hdr = genlmsg_put(msg, info->snd_portid, info->snd_seq,
+			  &mcps802154_nl_family, 0,
+			  MCPS802154_CMD_GET_CALIBRATIONS);
+	if (!hdr) {
+		err = -ENOBUFS;
+		goto failure;
+	}
+
+	// Build the confirm message in same time as request message.
+	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx) ||
+	    nla_put_s32(msg, MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU,
+			local->llhw.tx_rmarker_offset_rctu) ||
+	    nla_put_s32(msg, MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU,
+			local->llhw.rx_rmarker_offset_rctu)) {
+		err = -EMSGSIZE;
+		goto nla_put_failure;
+	}
+
+	calibrations = nla_nest_start(
+		msg, NLA_F_NESTED | MCPS802154_ATTR_CALIBRATIONS);
+	if (info->attrs[MCPS802154_ATTR_CALIBRATIONS]) {
+		int rem;
+
+		nla_for_each_nested (
+			input, info->attrs[MCPS802154_ATTR_CALIBRATIONS], rem) {
+			r = nla_parse_nested(
+				attrs, MCPS802154_CALIBRATIONS_ATTR_MAX, input,
+				mcps802154_nl_calibration_policy, info->extack);
+			if (r)
+				continue;
+			if (!attrs[MCPS802154_CALIBRATIONS_ATTR_KEY])
+				continue;
+
+			key = nla_data(attrs[MCPS802154_CALIBRATIONS_ATTR_KEY]);
+			r = llhw_get_calibration(local, key, &tmp, sizeof(tmp));
+
+			// Put the result in the response message.
+			err = mcps802154_nl_put_calibration(msg, key, r, &tmp);
+			if (err < 0) {
+				err = -EMSGSIZE;
+				goto nla_put_failure;
+			}
+		}
+	} else if (local->ops->list_calibration) {
+		const char *const *calibration;
+		const char *const *entry;
+
+		calibration = llhw_list_calibration(local);
+		if (!calibration) {
+			err = -ENOENT;
+			goto nla_put_failure;
+		}
+		for (entry = calibration; *entry; entry++) {
+			r = llhw_get_calibration(local, *entry, &tmp,
+						 sizeof(tmp));
+
+			// Put the result in the response message.
+			err = mcps802154_nl_put_calibration(msg, *entry, r,
+							    &tmp);
+			if (err < 0) {
+				err = -EMSGSIZE;
+				goto nla_put_failure;
+			}
+		}
+	}
+	nla_nest_end(msg, calibrations);
+
+	genlmsg_end(msg, hdr);
+	return genlmsg_reply(msg, info);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+failure:
+	nlmsg_free(msg);
+	return err;
+}
+
+/**
+ * mcps802154_nl_list_calibration() - Set calibrations parameters.
+ * @skb: Request message.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_list_calibration(struct sk_buff *skb,
+					  struct genl_info *info)
+{
+	struct mcps802154_local *local = info->user_ptr[0];
+	struct nlattr *calibrations, *calibration;
+	const char *const *list;
+	const char *const *entry;
+	struct sk_buff *msg;
+	void *hdr;
+	int err;
+
+	if (!local->ops->list_calibration)
+		return -EOPNOTSUPP;
+
+	list = llhw_list_calibration(local);
+	if (!list)
+		return -ENOENT;
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	hdr = genlmsg_put(msg, info->snd_portid, info->snd_seq,
+			  &mcps802154_nl_family, 0,
+			  MCPS802154_CMD_LIST_CALIBRATIONS);
+	if (!hdr) {
+		err = -ENOBUFS;
+		goto failure;
+	}
+
+	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx)) {
+		err = -EMSGSIZE;
+		goto nla_put_failure;
+	}
+
+	calibrations = nla_nest_start(
+		msg, NLA_F_NESTED | MCPS802154_ATTR_CALIBRATIONS);
+	for (entry = list; *entry; entry++) {
+		// Put the result in the response message.
+		calibration = nla_nest_start(msg, NLA_F_NESTED | 1);
+		if (!calibration) {
+			err = -EMSGSIZE;
+			goto nla_put_failure;
+		}
+		if (nla_put_string(msg, MCPS802154_CALIBRATIONS_ATTR_KEY,
+				   *entry)) {
+			err = -EMSGSIZE;
+			goto nla_put_failure;
+		}
+		nla_nest_end(msg, calibration);
+	}
+	nla_nest_end(msg, calibrations);
+
+	genlmsg_end(msg, hdr);
+	return genlmsg_reply(msg, info);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+failure:
+	nlmsg_free(msg);
+	return err;
+}
+
 enum mcps802154_nl_internal_flags {
 	MCPS802154_NL_NEED_HW = 1,
 };
@@ -455,11 +882,25 @@ static const struct genl_ops mcps802154_nl_ops[] = {
 		.internal_flags = MCPS802154_NL_NEED_HW,
 	},
 	{
-		.cmd = MCPS802154_CMD_SET_SCHEDULE_REGION_HANDLER,
-		.doit = mcps802154_nl_set_schedule_region_handler,
+		.cmd = MCPS802154_CMD_SET_SCHEDULER,
+		.doit = mcps802154_nl_set_scheduler,
 		.flags = GENL_ADMIN_PERM,
 		.internal_flags = MCPS802154_NL_NEED_HW,
 	},
+	{
+		.cmd = MCPS802154_CMD_SET_SCHEDULER_PARAMS,
+		.doit = mcps802154_nl_set_scheduler_params,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+#ifdef CONFIG_MCPS802154_TESTMODE
+	{
+		.cmd = MCPS802154_CMD_TESTMODE,
+		.doit = mcps802154_nl_testmode_do,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+#endif
 	{
 		.cmd = MCPS802154_CMD_SET_RANGING_REQUESTS,
 		.doit = mcps802154_nl_set_ranging_requests,
@@ -467,8 +908,20 @@ static const struct genl_ops mcps802154_nl_ops[] = {
 		.internal_flags = MCPS802154_NL_NEED_HW,
 	},
 	{
-		.cmd = MCPS802154_CMD_SET_SCHEDULE_REGION_HANDLER_PARAMS,
-		.doit = mcps802154_nl_set_params_region_handler,
+		.cmd = MCPS802154_CMD_SET_CALIBRATIONS,
+		.doit = mcps802154_nl_set_calibration,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+	{
+		.cmd = MCPS802154_CMD_GET_CALIBRATIONS,
+		.doit = mcps802154_nl_get_calibration,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+	{
+		.cmd = MCPS802154_CMD_LIST_CALIBRATIONS,
+		.doit = mcps802154_nl_list_calibration,
 		.flags = GENL_ADMIN_PERM,
 		.internal_flags = MCPS802154_NL_NEED_HW,
 	},

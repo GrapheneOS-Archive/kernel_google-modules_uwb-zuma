@@ -21,6 +21,7 @@
  * Qorvo.
  * Please contact Qorvo to inquire about licensing terms.
  */
+#include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/pm_runtime.h>
 #include <net/mcps802154.h>
@@ -28,6 +29,7 @@
 #include "dw3000.h"
 #include "dw3000_core.h"
 #include "dw3000_mcps.h"
+#include "dw3000_testmode.h"
 #include "dw3000_trc.h"
 
 static inline u64 timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
@@ -39,6 +41,7 @@ static inline u32 timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 static inline int dtu_to_pac(struct mcps802154_llhw *llhw, int timeout_dtu)
 {
 	struct dw3000 *dw = llhw->priv;
+
 	return (timeout_dtu * DW3000_CHIP_PER_DTU + dw->chips_per_pac - 1) /
 	       dw->chips_per_pac;
 }
@@ -55,9 +58,14 @@ static inline int rctu_to_dly(struct mcps802154_llhw *llhw, int rctu)
 
 static int do_start(struct dw3000 *dw, void *in, void *out)
 {
+#if (KERNEL_VERSION(4, 13, 0) <= LINUX_VERSION_CODE)
 	struct spi_controller *ctlr = dw->spi->controller;
+#else
+	struct spi_master *ctlr = dw->spi->master;
+#endif
 	/* Lock power management of SPI controller */
 	int ret = pm_runtime_get_sync(ctlr->dev.parent);
+
 	if (ret < 0) {
 		pm_runtime_put_noidle(ctlr->dev.parent);
 		dev_err(&ctlr->dev, "Failed to power device: %d\n", ret);
@@ -72,6 +80,7 @@ static int start(struct mcps802154_llhw *llhw)
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_start, NULL, NULL };
 	int ret;
+
 	trace_dw3000_mcps_start(dw);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
@@ -84,7 +93,11 @@ static int do_stop(struct dw3000 *dw, void *in, void *out)
 	dw3000_disable(dw);
 	/* Unlock power management of SPI controller */
 	if (dw->has_lock_pm) {
+#if (KERNEL_VERSION(4, 13, 0) <= LINUX_VERSION_CODE)
 		struct spi_controller *ctlr = dw->spi->controller;
+#else
+		struct spi_master *ctlr = dw->spi->master;
+#endif
 		pm_runtime_put(ctlr->dev.parent);
 		dw->has_lock_pm = false;
 	}
@@ -95,6 +108,7 @@ static void stop(struct mcps802154_llhw *llhw)
 {
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_stop, NULL, NULL };
+
 	trace_dw3000_mcps_stop(dw);
 	dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_void(dw);
@@ -172,6 +186,7 @@ static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 	struct do_tx_frame_params params = { skb, info };
 	struct dw3000_stm_command cmd = { do_tx_frame, &params, NULL };
 	int ret;
+
 	trace_dw3000_mcps_tx_frame(dw, skb->len);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
@@ -242,6 +257,7 @@ static int rx_enable(struct mcps802154_llhw *llhw,
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_rx_enable, (void *)info, NULL };
 	int ret;
+
 	trace_dw3000_mcps_rx_enable(dw, info->flags, info->timeout_dtu);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
@@ -253,6 +269,7 @@ static int rx_disable(struct mcps802154_llhw *llhw)
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_rx_disable, NULL, NULL };
 	int ret;
+
 	trace_dw3000_mcps_rx_disable(dw);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
@@ -319,6 +336,7 @@ static int rx_get_error_frame(struct mcps802154_llhw *llhw,
 {
 	struct dw3000 *dw = llhw->priv;
 	int ret = 0;
+
 	trace_dw3000_mcps_rx_get_error_frame(dw, info->flags);
 	/* Sanity check */
 	if (unlikely(!info)) {
@@ -372,6 +390,7 @@ static int reset(struct mcps802154_llhw *llhw)
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_reset, NULL, NULL };
 	int ret;
+
 	trace_dw3000_mcps_reset(dw);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
@@ -389,6 +408,7 @@ static int get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_get_dtu, NULL, timestamp_dtu };
 	int ret;
+
 	trace_dw3000_mcps_get_timestamp(dw);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int_u32(dw, ret, *timestamp_dtu);
@@ -399,6 +419,7 @@ static int do_get_rctu(struct dw3000 *dw, void *in, void *out)
 {
 	u32 systime;
 	int ret = dw3000_read_sys_time(dw, &systime);
+
 	if (!ret)
 		*(u64 *)out = (u64)systime << 9;
 	return ret;
@@ -410,6 +431,7 @@ static int get_current_timestamp_rctu(struct mcps802154_llhw *llhw,
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_get_rctu, NULL, timestamp_rctu };
 	int ret;
+
 	trace_dw3000_mcps_get_rctu(dw);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int_u64(dw, ret, *timestamp_rctu);
@@ -433,6 +455,7 @@ static inline u64 align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
 {
 	/* Aligned DTU date need to have the LSb zeroed, mask one extra bit. */
 	const u64 bits_mask = DW3000_RCTU_PER_DTU * 2 - 1;
+
 	return (timestamp_rctu + bits_mask) & ~bits_mask;
 }
 
@@ -443,6 +466,7 @@ static inline s64 difference_timestamp_rctu(struct mcps802154_llhw *llhw,
 	static const u64 rctu_rollover = 1ll << 40;
 	static const u64 rctu_mask = rctu_rollover - 1;
 	s64 diff_rctu = (timestamp_a_rctu - timestamp_b_rctu) & rctu_mask;
+
 	if (diff_rctu & (rctu_rollover >> 1))
 		diff_rctu = diff_rctu | ~rctu_mask;
 	return diff_rctu;
@@ -498,6 +522,7 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 	u8 params[2] = { channel, preamble_code };
 	struct dw3000_stm_command cmd = { do_set_channel, params, NULL };
 	int ret;
+
 	trace_dw3000_mcps_set_channel(dw, page, channel, preamble_code);
 	/* Check parameters early */
 	if (page != 4 || (channel != 5 && channel != 9)) {
@@ -532,6 +557,7 @@ static int set_hrp_uwb_params(struct mcps802154_llhw *llhw, int prf, int psr,
 			      int sfd_selector, int phr_rate, int data_rate)
 {
 	struct dw3000 *dw = llhw->priv;
+
 	dev_dbg(dw->dev, "%s called\n", __func__);
 	return 0;
 }
@@ -582,6 +608,7 @@ static int set_hw_addr_filt(struct mcps802154_llhw *llhw,
 	struct do_set_hw_addr_filt_params params = { filt, changed };
 	struct dw3000_stm_command cmd = { do_set_hw_addr_filt, &params, NULL };
 	int ret;
+
 	trace_dw3000_mcps_set_hw_addr_filt(dw, (u8)changed);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
@@ -591,6 +618,7 @@ static int set_hw_addr_filt(struct mcps802154_llhw *llhw,
 static int set_txpower(struct mcps802154_llhw *llhw, s32 mbm)
 {
 	struct dw3000 *dw = llhw->priv;
+
 	dev_dbg(dw->dev, "%s called\n", __func__);
 	return 0;
 }
@@ -599,6 +627,7 @@ static int set_cca_mode(struct mcps802154_llhw *llhw,
 			const struct wpan_phy_cca *cca)
 {
 	struct dw3000 *dw = llhw->priv;
+
 	dev_dbg(dw->dev, "%s called\n", __func__);
 	return 0;
 }
@@ -606,6 +635,7 @@ static int set_cca_mode(struct mcps802154_llhw *llhw,
 static int set_cca_ed_level(struct mcps802154_llhw *llhw, s32 mbm)
 {
 	struct dw3000 *dw = llhw->priv;
+
 	dev_dbg(dw->dev, "%s called\n", __func__);
 	return 0;
 }
@@ -613,6 +643,7 @@ static int set_cca_ed_level(struct mcps802154_llhw *llhw, s32 mbm)
 static int do_set_promiscuous_mode(struct dw3000 *dw, void *in, void *out)
 {
 	bool on = *(bool *)in;
+
 	return dw3000_setpromiscuous(dw, on);
 }
 
@@ -620,9 +651,59 @@ static int set_promiscuous_mode(struct mcps802154_llhw *llhw, bool on)
 {
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_set_promiscuous_mode, &on, NULL };
+
 	dev_dbg(dw->dev, "%s called, (mode: %sabled)\n", __func__,
 		(on) ? "en" : "dis");
 	return dw3000_enqueue_generic(dw, &cmd);
+}
+
+static int set_calibration(struct mcps802154_llhw *llhw, const char *key,
+			   void *value, size_t length)
+{
+	struct dw3000 *dw = llhw->priv;
+	void *param;
+	int len;
+	/* Sanity checks */
+	if (!key || !value || !length)
+		return -EINVAL;
+	/* Search parameter */
+	len = dw3000_calib_parse_key(dw, key, &param);
+	if (len < 0)
+		return len;
+	if (len > length)
+		return -EINVAL;
+	/* FIXME: This copy isn't big-endian compatible. */
+	memcpy(param, value, len);
+	/* One parameter has changed. */
+	/* TODO: need reconfiguration? */
+	return 0;
+}
+
+static int get_calibration(struct mcps802154_llhw *llhw, const char *key,
+			   void *value, size_t length)
+{
+	struct dw3000 *dw = llhw->priv;
+	void *param;
+	int len;
+	/* Sanity checks */
+	if (!key)
+		return -EINVAL;
+	/* Calibration parameters */
+	len = dw3000_calib_parse_key(dw, key, &param);
+	if (len < 0)
+		return len;
+	if (len <= length)
+		memcpy(value, param, len);
+	else if (value && length)
+		/* Provided buffer size isn't enough, return an error */
+		return -ENOSPC;
+	/* Return selected parameter length or error */
+	return len;
+}
+
+static const char *const *list_calibration(struct mcps802154_llhw *llhw)
+{
+	return dw3000_calib_list_keys(llhw->priv);
 }
 
 static const struct mcps802154_ops dw3000_mcps_ops = {
@@ -648,6 +729,10 @@ static const struct mcps802154_ops dw3000_mcps_ops = {
 	.set_cca_mode = set_cca_mode,
 	.set_cca_ed_level = set_cca_ed_level,
 	.set_promiscuous_mode = set_promiscuous_mode,
+	.set_calibration = set_calibration,
+	.get_calibration = get_calibration,
+	.list_calibration = list_calibration,
+	MCPS802154_TESTMODE_CMD(dw3000_tm_cmd)
 };
 
 struct dw3000 *dw3000_mcps_alloc(struct device *dev)
@@ -655,7 +740,7 @@ struct dw3000 *dw3000_mcps_alloc(struct device *dev)
 	struct mcps802154_llhw *llhw;
 	struct dw3000 *dw;
 
-	dev_dbg(dev, "%s called\n", __FUNCTION__);
+	dev_dbg(dev, "%s called\n", __func__);
 	llhw = mcps802154_alloc_llhw(sizeof(*dw), &dw3000_mcps_ops);
 	if (llhw == NULL)
 		return NULL;
@@ -695,7 +780,7 @@ struct dw3000 *dw3000_mcps_alloc(struct device *dev)
 
 void dw3000_mcps_free(struct dw3000 *dw)
 {
-	dev_dbg(dw->dev, "%s called\n", __FUNCTION__);
+	dev_dbg(dw->dev, "%s called\n", __func__);
 	if (dw->llhw) {
 		mcps802154_free_llhw(dw->llhw);
 		dw->llhw = NULL;
@@ -704,12 +789,12 @@ void dw3000_mcps_free(struct dw3000 *dw)
 
 int dw3000_mcps_register(struct dw3000 *dw)
 {
-	dev_dbg(dw->dev, "%s called\n", __FUNCTION__);
+	dev_dbg(dw->dev, "%s called\n", __func__);
 	return mcps802154_register_llhw(dw->llhw);
 }
 
 void dw3000_mcps_unregister(struct dw3000 *dw)
 {
-	dev_dbg(dw->dev, "%s called\n", __FUNCTION__);
+	dev_dbg(dw->dev, "%s called\n", __func__);
 	mcps802154_unregister_llhw(dw->llhw);
 }

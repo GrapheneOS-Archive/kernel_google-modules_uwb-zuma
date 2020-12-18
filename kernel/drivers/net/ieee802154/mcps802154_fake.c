@@ -33,14 +33,17 @@ MODULE_LICENSE("GPL v2");
 
 static const int g_time_interval = 1000;
 static struct timer_list g_timer;
-static struct mcps802154_llhw *driver_llhw = NULL;
-static bool rx_enabled = false;
-static bool tx_queued = false;
-static bool started = false;
-static bool stop_timer = false;
-static bool scanning = false;
-static u8 seq = 0;
-static u8 curchan = 0;
+static struct mcps802154_llhw *driver_llhw;
+static bool rx_enabled;
+static bool tx_queued;
+static bool started;
+static bool stop_timer;
+static bool scanning;
+static u8 seq;
+static u8 curchan;
+
+const char *const calib_strings[] = { "calib.param1", NULL };
+static u8 calib;
 
 static void periodic_task(struct timer_list *unused)
 {
@@ -113,6 +116,7 @@ static struct sk_buff *create_fake_data_frame(void)
 {
 	unsigned char *data;
 	struct sk_buff *skb = dev_alloc_skb(20 + 2);
+
 	if (!skb)
 		return NULL;
 	data = skb_put(skb, 20);
@@ -143,6 +147,7 @@ static struct sk_buff *create_fake_beacon_frame(void)
 {
 	unsigned char *data;
 	struct sk_buff *skb = dev_alloc_skb(17 + 2);
+
 	if (!skb)
 		return NULL;
 	data = skb_put(skb, 17);
@@ -372,6 +377,38 @@ static int set_scanning_mode(struct mcps802154_llhw *llhw, bool mode)
 	return 0;
 }
 
+static int set_calibration(struct mcps802154_llhw *llhw, const char *key,
+			   void *value, size_t length)
+{
+	pr_info("fake_mcps: %s called\n", __func__);
+	if (!key || !value || length != 1)
+		return -EINVAL;
+	if (strcmp(key, calib_strings[0]) == 0)
+		calib = *(u8 *)value;
+	else
+		return -ENOENT;
+	return 0;
+}
+
+static int get_calibration(struct mcps802154_llhw *llhw, const char *key,
+			   void *value, size_t length)
+{
+	pr_info("fake_mcps: %s called\n", __func__);
+	if (!key || !value || length < 1)
+		return -EINVAL;
+	if (strcmp(key, calib_strings[0]) == 0)
+		*(u8 *)value = calib;
+	else
+		return -ENOENT;
+	return 1;
+}
+
+static const char *const *list_calibration(struct mcps802154_llhw *llhw)
+{
+	pr_info("fake_mcps: %s called\n", __func__);
+	return calib_strings;
+}
+
 static const struct mcps802154_ops fake_ops = {
 	.start = start,
 	.stop = stop,
@@ -396,11 +433,15 @@ static const struct mcps802154_ops fake_ops = {
 	.set_cca_ed_level = set_cca_ed_level,
 	.set_promiscuous_mode = set_promiscuous_mode,
 	.set_scanning_mode = set_scanning_mode,
+	.set_calibration = set_calibration,
+	.get_calibration = get_calibration,
+	.list_calibration = list_calibration,
 };
 
 static int __init fake_init(void)
 {
 	int r;
+
 	pr_info("fake_mcps: init\n");
 	driver_llhw = mcps802154_alloc_llhw(0, &fake_ops);
 	if (driver_llhw == NULL) {

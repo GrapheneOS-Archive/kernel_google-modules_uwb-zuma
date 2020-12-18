@@ -121,6 +121,17 @@ struct mcps802154_access {
 	 */
 	struct mcps802154_access_ops *ops;
 	/**
+	 * @timestamp_dtu: Start of the access, only valid when the access has
+	 * a duration. Invalid for immediate accesses.
+	 */
+	u32 timestamp_dtu;
+	/**
+	 * @duration_dtu: Duration of the access, or 0 if unknown (this is the
+	 * case if the first frame is a RX with no timeout and the frame has not
+	 * been received yet).
+	 */
+	int duration_dtu;
+	/**
 	 * @n_frames: Number of frames in an access using multiple frames
 	 * method. This can be changed by the &mcps802154_access_ops.rx_frame()
 	 * callback.
@@ -150,7 +161,7 @@ struct mcps802154_access_ops {
 			 const struct mcps802154_rx_frame_info *info);
 	/**
 	 * @tx_get_frame: Return a frame to send, the buffer is lend to caller
-	 * and should be returned with &tx_return().
+	 * and should be returned with &mcps802154_access_ops.tx_return().
 	 */
 	struct sk_buff *(*tx_get_frame)(struct mcps802154_access *access,
 					int frame_idx);
@@ -167,25 +178,14 @@ struct mcps802154_access_ops {
 };
 
 /**
- * struct mcps802154_region - Region as defined in the schedule.
+ * struct mcps802154_region - An open region instance. Region handlers can have
+ * private data appended after this structure.
  */
 struct mcps802154_region {
-	/**
-	 * @start_dtu: Region start from the start of the schedule.
-	 */
-	int start_dtu;
-	/**
-	 * @duration_dtu: Region duration or 0 for endless region.
-	 */
-	int duration_dtu;
 	/**
 	 * @ops: Callbacks for the region.
 	 */
 	const struct mcps802154_region_ops *ops;
-	/**
-	 * @orh: Pointer to the open region handler.
-	 */
-	struct mcps802154_open_region_handler *orh;
 };
 
 /**
@@ -194,26 +194,41 @@ struct mcps802154_region {
  */
 struct mcps802154_region_ops {
 	/**
+	 * @owner: Module owning this region, should be THIS_MODULE in most
+	 * cases.
+	 */
+	struct module *owner;
+	/**
 	 * @name: Region name.
 	 */
 	const char *name;
 	/**
-	 * @alloc: Allocate a region.
+	 * @registered_entry: Entry in list of registered regions.
 	 */
-	struct mcps802154_region *(*alloc)(
-		struct mcps802154_open_region_handler *orh);
+	struct list_head registered_entry;
+	/**
+	 * @open: Open an instance of this region, return a new region instance,
+	 * or NULL in case of error.
+	 */
+	struct mcps802154_region *(*open)(struct mcps802154_llhw *llhw);
+	/**
+	 * @close: Close a region instance.
+	 */
+	void (*close)(struct mcps802154_region *region);
+	/**
+	 * @set_parameters: Set region parameters, may be NULL.
+	 */
+	int (*set_parameters)(struct mcps802154_region *region,
+			      const struct nlattr *attrs,
+			      struct netlink_ext_ack *extack);
 	/**
 	 * @get_access: Get access for a given region at the given timestamp.
 	 * Access is valid until &mcps802154_access_ops.access_done() callback
-	 * is called.
+	 * is called. Return NULL if access is not possible.
 	 */
 	struct mcps802154_access *(*get_access)(
-		const struct mcps802154_region *region, u32 next_timestamp_dtu,
-		int next_in_region_dtu);
-	/**
-	 * @free: Release region.
-	 */
-	void (*free)(struct mcps802154_region *region);
+		struct mcps802154_region *region, u32 next_timestamp_dtu,
+		int next_in_region_dtu, int region_duration_dtu);
 };
 
 /**
@@ -244,96 +259,135 @@ struct mcps802154_schedule_update {
 };
 
 /**
- * struct mcps802154_open_region_handler - A region handler instance attached to
- * a device.
+ * struct mcps802154_scheduler - An open scheduler instance. Schedulers can have
+ * private data appended after this structure.
  */
-struct mcps802154_open_region_handler {
+struct mcps802154_scheduler {
 	/**
-	 * @handler: Pointer to region handler.
+	 * @ops: Callbacks for the scheduler.
 	 */
-	struct mcps802154_region_handler *handler;
-	/**
-	 * @open_entry: Entry in list of open region handlers.
-	 */
-	struct list_head open_entry;
+	const struct mcps802154_scheduler_ops *ops;
 };
 
 /**
- * struct mcps802154_region_handler - A region handler is responsible to manage
- * regions for a MCPS device, there is one region handler instance for each
- * MCPS instance where it is used.
+ * struct mcps802154_scheduler_ops - Callbacks for schedulers. A scheduler
+ * provides a schedule to MCPS and updates it when specific frames are
+ * received or schedule is no longer valid.
  */
-struct mcps802154_region_handler {
+struct mcps802154_scheduler_ops {
 	/**
-	 * @owner: Module owning this handler, should be THIS_MODULE in most
+	 * @owner: Module owning this scheduler, should be THIS_MODULE in most
 	 * cases.
 	 */
 	struct module *owner;
 	/**
-	 * @name: Region handler name.
+	 * @name: Scheduler name.
 	 */
 	const char *name;
 	/**
-	 * @registered_entry: Entry in list of registered region handlers.
+	 * @registered_entry: Entry in list of registered schedulers.
 	 */
 	struct list_head registered_entry;
 	/**
-	 * @n_regions_ops: Number of region ops.
+	 * @open: Attach a scheduler to a device.
 	 */
-	size_t n_regions_ops;
+	struct mcps802154_scheduler *(*open)(struct mcps802154_llhw *llhw);
 	/**
-	 * @regions_ops: Array of region ops.
+	 * @close: Detach and close a scheduler.
 	 */
-	const struct mcps802154_region_ops *const *regions_ops;
+	void (*close)(struct mcps802154_scheduler *scheduler);
 	/**
-	 * @open: Attach a region handler to a device.
+	 * @set_parameters: Configure the scheduler.
 	 */
-	struct mcps802154_open_region_handler *(*open)(
-		struct mcps802154_llhw *llhw);
-	/**
-	 * @close: Detach and close a region handler.
-	 */
-	void (*close)(struct mcps802154_open_region_handler *orh);
+	int (*set_parameters)(struct mcps802154_scheduler *scheduler,
+			      const struct nlattr *attrs,
+			      struct netlink_ext_ack *extack);
 	/**
 	 * @update_schedule: Called to initialize and update the schedule.
 	 */
 	int (*update_schedule)(
-		struct mcps802154_open_region_handler *orh,
+		struct mcps802154_scheduler *scheduler,
 		const struct mcps802154_schedule_update *schedule_update,
 		u32 next_timestamp_dtu);
-	/**
-	 * @set_parameters: Called to configure the region handler.
-	 */
-	int (*set_parameters)(struct mcps802154_open_region_handler *orh,
-			      const struct nlattr *attrs,
-			      struct netlink_ext_ack *extack);
 	/**
 	 * @ranging_setup: Called to configure ranging. This is a temporary
 	 * interface.
 	 */
 	int (*ranging_setup)(
-		struct mcps802154_open_region_handler *orh,
+		struct mcps802154_scheduler *scheduler,
 		const struct mcps802154_nl_ranging_request *requests,
 		unsigned int n_requests);
 };
 
 /**
- * mcps802154_region_handler_register() - Register a region handler, to be
- * called when your module is loaded.
- * @region_handler: Region handler to register.
+ * mcps802154_region_register() - Register a region, to be called when your
+ * module is loaded.
+ * @region_ops: Region to register.
  *
  * Return: 0 or error.
  */
-int mcps802154_region_handler_register(
-	struct mcps802154_region_handler *region_handler);
+int mcps802154_region_register(struct mcps802154_region_ops *region_ops);
 
 /**
- * mcps802154_region_handler_unregister() - Unregister a region handler, to be
- * called at module unloading.
- * @region_handler: Region handler to unregister.
+ * mcps802154_region_unregister() - Unregister a region, to be called at module
+ * unloading.
+ * @region_ops: Region to unregister.
  */
-void mcps802154_region_handler_unregister(
-	struct mcps802154_region_handler *region_handler);
+void mcps802154_region_unregister(struct mcps802154_region_ops *region_ops);
+
+/**
+ * mcps802154_region_open() - Open a region, and set parameters.
+ * @llhw: Low-level device pointer.
+ * @name: Name of region to open.
+ * @params_attr: Nested attribute containing region parameters, may be NULL.
+ * @extack: Extended ACK report structure.
+ *
+ * Return: The open region or NULL on error.
+ */
+struct mcps802154_region *
+mcps802154_region_open(struct mcps802154_llhw *llhw, const char *name,
+		       const struct nlattr *params_attr,
+		       struct netlink_ext_ack *extack);
+
+/**
+ * mcps802154_region_close() - Close a region.
+ * @llhw: Low-level device pointer.
+ * @region: Pointer to the open region.
+ */
+void mcps802154_region_close(struct mcps802154_llhw *llhw,
+			     struct mcps802154_region *region);
+
+/**
+ * mcps802154_region_set_parameters() - Set parameters of an open region.
+ * @llhw: Low-level device pointer.
+ * @region: Pointer to the open region.
+ * @params_attr: Nested attribute containing region parameters, may be NULL.
+ * @extack: Extended ACK report structure.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_region_set_parameters(struct mcps802154_llhw *llhw,
+				     struct mcps802154_region *region,
+				     const struct nlattr *params_attr,
+				     struct netlink_ext_ack *extack);
+
+/**
+ * mcps802154_scheduler_register() - Register a scheduler, to be called when
+ * your module is loaded.
+ * @scheduler_ops: Scheduler to register.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_scheduler_register(
+	struct mcps802154_scheduler_ops *scheduler_ops);
+
+/**
+ * mcps802154_scheduler_unregister() - Unregister a scheduler, to be called at
+ * module unloading.
+ * @scheduler_ops: Scheduler to unregister.
+ */
+void mcps802154_scheduler_unregister(
+	struct mcps802154_scheduler_ops *scheduler_ops);
 
 /**
  * mcps802154_schedule_set_start() - Change the currently updated schedule start
@@ -365,18 +419,15 @@ int mcps802154_schedule_recycle(
  * mcps802154_schedule_add_region() - Add a new region to the currently updated
  * schedule.
  * @schedule_update: Schedule update context.
- * @region_ops_idx: Region index in region handler region_ops table.
+ * @region: Region to add.
  * @start_dtu: Region start from the start of the schedule.
  * @duration_dtu: Region duration, or 0 for endless region.
  *
- * The new region should be a region managed by the schedule region handler, or
- * else another API should be used (TODO).
- *
- * Return: The new region, or NULL on error.
+ * Return: 0 or error.
  */
-struct mcps802154_region *mcps802154_schedule_add_region(
+int mcps802154_schedule_add_region(
 	const struct mcps802154_schedule_update *schedule_update,
-	size_t region_ops_idx, int start_dtu, int duration_dtu);
+	struct mcps802154_region *region, int start_dtu, int duration_dtu);
 
 /**
  * mcps802154_schedule_invalidate() - Request to invalidate the schedule.
@@ -385,7 +436,7 @@ struct mcps802154_region *mcps802154_schedule_add_region(
  * FSM mutex should be locked.
  *
  * Invalidate the current schedule, which will result on a schedule change.
- * This API should be called from external regions to force schedule change,
+ * This API should be called from external modules to force schedule change,
  * when for example some parameters changed.
  */
 void mcps802154_schedule_invalidate(struct mcps802154_llhw *llhw);

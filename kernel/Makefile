@@ -4,6 +4,7 @@ KDIR := $(O)
 endif
 
 export CONFIG_MCPS_FAKE := n
+export CONFIG_MCPS802154_TESTMODE := y
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 

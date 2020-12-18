@@ -34,6 +34,24 @@
 struct mcps802154_local;
 
 /**
+ * struct mcps802154_schedule_region - Region as defined in the schedule.
+ */
+struct mcps802154_schedule_region {
+	/**
+	 * @region: Pointer to the open region.
+	 */
+	struct mcps802154_region *region;
+	/**
+	 * @start_dtu: Region start from the start of the schedule.
+	 */
+	int start_dtu;
+	/**
+	 * @duration_dtu: Region duration or 0 for endless region.
+	 */
+	int duration_dtu;
+};
+
+/**
  * struct mcps802154_schedule - Schedule.
  */
 struct mcps802154_schedule {
@@ -47,9 +65,9 @@ struct mcps802154_schedule {
 	 */
 	int duration_dtu;
 	/**
-	 * @regions: Table of region pointers.
+	 * @regions: Table of regions.
 	 */
-	struct mcps802154_region **regions;
+	struct mcps802154_schedule_region *regions;
 	/**
 	 * @n_regions: Number of regions in the schedule.
 	 */
@@ -94,7 +112,7 @@ void mcps802154_schedule_clear(struct mcps802154_local *local);
  * @local: MCPS private data.
  * @next_timestamp_dtu: Date of next access opportunity.
  *
- * Request the schedule region handler to update the schedule.
+ * Request the scheduler to update the schedule.
  *
  * Return: 0 or error.
  */

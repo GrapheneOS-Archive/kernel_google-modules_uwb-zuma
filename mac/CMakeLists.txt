@@ -17,9 +17,11 @@ add_library(mac
 	fproc_stopped.c
 	fproc_tx.c
 	frame.c
+	ie.c
 	main.c
 	ops.c
 	schedule.c
+	schedulers.c
 	simple_ranging_region.c
 	regions.c)
 target_include_directories(mac PUBLIC include include/compat include/stub)

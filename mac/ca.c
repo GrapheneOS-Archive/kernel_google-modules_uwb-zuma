@@ -29,17 +29,15 @@
 #include <linux/string.h>
 
 #include "mcps802154_i.h"
-#include "regions.h"
+#include "schedulers.h"
 #include "trace.h"
 
-static void
-mcps802154_ca_close_schedule_region_handler(struct mcps802154_local *local)
+static void mcps802154_ca_close_scheduler(struct mcps802154_local *local)
 {
 	mcps802154_schedule_clear(local);
-	if (local->ca.schedule_region_handler) {
-		mcps802154_region_handler_close(
-			local->ca.schedule_region_handler);
-		local->ca.schedule_region_handler = NULL;
+	if (local->ca.scheduler) {
+		mcps802154_scheduler_close(local->ca.scheduler);
+		local->ca.scheduler = NULL;
 	}
 }
 
@@ -62,8 +60,8 @@ int mcps802154_ca_start(struct mcps802154_local *local)
 {
 	int r;
 
-	if (!local->ca.schedule_region_handler) {
-		r = mcps802154_ca_set_schedule_region_handler(local, "default");
+	if (!local->ca.scheduler) {
+		r = mcps802154_ca_set_scheduler(local, "default", NULL, NULL);
 		if (r)
 			return r;
 	}
@@ -78,95 +76,49 @@ void mcps802154_ca_stop(struct mcps802154_local *local)
 {
 	local->start_stop_request = false;
 	local->fproc.state->schedule_change(local);
-	mcps802154_schedule_clear(local);
 }
 
 void mcps802154_ca_close(struct mcps802154_local *local)
 {
-	mcps802154_ca_close_schedule_region_handler(local);
-	mcps802154_region_handler_close_all(local);
+	mcps802154_ca_close_scheduler(local);
 }
 
-int mcps802154_ca_set_schedule_region_handler(struct mcps802154_local *local,
-					      const char *name)
+int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
+				const char *name,
+				const struct nlattr *params_attr,
+				struct netlink_ext_ack *extack)
 {
-	struct mcps802154_open_region_handler *orh;
-	int r;
+	struct mcps802154_scheduler *scheduler;
 
-	trace_ca_set_schedule_region_handler(local, name);
+	trace_ca_set_scheduler(local, name);
 
-	/* Open new region handler. */
-	orh = mcps802154_region_handler_open(local, name);
-	if (!orh)
-		return -ENOENT;
-
-	/* Need to be a region handler able to update schedule. */
-	if (!orh->handler->update_schedule) {
-		r = -EOPNOTSUPP;
-		goto err_close;
-	}
-
-	/* Close previous region handler. */
-	mcps802154_ca_close_schedule_region_handler(local);
-	local->ca.schedule_region_handler = orh;
-
-	return 0;
-err_close:
-	mcps802154_region_handler_close(orh);
-	return r;
-}
-
-int mcps802154_ca_set_schedule_region_handler_parameters(
-	struct mcps802154_local *local, const char *name,
-	const struct nlattr *params_attr, struct netlink_ext_ack *extack,
-	bool force_change)
-{
-	struct mcps802154_open_region_handler *orh;
-	int r;
-
-	trace_ca_set_schedule_region_handler_parameters(local, name,
-							force_change);
-
-	if (!params_attr)
+	/* Open new scheduler. */
+	scheduler = mcps802154_scheduler_open(local, name, params_attr, extack);
+	if (!scheduler)
 		return -EINVAL;
-	if (force_change) {
-		/* Open new region handler. */
-		orh = mcps802154_region_handler_open(local, name);
-		if (!orh)
-			return -ENOENT;
-
-		/* Need to be able to update schedule and set parameters. */
-		if (!orh->handler->update_schedule ||
-		    !orh->handler->set_parameters) {
-			r = -EOPNOTSUPP;
-			goto err_may_close;
-		}
-	} else {
-		orh = local->ca.schedule_region_handler;
-		/* Region handler is set and have ability to set parameters. */
-		if (!orh || strcmp(orh->handler->name, name)) {
-			return -EINVAL;
-		}
-		if (!orh->handler->set_parameters) {
-			return -EOPNOTSUPP;
-		}
-	}
-
-	r = orh->handler->set_parameters(orh, params_attr, extack);
-	if (r)
-		goto err_may_close;
-
-	if (force_change) {
-		/* Change the region handler. */
-		mcps802154_ca_close_schedule_region_handler(local);
-		local->ca.schedule_region_handler = orh;
-	}
+	/* Close previous scheduler and set the new one. */
+	mcps802154_ca_close_scheduler(local);
+	local->ca.scheduler = scheduler;
 
 	return 0;
-err_may_close:
-	if (force_change)
-		mcps802154_region_handler_close(orh);
-	return r;
+}
+
+int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
+					   const char *name,
+					   const struct nlattr *params_attr,
+					   struct netlink_ext_ack *extack)
+{
+	struct mcps802154_scheduler *scheduler;
+
+	trace_ca_set_scheduler_parameters(local, name);
+
+	scheduler = local->ca.scheduler;
+	/* Check scheduler is the correct one. */
+	if (!scheduler || strcmp(scheduler->ops->name, name)) {
+		return -EINVAL;
+	}
+	return mcps802154_scheduler_set_parameters(scheduler, params_attr,
+						   extack);
 }
 
 /**
@@ -181,15 +133,16 @@ static int mcps802154_ca_next_region(struct mcps802154_local *local,
 				     u32 next_timestamp_dtu)
 {
 	struct mcps802154_schedule *sched = &local->ca.schedule;
-	struct mcps802154_region *region;
+	struct mcps802154_schedule_region *sched_region;
 	int next_dtu = next_timestamp_dtu - sched->start_timestamp_dtu;
 	bool changed = 0;
 
-	region = sched->regions[sched->current_index];
+	sched_region = &sched->regions[sched->current_index];
 
 	/* If not an endless region, need to test if still inside. */
-	while (region->duration_dtu != 0 &&
-	       next_dtu - region->start_dtu >= region->duration_dtu) {
+	while (sched_region->duration_dtu != 0 &&
+	       next_dtu - sched_region->start_dtu >=
+		       sched_region->duration_dtu) {
 		sched->current_index++;
 		changed = 1;
 
@@ -202,7 +155,7 @@ static int mcps802154_ca_next_region(struct mcps802154_local *local,
 			return 1;
 		}
 
-		region = sched->regions[sched->current_index];
+		sched_region = &sched->regions[sched->current_index];
 	}
 
 	return changed;
@@ -212,9 +165,10 @@ struct mcps802154_access *
 mcps802154_ca_get_access(struct mcps802154_local *local, u32 next_timestamp_dtu)
 {
 	struct mcps802154_schedule *sched = &local->ca.schedule;
+	struct mcps802154_schedule_region *sched_region;
 	struct mcps802154_region *region;
 	struct mcps802154_access *access;
-	int next_in_region_dtu;
+	int next_in_region_dtu, region_duration_dtu;
 	int r, changed;
 
 	local->ca.held = false;
@@ -239,33 +193,35 @@ mcps802154_ca_get_access(struct mcps802154_local *local, u32 next_timestamp_dtu)
 			return NULL;
 	}
 
-	region = sched->regions[sched->current_index];
-
-	/* If region changed, access date may be postponed. */
+	sched_region = &sched->regions[sched->current_index];
+	region = sched_region->region;
+	/* If the region has changed, access date may be postponed. */
 	if (changed) {
 		u32 region_start_timestamp_dtu =
-			sched->start_timestamp_dtu + region->start_dtu;
+			sched->start_timestamp_dtu + sched_region->start_dtu;
 		if (is_before_dtu(next_timestamp_dtu,
 				  region_start_timestamp_dtu))
 			next_timestamp_dtu = region_start_timestamp_dtu;
 	}
-
+	region_duration_dtu = sched_region->duration_dtu;
 	/* Get access. */
-	if (region->duration_dtu)
+	if (region_duration_dtu)
 		next_in_region_dtu = next_timestamp_dtu -
 				     sched->start_timestamp_dtu -
-				     region->start_dtu;
+				     sched_region->start_dtu;
 	else
 		next_in_region_dtu = 0;
 	trace_region_get_access(local, region, next_timestamp_dtu,
-				next_in_region_dtu);
+				next_in_region_dtu, region_duration_dtu);
 	access = region->ops->get_access(region, next_timestamp_dtu,
-					 next_in_region_dtu);
+					 next_in_region_dtu,
+					 region_duration_dtu);
 
 	/* If no access is granted, look for next region.
 	   This is only accepted when we are in the middle of a region. */
 	if (!access && next_in_region_dtu) {
-		next_timestamp_dtu = next_timestamp_dtu + region->duration_dtu -
+		next_timestamp_dtu = next_timestamp_dtu +
+				     sched_region->duration_dtu -
 				     next_in_region_dtu;
 		goto get_region;
 	}

@@ -47,6 +47,7 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 					size_t frame_idx)
 {
 	int r;
+
 	frame_idx++;
 	if (frame_idx < access->n_frames) {
 		/* Next frame. */
@@ -61,8 +62,15 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 		}
 	} else {
 		/* Next access. */
-		mcps802154_fproc_access_done(local);
-		mcps802154_fproc_access_now(local);
+		if (access->duration_dtu) {
+			u32 next_access_dtu =
+				access->timestamp_dtu + access->duration_dtu;
+			mcps802154_fproc_access_done(local);
+			mcps802154_fproc_access(local, next_access_dtu);
+		} else {
+			mcps802154_fproc_access_done(local);
+			mcps802154_fproc_access_now(local);
+		}
 	}
 }
 
@@ -123,9 +131,11 @@ mcps802154_fproc_multi_rx_schedule_change(struct mcps802154_local *local)
 	struct mcps802154_access *access = local->fproc.access;
 	int frame_idx = local->fproc.frame_idx;
 	struct mcps802154_access_frame *frame = &access->frames[frame_idx];
+
 	if (frame->rx.info.timeout_dtu == -1) {
 		/* Disable RX. */
 		int r = llhw_rx_disable(local);
+
 		if (r == -EBUSY) {
 			/* Wait for RX result. */
 			return;
@@ -236,6 +246,7 @@ int mcps802154_fproc_multi_handle(struct mcps802154_local *local,
 				  struct mcps802154_access *access)
 {
 	int i = 1;
+
 	if (access->n_frames == 0 || !access->frames)
 		return -EINVAL;
 	for (; i < access->n_frames; i++) {

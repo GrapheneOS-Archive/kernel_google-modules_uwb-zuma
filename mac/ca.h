@@ -48,10 +48,10 @@ struct mcps802154_ca {
 	 */
 	struct mcps802154_schedule schedule;
 	/**
-	 * @schedule_region_handler: Open region handle responsible to maintain
-	 * the schedule or NULL when not chosen yet.
+	 * @scheduler: Scheduler responsible to maintain the schedule
+	 * or NULL when not chosen yet.
 	 */
-	struct mcps802154_open_region_handler *schedule_region_handler;
+	struct mcps802154_scheduler *scheduler;
 	/**
 	 * @held: Whether access is currently held and cannot change.
 	 */
@@ -116,10 +116,12 @@ void mcps802154_ca_stop(struct mcps802154_local *local);
 void mcps802154_ca_close(struct mcps802154_local *local);
 
 /**
- * mcps802154_ca_set_schedule_region_handler() - Set the region handler
- * responsible for managing the schedule.
+ * mcps802154_ca_set_scheduler() - Set the scheduler responsible for managing
+ * the schedule, and configure its parameters.
  * @local: MCPS private data.
- * @name: Region handler name.
+ * @name: Scheduler name.
+ * @params_attr: Nested attribute containing region parameters. May be NULL.
+ * @extack: Extended ACK report structure.
  *
  * FSM mutex should be locked.
  *
@@ -127,26 +129,26 @@ void mcps802154_ca_close(struct mcps802154_local *local);
  *
  * Return: 0 or error.
  */
-int mcps802154_ca_set_schedule_region_handler(struct mcps802154_local *local,
-					      const char *name);
+int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
+				const char *name,
+				const struct nlattr *params_attr,
+				struct netlink_ext_ack *extack);
 
 /**
- * mcps802154_ca_set_schedule_region_handler_parameters() - Set the region
- * handler parameters.
+ * mcps802154_ca_scheduler_set_parameters() - Set the scheduler parameters.
  * @local: MCPS private data.
- * @name: Region handler name.
+ * @name: Scheduler name.
  * @params_attr: Nested attribute containing region parameters.
  * @extack: Extended ACK report structure.
- * @force_change: Force region handler changing.
  *
  * FSM mutex should be locked.
  *
  * Return: 0 or error.
  */
-int mcps802154_ca_set_schedule_region_handler_parameters(
-	struct mcps802154_local *local, const char *name,
-	const struct nlattr *params_attr, struct netlink_ext_ack *extack,
-	bool force_change);
+int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
+					   const char *name,
+					   const struct nlattr *params_attr,
+					   struct netlink_ext_ack *extack);
 
 /**
  * mcps802154_ca_get_access() - Compute and return access.

@@ -501,7 +501,48 @@ struct mcps802154_ops {
 	 * Return: 0 or error.
 	 */
 	int (*set_scanning_mode)(struct mcps802154_llhw *llhw, bool on);
+	/**
+	 * @set_calibration: Set calibration value.
+	 *
+	 * Set the calibration parameter specified by the key string with the
+	 * value specified in the provided buffer. The provided length must
+	 * match the length returned by the @get_calibration() callback.
+	 *
+	 * Return: 0 or error.
+	 */
+	int (*set_calibration)(struct mcps802154_llhw *llhw, const char *key,
+			       void *value, size_t length);
+	/**
+	 * @get_calibration: Get calibration value.
+	 *
+	 * Get the calibration parameter specified by the key string into the
+	 * provided buffer.
+	 *
+	 * Return: size of parameter written in buffer or error.
+	 */
+	int (*get_calibration)(struct mcps802154_llhw *llhw, const char *key,
+			       void *value, size_t length);
+	/**
+	 * @list_calibration: Returns list of accepted calibration key strings
+	 *
+	 * Return: NULL terminated strings pointer array.
+	 */
+	const char *const *(*list_calibration)(struct mcps802154_llhw *llhw);
+#ifdef CONFIG_MCPS802154_TESTMODE
+	/**
+	 * @testmode_cmd: Run a testmode command.
+	 *
+	 * Return: 0 or error.
+	 */
+	int (*testmode_cmd)(struct mcps802154_llhw *llhw, void *data, int len);
+#endif
 };
+
+#ifdef CONFIG_MCPS802154_TESTMODE
+#define MCPS802154_TESTMODE_CMD(cmd) .testmode_cmd = (cmd),
+#else
+#define MCPS802154_TESTMODE_CMD(cmd)
+#endif
 
 /**
  * enum mcps802154_rx_error - Type of reception errors.
@@ -595,5 +636,51 @@ void mcps802154_tx_done(struct mcps802154_llhw *llhw);
  * @llhw: Low-level device pointer.
  */
 void mcps802154_broken(struct mcps802154_llhw *llhw);
+
+#ifdef CONFIG_MCPS802154_TESTMODE
+/**
+ * mcps802154_testmode_alloc_reply_skb() - Allocate testmode reply.
+ * @llhw: Low-level device pointer.
+ * @approxlen: an upper bound of the length of the data that will
+ * be put into the skb.
+ *
+ * This function allocates and pre-fills an skb for a reply to
+ * the testmode command. Since it is intended for a reply, calling
+ * it outside of the @testmode_cmd operation is invalid.
+ *
+ * The returned skb is pre-filled with the netlink message's header
+ * and attribute's data and set up in a way that any data that is
+ * put into the skb (with skb_put(), nla_put() or similar) will end up
+ * being within the %MCPS802154_ATTR_TESTDATA attribute, so all
+ * that needs to be done with the skb is adding data for
+ * the corresponding userspace tool which can then read that data
+ * out of the testdata attribute. You must not modify the skb
+ * in any other way.
+ *
+ * When done, call mcps802154_testmode_reply() with the skb and return
+ * its error code as the result of the @testmode_cmd operation.
+ *
+ * Return: An allocated and pre-filled skb. %NULL if any errors happen.
+ */
+struct sk_buff *
+mcps802154_testmode_alloc_reply_skb(struct mcps802154_llhw *llhw,
+				    int approxlen);
+
+/**
+ * mcps802154_testmode_reply() - Send the reply skb.
+ * @llhw: Low-level device pointer.
+ * @skb: The skb, must have been allocated with
+ * mcps802154_testmode_alloc_reply_skb().
+ *
+ * Since calling this function will usually be the last thing
+ * before returning from the @testmode_cmd you should return
+ * the error code.  Note that this function consumes the skb
+ * regardless of the return value.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_testmode_reply(struct mcps802154_llhw *llhw,
+			      struct sk_buff *skb);
+#endif
 
 #endif /* NET_MCPS802154_H */

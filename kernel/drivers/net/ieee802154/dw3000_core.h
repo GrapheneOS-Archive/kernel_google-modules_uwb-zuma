@@ -127,6 +127,56 @@ enum spi_modes {
 				    with no dest address (need PAN ID match)) */
 #define DW3000_FF_IMPBRCAST_EN 0x200 /* allow MAC implicit broadcast */
 
+/* DW3000 soft reset options */
+#define DW3000_RESET_ALL 0x00
+#define DW3000_RESET_CTRX 0x0f
+#define DW3000_RESET_RX 0xef
+#define DW3000_RESET_CLEAR 0xff
+
+/* Fast commands */
+/* Turn off TX or RX, clear any TX/RX events and put DW3000 into IDLE */
+#define DW3000_CMD_TXRXOFF 0x0
+/* Start TX */
+#define DW3000_CMD_TX 0x1
+/* Enable RX */
+#define DW3000_CMD_RX 0x2
+/* Start delayed TX (RMARKER will be @ time set in DX_TIME register) */
+#define DW3000_CMD_DTX 0x3
+/* Enable RX @ time specified in DX_TIME register */
+#define DW3000_CMD_DRX 0x4
+/* Start delayed TX (RMARKER will be @ time = TX_TIME + DX_TIME) */
+#define DW3000_CMD_DTX_TS 0x5
+/* Enable RX @ time = TX_TIME + DX_TIME */
+#define DW3000_CMD_DRX_TS 0x6
+/* Start delayed TX (RMARKER will be @ time = RX_TIME + DX_TIME) */
+#define DW3000_CMD_DTX_RS 0x7
+/* Enable RX @ time = RX_TIME + DX_TIME */
+#define DW3000_CMD_DRX_RS 0x8
+/* Start delayed TX (RMARKER will be @ time = DREF_TIME + DX_TIME) */
+#define DW3000_CMD_DTX_REF 0x9
+/* Enable RX @ time = DREF_TIME + DX_TIME */
+#define DW3000_CMD_DRX_REF 0xa
+/* Start delayed TX (as DTX below), enable RX when TX done */
+#define DW3000_CMD_DTX_W4R 0xd
+/* Start TX (as below), enable RX when TX done */
+#define DW3000_CMD_TX_W4R 0xc
+/* Toggle double buffer pointer */
+#define DW3000_CMD_DB_TOGGLE 0x13
+/* Write to the Semaphore and try to reserve access (if it hasn't already been
+   reserved by the other master) */
+#define DW3000_CMD_SEMA_REQ 0x14
+/* Release the semaphore if it is currently reserved by this master. */
+#define DW3000_CMD_SEMA_REL 0x15
+/* Only SPI 2 can issue this command. Force access regardless of current
+   semaphore value. */
+#define DW3000_CMD_SEMA_FORCE 0x16
+/* Global digital reset including of the semaphore */
+#define DW3000_CMD_SEMA_RESET 0x18
+/* Global digital reset without reset of the semaphore */
+#define DW3000_CMD_SEMA_RESET_NO_SEM 0x19
+/* Enters sleep/deep sleep according to ANA_CFG - DEEPSLEEP_EN */
+#define DW3000_CMD_ENTER_SLEEP 0x1A
+
 void dw3000_init_config(struct dw3000 *dw);
 
 int dw3000_init(struct dw3000 *dw);
@@ -143,6 +193,27 @@ int dw3000_softreset(struct dw3000 *dw);
 
 int dw3000_setup_reset_gpio(struct dw3000 *dw);
 int dw3000_setup_irq(struct dw3000 *dw);
+
+int dw3000_reg_read32(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+		      u32 *val);
+int dw3000_reg_read16(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+		      u16 *val);
+int dw3000_reg_read8(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+		     u8 *val);
+int dw3000_reg_write32(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+		       u32 val);
+int dw3000_reg_write16(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+		       u16 val);
+int dw3000_reg_write8(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+		      u8 val);
+int dw3000_reg_modify32(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+			u32 _and, u32 _or);
+int dw3000_reg_modify16(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+			u16 _and, u16 _or);
+int dw3000_reg_modify8(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset,
+		       u8 _and, u8 _or);
+
+int dw3000_write_fastcmd(struct dw3000 *dw, u32 cmd);
 
 int dw3000_enable(struct dw3000 *dw);
 int dw3000_disable(struct dw3000 *dw);
@@ -167,14 +238,24 @@ int dw3000_poweroff(struct dw3000 *dw);
 int dw3000_rx_enable(struct dw3000 *dw, int rx_delayed, u32 date_dtu,
 		     u32 timeout_pac);
 int dw3000_rx_disable(struct dw3000 *dw);
+int dw3000_rx_stats_enable(struct dw3000 *dw, bool on);
+void dw3000_rx_stats_clear(struct dw3000 *dw);
 
 int dw3000_enable_autoack(struct dw3000 *dw, bool force);
 int dw3000_disable_autoack(struct dw3000 *dw, bool force);
 
 int dw3000_tx_frame(struct dw3000 *dw, struct sk_buff *skb, int tx_delayed,
 		    u32 tx_date_dtu, int rx_delay_dly, u32 rx_timeout_pac);
+int dw3000_tx_setcwtone(struct dw3000 *dw, bool on);
 
 s16 dw3000_readpdoa(struct dw3000 *dw);
+
+int dw3000_set_gpio_mode(struct dw3000 *dw, u32 mask, u32 mode);
+int dw3000_set_gpio_dir(struct dw3000 *dw, u16 mask, u16 dir);
+int dw3000_set_gpio_out(struct dw3000 *dw, u16 reset, u16 set);
+
+int dw3000_otp_read32(struct dw3000 *dw, u16 addr, u32 *val);
+int dw3000_otp_write32(struct dw3000 *dw, u16 addr, u32 data);
 
 void dw3000_isr(struct dw3000 *dw);
 
@@ -252,6 +333,7 @@ static inline int dw3000_compute_pre_timeout_pac(struct dw3000 *dw)
 	/* Must be called AFTER dw->chips_per_pac initialisation */
 	const int symb = _plen_info[dw->config.txPreambLength - 1].symb;
 	const int pac_symb = _plen_info[dw->config.txPreambLength - 1].pac_symb;
+
 	return (DW3000_RX_ENABLE_STARTUP_DLY * DW3000_CHIP_PER_DLY +
 		dw->chips_per_pac - 1) /
 		       dw->chips_per_pac +

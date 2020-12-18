@@ -86,6 +86,10 @@ struct mcps802154_local {
 	 */
 	int hw_idx;
 	/**
+	 * @cur_cmd_info: Current netlink command.
+	 */
+	struct genl_info *cur_cmd_info;
+	/**
 	 * @registered_entry: Entry in list of registered low-level driver.
 	 */
 	struct list_head registered_entry;
@@ -94,10 +98,6 @@ struct mcps802154_local {
 	 * implementation.
 	 */
 	wait_queue_head_t wq;
-	/**
-	 * @open_region_handlers: List of open region handlers.
-	 */
-	struct list_head open_region_handlers;
 	/**
 	 * @ca: Channel access context.
 	 */

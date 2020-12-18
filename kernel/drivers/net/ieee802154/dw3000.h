@@ -28,9 +28,12 @@
 #include <linux/spi/spi.h>
 #include <linux/skbuff.h>
 #include <net/mcps802154.h>
+#include "dw3000_chip.h"
 #include "dw3000_stm.h"
-#undef BIT_MASK
+#include "dw3000_calib.h"
+#include "dw3000_testmode_nl.h"
 
+#undef BIT_MASK
 #ifndef DEBUG
 #define DEBUG 0
 #endif
@@ -84,23 +87,53 @@ enum d3000_dgc_load_location {
 	DW3000_DGC_LOAD_FROM_OTP
 };
 
-/* DW3000 data */
-struct dw3000_local_data {
+/* DW3000 OTP */
+struct dw3000_otp_data {
 	u32 partID;
 	u32 lotID;
+	u32 ldo_tune_lo;
+	u32 ldo_tune_hi;
+	u32 bias_tune;
+	u32 dgc_addr;
+	u8 xtal_trim;
+	u8 vBatP;
+	u8 tempP;
+	u8 rev;
+};
+
+/**
+ * enum dw3000_ciagdiag_reg_select - CIA diagnostic register selector config.
+ * According to DW3000's configuration, we must read some values
+ * (e.g: channel impulse response power, preamble accumulation count)
+ * in different registers in the CIA interface:
+ * 0: without STS
+ * 1: with STS
+ * 2: PDOA mode 3
+ */
+enum dw3000_ciagdiag_reg_select {
+	DW3000_CIA_DIAG_REG_SELECT_WITHOUT_STS = 0,
+	DW3000_CIA_DIAG_REG_SELECT_WITH_STS = 1,
+	DW3000_CIA_DIAG_REG_SELECT_WITH_PDAO_M3 = 3,
+};
+
+/* DW3000 data */
+struct dw3000_local_data {
 	enum dw3000_spi_crc_mode spicrc;
 	/* Flag to check if DC values are programmed in OTP.
 	   See d3000_dgc_load_location. */
 	u8 dgc_otp_set;
-	u8 vBatP;
-	u8 tempP;
 	u8 otprev;
 	u8 dblbuffon;
 	u16 max_frames_len;
 	u16 sleep_mode;
 	s16 ststhreshold;
 	u8 stsconfig;
-	u8 cia_diagnostic;
+	/* CIA diagnostic on/off */
+	bool ciadiag_enabled;
+	/* CIA diagnostic double buffering option */
+	u8 ciadiag_opt;
+	/* CIA diagnostic register selector according to DW3000's config */
+	enum dw3000_ciagdiag_reg_select ciadiag_reg_select;
 	/* Transmit frame control */
 	u32 tx_fctrl;
 	/* Preamble detection timeout period in units of PAC size symbols */
@@ -109,6 +142,24 @@ struct dw3000_local_data {
 	u32 w4r_time;
 	/* Auto ack turnaroud time */
 	u8 ack_time;
+};
+
+/* Statistics items */
+enum dw3000_stats_items {
+	DW3000_STATS_RX_GOOD,
+	DW3000_STATS_RX_TO,
+	DW3000_STATS_RX_ERROR,
+	__DW3000_STATS_COUNT
+};
+
+/* DW3000 statistics */
+struct dw3000_stats {
+	/* Total stats */
+	u16 count[__DW3000_STATS_COUNT];
+	/* Required data array for calculation of the RSSI average */
+	struct dw3000_rssi rssi[DW3000_RSSI_REPORTS_MAX];
+	/* Stats on/off */
+	bool enabled;
 };
 
 /* Maximum skb length
@@ -172,25 +223,64 @@ struct dw3000_config {
 	enum dw3000_sts_lengths stsLength;
 	/* PDOA mode */
 	u8 pdoaMode;
+	/* Calibrated PDOA offset */
+	s16 pdoaOffset;
 };
 
 /* TX configuration,  power & PG delay */
 struct dw3000_txconfig {
 	u8 PGdly;
+	u8 PGcount;
 	/*TX POWER
 	31:24     TX_CP_PWR
 	23:16     TX_SHR_PWR
 	15:8      TX_PHR_PWR
 	7:0       TX_DATA_PWR */
 	u32 power;
+	/* Normal or test mode */
+	bool testmode_enabled;
 };
 
-/* DW3000 device */
+/**
+ * struct dw3000 - main DW3000 device structure
+ * @spi: pointer to corresponding spi device
+ * @dev: pointer to generic device holding sysfs attributes
+ * @chip_ops: version specific chip operations
+ * @llhw: pointer to associated struct mcps802154_llhw
+ * @config: current running chip configuration
+ * @txconfig: current running TX configuration
+ * @data: local data and register cache
+ * @otp_data: OTP data cache
+ * @calib_data: calibration data
+ * @stats: statistics
+ * @has_lock_pm: power management locked status
+ * @reset_gpio: GPIO to use for hard reset
+ * @stm: High-priority thread state machine
+ * @rx: received skbuff and associated spinlock
+ * @msg_mutex: mutex protecting @msg_readwrite_fdx
+ * @msg_readwrite_fdx: pre-computed generic register read/write SPI message
+ * @msg_fast_command: pre-computed fast command SPI message
+ * @msg_read_cir_pwr: pre-computed SPI message
+ * @msg_read_pacc_cnt: pre-computed SPI message
+ * @msg_read_rdb_status: pre-computed SPI message
+ * @msg_read_rx_timestamp: pre-computed SPI message
+ * @msg_read_rx_timestamp_a: pre-computed SPI message
+ * @msg_read_rx_timestamp_b: pre-computed SPI message
+ * @msg_read_sys_status: pre-computed SPI message
+ * @msg_read_sys_time: pre-computed SPI message
+ * @msg_write_sys_status: pre-computed SPI message
+ * @chips_per_pac: chips per PAC unit
+ * @pre_timeout_pac: preamble timeout in PAC unit
+ * @autoack: auto-ack status, true if activated
+ * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
+ */
 struct dw3000 {
 	/* SPI device */
 	struct spi_device *spi;
 	/* Generic device */
 	struct device *dev;
+	/* Chip version specific operations */
+	const struct dw3000_chip_ops *chip_ops;
 	/* MCPS 802.15.4 device */
 	struct mcps802154_llhw *llhw;
 	/* Configuration */
@@ -198,6 +288,10 @@ struct dw3000 {
 	struct dw3000_txconfig txconfig;
 	/* Data */
 	struct dw3000_local_data data;
+	struct dw3000_otp_data otp_data;
+	struct dw3000_calibration_data calib_data;
+	/* Statistics */
+	struct dw3000_stats stats;
 	/* SPI controller power-management */
 	int has_lock_pm;
 	/* Control GPIOs */
@@ -224,6 +318,8 @@ struct dw3000 {
 	int pre_timeout_pac;
 	/* Is auto-ack activated? */
 	bool autoack;
+	/* WiFi coexistence GPIO */
+	s8 coex_gpio;
 };
 
 #endif /* __DW3000_H */

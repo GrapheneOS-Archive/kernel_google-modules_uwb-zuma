@@ -45,6 +45,7 @@ static DEFINE_MUTEX(registered_llhw_lock);
 static void mcps802154_tx_event(struct work_struct *work)
 {
 	struct mcps802154_local *local = txwork_to_local(work);
+
 	mutex_lock(&local->fsm_lock);
 	if (likely(local->started))
 		mcps802154_ca_may_reschedule(local);
@@ -85,7 +86,6 @@ struct mcps802154_llhw *mcps802154_alloc_llhw(size_t priv_data_len,
 	local->ops = ops;
 	local->hw_idx = idx - 1;
 	init_waitqueue_head(&local->wq);
-	INIT_LIST_HEAD(&local->open_region_handlers);
 	mutex_init(&local->fsm_lock);
 	INIT_WORK(&local->tx_work, mcps802154_tx_event);
 	mutex_lock(&local->fsm_lock);
@@ -138,6 +138,7 @@ EXPORT_SYMBOL(mcps802154_register_llhw);
 void mcps802154_unregister_llhw(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	mutex_lock(&registered_llhw_lock);
 	list_del(&local->registered_entry);
 	mutex_unlock(&registered_llhw_lock);
@@ -151,6 +152,7 @@ EXPORT_SYMBOL(mcps802154_unregister_llhw);
 __le64 mcps802154_get_extended_addr(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	return local->pib.mac_extended_addr;
 }
 EXPORT_SYMBOL(mcps802154_get_extended_addr);
@@ -158,6 +160,7 @@ EXPORT_SYMBOL(mcps802154_get_extended_addr);
 __le16 mcps802154_get_pan_id(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	return local->pib.mac_pan_id;
 }
 EXPORT_SYMBOL(mcps802154_get_pan_id);
@@ -165,6 +168,7 @@ EXPORT_SYMBOL(mcps802154_get_pan_id);
 __le16 mcps802154_get_short_addr(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	return local->pib.mac_short_addr;
 }
 EXPORT_SYMBOL(mcps802154_get_short_addr);
@@ -173,6 +177,7 @@ u64 mcps802154_timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
 				     u32 timestamp_dtu)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	return llhw_timestamp_dtu_to_rctu(local, timestamp_dtu);
 }
 EXPORT_SYMBOL(mcps802154_timestamp_dtu_to_rctu);
@@ -181,6 +186,7 @@ u32 mcps802154_timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 				     u64 timestamp_rctu)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	return llhw_timestamp_rctu_to_dtu(local, timestamp_rctu);
 }
 EXPORT_SYMBOL(mcps802154_timestamp_rctu_to_dtu);
@@ -189,6 +195,7 @@ u64 mcps802154_align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
 				       u64 timestamp_rctu)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	return llhw_align_tx_timestamp_rctu(local, timestamp_rctu);
 }
 EXPORT_SYMBOL(mcps802154_align_tx_timestamp_rctu);
@@ -198,6 +205,7 @@ s64 mcps802154_difference_timestamp_rctu(struct mcps802154_llhw *llhw,
 					 u64 timestamp_b_rctu)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	return llhw_difference_timestamp_rctu(local, timestamp_a_rctu,
 					      timestamp_b_rctu);
 }
@@ -224,6 +232,7 @@ struct mcps802154_local *mcps802154_get_first_by_idx(int hw_idx)
 int __init mcps802154_init(void)
 {
 	int r;
+
 	r = mcps802154_nl_init();
 	if (r)
 		return r;

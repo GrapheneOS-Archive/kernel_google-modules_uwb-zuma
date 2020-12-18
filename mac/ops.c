@@ -71,6 +71,7 @@ static int mcps802154_xmit_async(struct ieee802154_hw *hw, struct sk_buff *skb)
 		r = -EPIPE;
 	} else {
 		int n_queued;
+
 		skb_queue_tail(&local->ca.queue, skb);
 		n_queued = atomic_inc_return(&local->ca.n_queued);
 		wake_queue = n_queued < MCPS802154_CA_QUEUE_SIZE;
@@ -94,6 +95,7 @@ static int mcps802154_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 {
 	struct mcps802154_local *local = hw->priv;
 	int r;
+
 	if (!local->ops->set_channel)
 		return -EOPNOTSUPP;
 
@@ -110,6 +112,7 @@ static int mcps802154_set_hw_addr_filt(struct ieee802154_hw *hw,
 {
 	struct mcps802154_local *local = hw->priv;
 	int r;
+
 	if (!local->ops->set_hw_addr_filt)
 		return -EOPNOTSUPP;
 
@@ -147,6 +150,7 @@ static int mcps802154_set_promiscuous_mode(struct ieee802154_hw *hw, bool on)
 {
 	struct mcps802154_local *local = hw->priv;
 	int r;
+
 	if (!local->ops->set_promiscuous_mode)
 		return -EOPNOTSUPP;
 
@@ -161,6 +165,7 @@ static int mcps802154_set_promiscuous_mode(struct ieee802154_hw *hw, bool on)
 static void mcps802154_sw_scan_start(struct ieee802154_hw *hw, __le64 addr)
 {
 	struct mcps802154_local *local = hw->priv;
+
 	if (!local->ops->set_scanning_mode)
 		return;
 
@@ -172,6 +177,7 @@ static void mcps802154_sw_scan_start(struct ieee802154_hw *hw, __le64 addr)
 static void mcps802154_sw_scan_complete(struct ieee802154_hw *hw)
 {
 	struct mcps802154_local *local = hw->priv;
+
 	if (!local->ops->set_scanning_mode)
 		return;
 

@@ -96,5 +96,6 @@ void mcps802154_fproc_stopped_handle(struct mcps802154_local *local)
 {
 	llhw_stop(local);
 	mcps802154_fproc_access_reset(local);
+	mcps802154_schedule_clear(local);
 	mcps802154_fproc_change_state(local, &mcps802154_fproc_stopped);
 }

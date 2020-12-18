@@ -31,9 +31,12 @@ enum { DW3000_IRQ_WORK = BIT(0),
        DW3000_COMMAND_WORK = BIT(1),
 };
 
+/* Custom function for command */
+typedef int (*cmd_func)(struct dw3000 *dw, void *in, void *out);
+
 /* Generic command descriptor */
 struct dw3000_stm_command {
-	int (*cmd)(struct dw3000 *dw, void *in, void *out);
+	cmd_func cmd;
 	void *in;
 	void *out;
 	int ret;
@@ -46,7 +49,7 @@ struct dw3000_state {
 	/* Pending work bitmap */
 	unsigned long pending_work;
 	/* Error recovery count */
-	unsigned recovery_count;
+	unsigned int recovery_count;
 	/* Generic work argument */
 	struct dw3000_stm_command *generic_work;
 	/* Event handler thread */

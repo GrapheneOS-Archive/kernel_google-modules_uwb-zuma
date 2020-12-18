@@ -33,14 +33,7 @@
 
 void mcps802154_schedule_clear(struct mcps802154_local *local)
 {
-	int i;
-
 	if (local->ca.schedule.regions) {
-		for (i = 0; i < local->ca.schedule.n_regions; i++) {
-			struct mcps802154_region *region =
-				local->ca.schedule.regions[i];
-			region->ops->free(region);
-		}
 		local->ca.schedule.n_regions = 0;
 		kfree(local->ca.schedule.regions);
 		local->ca.schedule.regions = NULL;
@@ -53,7 +46,7 @@ int mcps802154_schedule_update(struct mcps802154_local *local,
 	struct mcps802154_schedule_update_local sulocal;
 	struct mcps802154_schedule_update *su = &sulocal.schedule_update;
 	struct mcps802154_schedule *sched = &local->ca.schedule;
-	struct mcps802154_open_region_handler *orh;
+	struct mcps802154_scheduler *scheduler;
 	u32 expected_start_timestamp_dtu;
 	int r;
 
@@ -70,14 +63,14 @@ int mcps802154_schedule_update(struct mcps802154_local *local,
 	}
 	sched->current_index = 0;
 
-	/* Call region handler. */
+	/* Call scheduler. */
 	su->expected_start_timestamp_dtu = expected_start_timestamp_dtu;
 	su->start_timestamp_dtu = sched->start_timestamp_dtu;
 	su->duration_dtu = sched->duration_dtu;
 	su->n_regions = sched->n_regions;
 	sulocal.local = local;
-	orh = local->ca.schedule_region_handler;
-	r = orh->handler->update_schedule(orh, su, next_timestamp_dtu);
+	scheduler = local->ca.scheduler;
+	r = scheduler->ops->update_schedule(scheduler, su, next_timestamp_dtu);
 	if (r) {
 		mcps802154_schedule_clear(local);
 		return r;
@@ -124,8 +117,7 @@ int mcps802154_schedule_recycle(
 		schedule_update_to_local(schedule_update);
 	struct mcps802154_schedule_update *su = &sulocal->schedule_update;
 	struct mcps802154_schedule *sched = &sulocal->local->ca.schedule;
-	struct mcps802154_region *last_region;
-	int i;
+	struct mcps802154_schedule_region *last_sched_region;
 
 	if (n_keeps > sched->n_regions)
 		return -EINVAL;
@@ -134,99 +126,89 @@ int mcps802154_schedule_recycle(
 	    last_region_duration_dtu != MCPS802154_DURATION_NO_CHANGE)
 		return -EINVAL;
 
-	/* Release dropped regions. */
-	for (i = n_keeps; i < sched->n_regions; i++) {
-		struct mcps802154_region *region = sched->regions[i];
-		region->ops->free(region);
-	}
+	/* Change the number of currently used regions. */
 	su->n_regions = sched->n_regions = n_keeps;
 
 	/* Update last region. */
-	last_region = sched->n_regions ? sched->regions[sched->n_regions - 1] :
-					 NULL;
+	last_sched_region =
+		sched->n_regions ? &sched->regions[sched->n_regions - 1] : NULL;
 	if (last_region_duration_dtu != MCPS802154_DURATION_NO_CHANGE) {
-		last_region->duration_dtu = last_region_duration_dtu;
+		last_sched_region->duration_dtu = last_region_duration_dtu;
 	}
 
 	/* Update schedule duration. */
-	if (!last_region || last_region->duration_dtu == 0) {
+	if (!last_sched_region || last_sched_region->duration_dtu == 0) {
 		su->duration_dtu = sched->duration_dtu = 0;
 	} else {
 		su->duration_dtu = sched->duration_dtu =
-			last_region->start_dtu + last_region->duration_dtu;
+			last_sched_region->start_dtu +
+			last_sched_region->duration_dtu;
 	}
 
 	return 0;
 }
 EXPORT_SYMBOL(mcps802154_schedule_recycle);
 
-struct mcps802154_region *mcps802154_schedule_add_region(
+int mcps802154_schedule_add_region(
 	const struct mcps802154_schedule_update *schedule_update,
-	size_t region_ops_idx, int start_dtu, int duration_dtu)
+	struct mcps802154_region *region, int start_dtu, int duration_dtu)
 {
 	struct mcps802154_schedule_update_local *sulocal =
 		schedule_update_to_local(schedule_update);
 	struct mcps802154_schedule_update *su = &sulocal->schedule_update;
 	struct mcps802154_schedule *sched = &sulocal->local->ca.schedule;
-	struct mcps802154_region *last_region =
-		sched->n_regions ? sched->regions[sched->n_regions - 1] : NULL;
-	struct mcps802154_open_region_handler *orh;
-	const struct mcps802154_region_ops *region_ops;
-	struct mcps802154_region *region, **newregions;
+	struct mcps802154_schedule_region *last_sched_region =
+		sched->n_regions ? &sched->regions[sched->n_regions - 1] : NULL;
+	struct mcps802154_schedule_region *sched_region, *new_sched_regions;
 
 	if (start_dtu < 0 || duration_dtu < 0)
-		return NULL;
+		return -EINVAL;
 
 	/* Can not add a region after an endless region. */
-	if (last_region && last_region->duration_dtu == 0)
-		return NULL;
+	if (last_sched_region && last_sched_region->duration_dtu == 0)
+		return -EINVAL;
 
 	/* Regions can not overlap. */
-	if (last_region &&
-	    start_dtu < last_region->start_dtu + last_region->duration_dtu)
-		return NULL;
+	if (last_sched_region &&
+	    start_dtu < last_sched_region->start_dtu +
+				last_sched_region->duration_dtu)
+		return -EINVAL;
 
-	/* Allocate and fill region. */
-	orh = sulocal->local->ca.schedule_region_handler;
-	if (region_ops_idx >= orh->handler->n_regions_ops)
-		return NULL;
-	region_ops = orh->handler->regions_ops[region_ops_idx];
-	region = region_ops->alloc(orh);
-	if (!region)
-		return NULL;
-	region->start_dtu = start_dtu;
-	region->duration_dtu = duration_dtu;
-	region->ops = region_ops;
-	region->orh = orh;
+	if (!region || !region->ops || !region->ops->get_access)
+		return -EINVAL;
 
 	/* Add to schedule. */
-	newregions = krealloc(
+	new_sched_regions = krealloc(
 		sched->regions,
 		sizeof(sched->regions[0]) * (sched->n_regions + 1), GFP_KERNEL);
-	if (!newregions)
-		goto err_free_region;
-	newregions[sched->n_regions] = region;
-	sched->regions = newregions;
+	if (!new_sched_regions)
+		return -ENOMEM;
+
+	/* Fill new added schedule region. */
+	sched_region = &new_sched_regions[sched->n_regions];
+	sched_region->start_dtu = start_dtu;
+	sched_region->duration_dtu = duration_dtu;
+	sched_region->region = region;
+
+	sched->regions = new_sched_regions;
 	su->n_regions = sched->n_regions = sched->n_regions + 1;
 
 	/* Update schedule duration. */
-	if (region->duration_dtu == 0) {
+	if (duration_dtu == 0) {
 		su->duration_dtu = sched->duration_dtu = 0;
 	} else {
 		su->duration_dtu = sched->duration_dtu =
-			region->start_dtu + region->duration_dtu;
+			start_dtu + duration_dtu;
 	}
 
-	return region;
-err_free_region:
-	region->ops->free(region);
-	return NULL;
+	return 0;
 }
 EXPORT_SYMBOL(mcps802154_schedule_add_region);
 
 void mcps802154_schedule_invalidate(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	if (likely(local->started))
 		mcps802154_ca_invalidate_schedule(local);
 }

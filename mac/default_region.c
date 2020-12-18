@@ -37,20 +37,27 @@
 #include "warn_return.h"
 
 struct mcps802154_default_local {
-	struct mcps802154_open_region_handler orh;
+	struct mcps802154_scheduler scheduler;
 	struct mcps802154_llhw *llhw;
 	struct mcps802154_region region;
 	struct mcps802154_access access;
 };
 
 static inline struct mcps802154_default_local *
-orh_to_dlocal(struct mcps802154_open_region_handler *orh)
+scheduler_to_dlocal(const struct mcps802154_scheduler *scheduler)
 {
-	return container_of(orh, struct mcps802154_default_local, orh);
+	return container_of(scheduler, struct mcps802154_default_local,
+			    scheduler);
 }
 
 static inline struct mcps802154_default_local *
-access_to_dlocal(struct mcps802154_access *access)
+region_to_dlocal(struct mcps802154_region *region)
+{
+	return container_of(region, struct mcps802154_default_local, region);
+}
+
+static inline struct mcps802154_default_local *
+access_to_dlocal(const struct mcps802154_access *access)
 {
 	return container_of(access, struct mcps802154_default_local, access);
 }
@@ -61,6 +68,7 @@ static void simple_rx_frame(struct mcps802154_access *access, int frame_idx,
 {
 	struct mcps802154_default_local *dlocal = access_to_dlocal(access);
 	struct mcps802154_local *local = llhw_to_local(dlocal->llhw);
+
 	ieee802154_rx_irqsafe(local->hw, skb, info->lqi);
 }
 
@@ -69,6 +77,7 @@ static struct sk_buff *simple_tx_get_frame(struct mcps802154_access *access,
 {
 	struct mcps802154_default_local *dlocal = access_to_dlocal(access);
 	struct mcps802154_local *local = llhw_to_local(dlocal->llhw);
+
 	return skb_dequeue(&local->ca.queue);
 }
 
@@ -78,6 +87,7 @@ static void simple_tx_return(struct mcps802154_access *access, int frame_idx,
 {
 	struct mcps802154_default_local *dlocal = access_to_dlocal(access);
 	struct mcps802154_local *local = llhw_to_local(dlocal->llhw);
+
 	if (reason == MCPS802154_ACCESS_TX_RETURN_REASON_FAILURE) {
 		local->ca.retries++;
 		if (local->ca.retries <= local->pib.mac_max_frame_retries) {
@@ -110,19 +120,14 @@ struct mcps802154_access_ops simple_access_ops = {
 	.access_done = simple_access_done,
 };
 
-static struct mcps802154_region *
-simple_alloc(struct mcps802154_open_region_handler *orh)
-{
-	struct mcps802154_default_local *dlocal = orh_to_dlocal(orh);
-	return &dlocal->region;
-}
-
 static struct mcps802154_access *
-simple_get_access(const struct mcps802154_region *region,
-		  u32 next_timestamp_dtu, int next_in_region_dtu)
+simple_default_get_access(struct mcps802154_region *region,
+			  u32 next_timestamp_dtu, int next_in_region_dtu,
+			  int region_duration_dtu)
 {
-	struct mcps802154_default_local *dlocal = orh_to_dlocal(region->orh);
+	struct mcps802154_default_local *dlocal = region_to_dlocal(region);
 	struct mcps802154_local *local = llhw_to_local(dlocal->llhw);
+
 	dlocal->access.method = skb_queue_empty(&local->ca.queue) ?
 					MCPS802154_ACCESS_METHOD_IMMEDIATE_RX :
 					MCPS802154_ACCESS_METHOD_IMMEDIATE_TX;
@@ -130,42 +135,40 @@ simple_get_access(const struct mcps802154_region *region,
 	return &dlocal->access;
 }
 
-static void simple_free(struct mcps802154_region *region)
-{
-	/* Nothing. */
-}
-
-static const struct mcps802154_region_ops mcps802154_default_simple_region_ops = {
+static struct mcps802154_region_ops mcps802154_default_simple_region_ops = {
+	.owner = THIS_MODULE,
 	.name = "simple",
-	.alloc = simple_alloc,
-	.get_access = simple_get_access,
-	.free = simple_free,
+	.get_access = simple_default_get_access,
 };
 
-static struct mcps802154_open_region_handler *
-mcps802154_default_region_handler_open(struct mcps802154_llhw *llhw)
+static struct mcps802154_scheduler *
+mcps802154_default_scheduler_open(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_default_local *dlocal;
+
 	dlocal = kmalloc(sizeof(*dlocal), GFP_KERNEL);
 	if (!dlocal)
 		return NULL;
 	dlocal->llhw = llhw;
-	return &dlocal->orh;
+	dlocal->region.ops = &mcps802154_default_simple_region_ops;
+	return &dlocal->scheduler;
 }
 
-static void mcps802154_default_region_handler_close(
-	struct mcps802154_open_region_handler *orh)
+static void
+mcps802154_default_scheduler_close(struct mcps802154_scheduler *scheduler)
 {
-	struct mcps802154_default_local *dlocal = orh_to_dlocal(orh);
+	struct mcps802154_default_local *dlocal =
+		scheduler_to_dlocal(scheduler);
 	kfree(dlocal);
 }
 
-static int mcps802154_default_region_handler_update_schedule(
-	struct mcps802154_open_region_handler *orh,
+static int mcps802154_default_scheduler_update_schedule(
+	struct mcps802154_scheduler *scheduler,
 	const struct mcps802154_schedule_update *schedule_update,
 	u32 next_timestamp_dtu)
 {
-	struct mcps802154_region *region;
+	struct mcps802154_default_local *dlocal =
+		scheduler_to_dlocal(scheduler);
 	int r;
 
 	r = mcps802154_schedule_set_start(
@@ -178,36 +181,27 @@ static int mcps802154_default_region_handler_update_schedule(
 	/* Can not fail, only possible error is invalid parameters. */
 	WARN_RETURN(r);
 
-	region = mcps802154_schedule_add_region(schedule_update, 0, 0, 0);
-	if (!region)
-		return -ENOMEM;
+	r = mcps802154_schedule_add_region(schedule_update, &dlocal->region, 0,
+					   0);
 
-	return 0;
+	return r;
 }
 
-const static struct mcps802154_region_ops
-	*const mcps802154_default_regions_ops[] = {
-		&mcps802154_default_simple_region_ops,
-	};
-
-static struct mcps802154_region_handler mcps802154_default_region_handler = {
+static struct mcps802154_scheduler_ops mcps802154_default_region_scheduler = {
 	.owner = THIS_MODULE,
 	.name = "default",
-	.n_regions_ops = ARRAY_SIZE(mcps802154_default_regions_ops),
-	.regions_ops = mcps802154_default_regions_ops,
-	.open = mcps802154_default_region_handler_open,
-	.close = mcps802154_default_region_handler_close,
-	.update_schedule = mcps802154_default_region_handler_update_schedule,
+	.open = mcps802154_default_scheduler_open,
+	.close = mcps802154_default_scheduler_close,
+	.update_schedule = mcps802154_default_scheduler_update_schedule,
 };
 
 int __init mcps802154_default_region_init(void)
 {
-	return mcps802154_region_handler_register(
-		&mcps802154_default_region_handler);
+	return mcps802154_scheduler_register(
+		&mcps802154_default_region_scheduler);
 }
 
 void __exit mcps802154_default_region_exit(void)
 {
-	mcps802154_region_handler_unregister(
-		&mcps802154_default_region_handler);
+	mcps802154_scheduler_unregister(&mcps802154_default_region_scheduler);
 }

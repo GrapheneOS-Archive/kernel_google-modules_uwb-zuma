@@ -1,0 +1,132 @@
+/*
+ * This file is part of the UWB stack for linux.
+ *
+ * Copyright (c) 2020 Qorvo US, Inc.
+ *
+ * This software is provided under the GNU General Public License, version 2
+ * (GPLv2), as well as under a Qorvo commercial license.
+ *
+ * You may choose to use this software under the terms of the GPLv2 License,
+ * version 2 ("GPLv2"), as published by the Free Software Foundation.
+ * You should have received a copy of the GPLv2 along with this program.  If
+ * not, see <http://www.gnu.org/licenses/>.
+ *
+ * This program is distributed under the GPLv2 in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv2 for more
+ * details.
+ *
+ * If you cannot meet the requirements of the GPLv2, you may not use this
+ * software for any purpose without first obtaining a commercial license from
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
+ */
+#ifndef __DW3000_CALIB_H
+#define __DW3000_CALIB_H
+
+/**
+ * DW3000_CALIBRATION_ANTENNA_MAX - number of antenna
+ */
+#define DW3000_CALIBRATION_ANTENNA_MAX 2
+/**
+ * DW3000_CALIBRATION_CHANNEL_MAX - number of supported channels
+ */
+#define DW3000_CALIBRATION_CHANNEL_MAX 2
+/**
+ * DW3000_CALIBRATION_PRF_MAX - number of supported PRF types
+ */
+#define DW3000_CALIBRATION_PRF_MAX 2
+
+/**
+ * DW3000_CALIBRATION_PDOA_LUT_MAX - number of value in PDOA LUT table
+ */
+#define DW3000_CALIBRATION_PDOA_LUT_MAX 7
+
+/**
+ * struct dw3000_channel_calib - per-channel dependant calibration parameters
+ * @pll_locking_code: PLL locking code
+ */
+struct dw3000_channel_calib {
+	/* chY.pll_locking_code */
+	u32 pll_locking_code;
+};
+
+/**
+ * struct dw3000_antenna_calib - per-antenna dependant calibration parameters
+ * @ch: table of channels and PRF dependant calibration values
+ * @ant: antenna pair specific calibration values
+ * @port: port value this antenna belong to
+ * @selector_gpio: GPIO number to select this antenna
+ * @selector_gpio_value: GPIO value to select this antenna
+ */
+struct dw3000_antenna_calib {
+	/* antX.chY.prfZ.* */
+	struct {
+		struct {
+			u32 ant_delay;
+			u32 tx_power;
+			u8 pg_count;
+			u8 pg_delay;
+		} prf[DW3000_CALIBRATION_PRF_MAX];
+	} ch[DW3000_CALIBRATION_CHANNEL_MAX];
+	/* antX.* */
+	u8 port, selector_gpio, selector_gpio_value;
+};
+
+/**
+ * struct dw3000_antenna_pair_calib - antenna pair dependant calibration values
+ * @ch: table of channels dependant calibration values
+ */
+struct dw3000_antenna_pair_calib {
+	/* antX.antW.chY.* */
+	struct {
+		s16 pdoa_offset;
+		u32 pdoa_lut[DW3000_CALIBRATION_PDOA_LUT_MAX];
+	} ch[DW3000_CALIBRATION_CHANNEL_MAX];
+};
+
+/* Just to ease reading of the following formulas. */
+#define ANTMAX DW3000_CALIBRATION_ANTENNA_MAX
+
+/**
+ * ANTPAIR_MAX - calculated antpair table size
+ */
+#define ANTPAIR_MAX ((ANTMAX * (ANTMAX - 1)) / 2)
+
+/**
+ * ANTPAIR_OFFSET - calculate antpair table indexes row offset
+ * @x: first antenna index
+ *
+ * Return: An index for the first element in antpair table for the given value.
+ */
+#define ANTPAIR_OFFSET(x) ((((2 * (ANTMAX - 1)) + 1 - (x)) * (x)) / 2)
+
+/**
+ * ANTPAIR_IDX - calculate antpair table indexes
+ * @x: first antenna index
+ * @w: second antenna index, must be > @x
+ *
+ * Return: An index for the antpair table in [0;ANTPAIR_MAX-1] interval.
+ */
+#define ANTPAIR_IDX(x, w) (ANTPAIR_OFFSET(x) + (w))
+
+/**
+ * struct dw3000_calibration_data - all per-antenna and per-channel calibration
+ * parameters
+ * @ant: table of antenna dependant calibration values
+ * @antpair: table of antenna pair dependant calibration values
+ * @ch: table of channel dependant calibration values
+ */
+struct dw3000_calibration_data {
+	struct dw3000_antenna_calib ant[ANTMAX];
+	struct dw3000_antenna_pair_calib antpair[ANTPAIR_MAX];
+	struct dw3000_channel_calib ch[DW3000_CALIBRATION_CHANNEL_MAX];
+};
+
+struct dw3000;
+
+int dw3000_calib_parse_key(struct dw3000 *dw, const char *key, void **param);
+const char *const *dw3000_calib_list_keys(struct dw3000 *dw);
+int dw3000_calib_update_config(struct dw3000 *dw);
+
+#endif /* __DW3000_CALIB_H */

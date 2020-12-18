@@ -28,12 +28,13 @@
 #include "dw3000.h"
 #include "dw3000_core.h"
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0))
+#if ((KERNEL_VERSION(5, 9, 0) > LINUX_VERSION_CODE) && \
+     (KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE))
 #include <uapi/linux/sched/types.h>
 #endif
 static inline void dw3000_set_fifo_sched(struct task_struct *p)
 {
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0))
+#if (KERNEL_VERSION(5, 9, 0) > LINUX_VERSION_CODE)
 	struct sched_param sched_par = { .sched_priority = MAX_RT_PRIO - 2 };
 	/* Increase thread priority */
 	sched_setscheduler(p, SCHED_FIFO, &sched_par);
@@ -61,6 +62,7 @@ int dw3000_enqueue_generic(struct dw3000 *dw, struct dw3000_stm_command *cmd)
 	struct dw3000_state *stm = &dw->stm;
 	unsigned long flags;
 	int work = DW3000_COMMAND_WORK;
+
 	if (current == stm->mthread) {
 		/* We can't enqueue a new work from the same context and wait,
 		   but it can be executed directly instead. */
@@ -184,6 +186,7 @@ int dw3000_event_thread(void *data)
 		if (pending_work & DW3000_COMMAND_WORK) {
 			struct dw3000_stm_command *cmd = stm->generic_work;
 			bool is_init_work = cmd->cmd == dw3000_init_work;
+
 			cmd->ret = cmd->cmd(dw, cmd->in, cmd->out);
 			dw3000_dequeue(dw, DW3000_COMMAND_WORK);
 			if (unlikely(is_init_work)) {

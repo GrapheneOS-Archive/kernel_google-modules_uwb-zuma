@@ -112,6 +112,7 @@ void mcps802154_fproc_access_now(struct mcps802154_local *local)
 void mcps802154_fproc_access_done(struct mcps802154_local *local)
 {
 	struct mcps802154_access *access = local->fproc.access;
+
 	access->ops->access_done(access);
 	local->fproc.access = NULL;
 }
@@ -144,6 +145,7 @@ static void mcps802154_broken_safe(struct mcps802154_local *local)
 void mcps802154_rx_frame(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	mutex_lock(&local->fsm_lock);
 	trace_llhw_event_rx_frame(local);
 	if (local->fproc.state->rx_frame)
@@ -158,6 +160,7 @@ EXPORT_SYMBOL(mcps802154_rx_frame);
 void mcps802154_rx_timeout(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	mutex_lock(&local->fsm_lock);
 	trace_llhw_event_rx_timeout(local);
 	if (local->fproc.state->rx_timeout)
@@ -173,6 +176,7 @@ void mcps802154_rx_error(struct mcps802154_llhw *llhw,
 			 enum mcps802154_rx_error error)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	mutex_lock(&local->fsm_lock);
 	trace_llhw_event_rx_error(local, error);
 	if (local->fproc.state->rx_error)
@@ -187,6 +191,7 @@ EXPORT_SYMBOL(mcps802154_rx_error);
 void mcps802154_tx_done(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	mutex_lock(&local->fsm_lock);
 	trace_llhw_event_tx_done(local);
 	if (local->fproc.state->tx_done)
@@ -201,6 +206,7 @@ EXPORT_SYMBOL(mcps802154_tx_done);
 void mcps802154_broken(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
+
 	mutex_lock(&local->fsm_lock);
 	trace_llhw_event_broken(local);
 	mcps802154_broken_safe(local);

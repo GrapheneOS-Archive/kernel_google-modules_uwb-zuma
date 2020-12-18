@@ -50,9 +50,6 @@
 #define TWR_FUNCTION_CODE_FINAL 0x42
 #define TWR_FUNCTION_CODE_REPORT 0x43
 
-#define TWR_INITIATOR_REGION 0
-#define TWR_RESPONDER_REGION 1
-
 enum twr_frames {
 	TWR_FRAME_POLL,
 	TWR_FRAME_RESP,
@@ -77,7 +74,9 @@ struct simple_ranging_responder {
 };
 
 struct simple_ranging_local {
-	struct mcps802154_open_region_handler orh;
+	struct mcps802154_scheduler scheduler;
+	struct mcps802154_region region_init;
+	struct mcps802154_region region_resp;
 	struct mcps802154_llhw *llhw;
 	struct mcps802154_access access;
 	struct mcps802154_access_frame frames[N_TWR_FRAMES];
@@ -96,9 +95,9 @@ struct simple_ranging_local {
 };
 
 static inline struct simple_ranging_local *
-orh_to_local(struct mcps802154_open_region_handler *orh)
+scheduler_to_local(struct mcps802154_scheduler *scheduler)
 {
-	return container_of(orh, struct simple_ranging_local, orh);
+	return container_of(scheduler, struct simple_ranging_local, scheduler);
 }
 
 static inline struct simple_ranging_local *
@@ -107,10 +106,19 @@ access_to_local(struct mcps802154_access *access)
 	return container_of(access, struct simple_ranging_local, access);
 }
 
-struct twr_region {
-	struct mcps802154_region region;
-	struct simple_ranging_local *local;
-};
+static inline struct simple_ranging_local *
+region_init_to_local(struct mcps802154_region *region_init)
+{
+	return container_of(region_init, struct simple_ranging_local,
+			    region_init);
+}
+
+static inline struct simple_ranging_local *
+region_resp_to_local(struct mcps802154_region *region_resp)
+{
+	return container_of(region_resp, struct simple_ranging_local,
+			    region_resp);
+}
 
 /* Requests and reports. */
 
@@ -167,6 +175,7 @@ void twr_frame_header_fill_buf(u8 *buf, __le16 pan_id, __le64 dst, __le64 src)
 		  (IEEE802154_ADDR_LONG << IEEE802154_FC_SAMODE_SHIFT));
 	u8 seq = 0;
 	size_t pos = 0;
+
 	put_unaligned_le16(fc, buf + pos);
 	pos += IEEE802154_FC_LEN;
 	buf[pos] = seq;
@@ -189,6 +198,7 @@ bool twr_frame_header_check(struct sk_buff *skb, __le16 pan_id, __le64 dst,
 			    __le64 src)
 {
 	u8 buf[TWR_FRAME_HEADER_SIZE];
+
 	if (!pskb_may_pull(skb, TWR_FRAME_HEADER_SIZE))
 		return false;
 	twr_frame_header_fill_buf(buf, pan_id, dst, src);
@@ -204,6 +214,7 @@ bool twr_frame_header_check_no_src(struct sk_buff *skb, __le16 pan_id,
 	const int check_size =
 		TWR_FRAME_HEADER_SIZE - IEEE802154_EXTENDED_ADDR_LEN;
 	u8 buf[TWR_FRAME_HEADER_SIZE];
+
 	if (!pskb_may_pull(skb, TWR_FRAME_HEADER_SIZE))
 		return false;
 	twr_frame_header_fill_buf(buf, pan_id, dst, 0);
@@ -215,12 +226,14 @@ bool twr_frame_header_check_no_src(struct sk_buff *skb, __le16 pan_id,
 void twr_frame_poll_put(struct sk_buff *skb)
 {
 	u8 function_code = TWR_FUNCTION_CODE_POLL;
+
 	skb_put_u8(skb, function_code);
 }
 
 bool twr_frame_poll_check(struct sk_buff *skb)
 {
 	u8 function_code;
+
 	if (!pskb_may_pull(skb, TWR_FRAME_POLL_SIZE))
 		return false;
 	function_code = skb->data[0];
@@ -232,6 +245,7 @@ bool twr_frame_poll_check(struct sk_buff *skb)
 void twr_frame_resp_put(struct sk_buff *skb, s16 local_pdoa_rad_q11)
 {
 	u8 function_code = TWR_FUNCTION_CODE_RESP;
+
 	skb_put_u8(skb, function_code);
 	put_unaligned_le16(local_pdoa_rad_q11, skb_put(skb, 2));
 }
@@ -239,6 +253,7 @@ void twr_frame_resp_put(struct sk_buff *skb, s16 local_pdoa_rad_q11)
 bool twr_frame_resp_check(struct sk_buff *skb, s16 *remote_pdoa_rad_q11)
 {
 	u8 function_code;
+
 	if (!pskb_may_pull(skb, TWR_FRAME_RESP_SIZE))
 		return false;
 	function_code = skb->data[0];
@@ -251,6 +266,7 @@ bool twr_frame_resp_check(struct sk_buff *skb, s16 *remote_pdoa_rad_q11)
 void twr_frame_final_put(struct sk_buff *skb, s32 tof_half_tag_rctu)
 {
 	u8 function_code = TWR_FUNCTION_CODE_FINAL;
+
 	skb_put_u8(skb, function_code);
 	put_unaligned_le32(tof_half_tag_rctu, skb_put(skb, 4));
 }
@@ -258,6 +274,7 @@ void twr_frame_final_put(struct sk_buff *skb, s32 tof_half_tag_rctu)
 bool twr_frame_final_check(struct sk_buff *skb, s32 *tof_half_tag_rctu)
 {
 	u8 function_code;
+
 	if (!pskb_may_pull(skb, TWR_FRAME_FINAL_SIZE))
 		return false;
 	function_code = skb->data[0];
@@ -270,6 +287,7 @@ bool twr_frame_final_check(struct sk_buff *skb, s32 *tof_half_tag_rctu)
 void twr_frame_report_put(struct sk_buff *skb, s32 tof_x4_rctu)
 {
 	u8 function_code = TWR_FUNCTION_CODE_REPORT;
+
 	skb_put_u8(skb, function_code);
 	put_unaligned_le32(tof_x4_rctu, skb_put(skb, 4));
 }
@@ -277,6 +295,7 @@ void twr_frame_report_put(struct sk_buff *skb, s32 tof_x4_rctu)
 bool twr_frame_report_check(struct sk_buff *skb, s32 *tof_x4_rctu)
 {
 	u8 function_code;
+
 	if (!pskb_may_pull(skb, TWR_FRAME_REPORT_SIZE))
 		return false;
 	function_code = skb->data[0];
@@ -301,6 +320,7 @@ static void twr_responder_rx_frame(struct mcps802154_access *access,
 	} else {
 		if (frame_idx == TWR_FRAME_POLL) {
 			u64 resp_tx_start_rctu;
+
 			if (!twr_frame_header_check_no_src(
 				    skb, mcps802154_get_pan_id(local->llhw),
 				    mcps802154_get_extended_addr(local->llhw)))
@@ -344,8 +364,8 @@ static void twr_responder_rx_frame(struct mcps802154_access *access,
 		} else {
 			int tof_half_rctu;
 			u64 final_rx_timestamp_rctu;
-			if (WARN_ON(frame_idx != TWR_FRAME_FINAL))
-				goto fail_free_skb;
+
+			WARN_ON(frame_idx != TWR_FRAME_FINAL);
 			if (!twr_frame_header_check(
 				    skb, mcps802154_get_pan_id(local->llhw),
 				    mcps802154_get_extended_addr(local->llhw),
@@ -393,8 +413,8 @@ twr_responder_tx_get_frame(struct mcps802154_access *access, int frame_idx)
 	if (frame_idx == TWR_FRAME_RESP) {
 		twr_frame_resp_put(skb, local->responder.local_pdoa_rad_q11);
 	} else {
-		if (!WARN_ON(frame_idx != TWR_FRAME_REPORT))
-			twr_frame_report_put(skb, local->responder.tof_x4_rctu);
+		WARN_ON(frame_idx != TWR_FRAME_REPORT);
+		twr_frame_report_put(skb, local->responder.tof_x4_rctu);
 	}
 	return skb;
 }
@@ -467,8 +487,8 @@ static void twr_rx_frame(struct mcps802154_access *access, int frame_idx,
 					resp_rx_timestamp_rctu);
 		} else {
 			int report_tof_x4_rctu;
-			if (WARN_ON(frame_idx != TWR_FRAME_REPORT))
-				goto fail_free_skb;
+
+			WARN_ON(frame_idx != TWR_FRAME_REPORT);
 			if (!twr_frame_report_check(skb, &report_tof_x4_rctu))
 				goto fail_free_skb;
 
@@ -500,9 +520,8 @@ static struct sk_buff *twr_tx_get_frame(struct mcps802154_access *access,
 	if (frame_idx == TWR_FRAME_POLL) {
 		twr_frame_poll_put(skb);
 	} else {
-		if (!WARN_ON(frame_idx != TWR_FRAME_FINAL))
-			twr_frame_final_put(skb,
-					    local->initiator.tof_half_tag_rctu);
+		WARN_ON(frame_idx != TWR_FRAME_FINAL);
+		twr_frame_final_put(skb, local->initiator.tof_half_tag_rctu);
 	}
 	return skb;
 }
@@ -526,37 +545,21 @@ struct mcps802154_access_ops twr_access_ops = {
 	.access_done = twr_access_done,
 };
 
-/* Region common functions. */
-
-static struct mcps802154_region *
-twr_alloc(struct mcps802154_open_region_handler *orh)
-{
-	struct twr_region *r;
-	r = kmalloc(sizeof(*r), GFP_KERNEL);
-	if (!r)
-		return NULL;
-	r->local = orh_to_local(orh);
-	return &r->region;
-}
-
-static void twr_free(struct mcps802154_region *region)
-{
-	kfree(container_of(region, struct twr_region, region));
-}
-
 /* Region responder. */
 
 static struct mcps802154_access *
-twr_responder_get_access(const struct mcps802154_region *region,
-			 u32 next_timestamp_dtu, int next_in_region_dtu)
+twr_responder_get_access(struct mcps802154_region *region,
+			 u32 next_timestamp_dtu, int next_in_region_dtu,
+			 int region_duration_dtu)
 {
-	struct twr_region *r = container_of(region, struct twr_region, region);
-	struct mcps802154_access *access = &r->local->access;
-	u32 start_dtu = next_timestamp_dtu + r->local->llhw->shr_dtu;
+	struct simple_ranging_local *local = region_resp_to_local(region);
+	struct mcps802154_access *access = &local->access;
+	u32 start_dtu = next_timestamp_dtu + local->llhw->shr_dtu;
+
 	access->method = MCPS802154_ACCESS_METHOD_MULTI;
 	access->ops = &twr_responder_access_ops;
-	access->n_frames = ARRAY_SIZE(r->local->frames);
-	access->frames = r->local->frames;
+	access->n_frames = ARRAY_SIZE(local->frames);
+	access->frames = local->frames;
 
 	access->frames[TWR_FRAME_POLL].is_tx = false;
 	access->frames[TWR_FRAME_POLL].rx.info.timestamp_dtu = start_dtu;
@@ -598,35 +601,33 @@ twr_responder_get_access(const struct mcps802154_region *region,
 
 static const struct mcps802154_region_ops
 	simple_ranging_twr_responder_region_ops = {
-		.name = "twr_resp",
-		.alloc = twr_alloc,
+		.name = "twr_responder",
 		.get_access = twr_responder_get_access,
-		.free = twr_free,
 	};
 
 /* Region initiator. */
 
 static struct mcps802154_access *
-twr_get_access(const struct mcps802154_region *region, u32 next_timestamp_dtu,
-	       int next_in_region_dtu)
+twr_get_access(struct mcps802154_region *region, u32 next_timestamp_dtu,
+	       int next_in_region_dtu, int region_duration_dtu)
 {
-	struct twr_region *r = container_of(region, struct twr_region, region);
-	struct mcps802154_access *access = &r->local->access;
+	struct simple_ranging_local *local = region_init_to_local(region);
+	struct mcps802154_access *access = &local->access;
 	u64 start_rctu_unaligned, start_rctu;
-	const int slots_dtu = r->local->slot_duration_rctu * N_TWR_FRAMES /
-			      r->local->llhw->dtu_rctu;
+	const int slots_dtu = local->slot_duration_rctu * N_TWR_FRAMES /
+			      local->llhw->dtu_rctu;
 	/* Only start a ranging request if we have enough time to end it. */
-	if (next_in_region_dtu + slots_dtu > region->duration_dtu)
+	if (next_in_region_dtu + slots_dtu > region_duration_dtu)
 		return NULL;
 	start_rctu_unaligned = mcps802154_timestamp_dtu_to_rctu(
-		r->local->llhw, next_timestamp_dtu + r->local->llhw->shr_dtu);
-	start_rctu = mcps802154_align_tx_timestamp_rctu(r->local->llhw,
+		local->llhw, next_timestamp_dtu + local->llhw->shr_dtu);
+	start_rctu = mcps802154_align_tx_timestamp_rctu(local->llhw,
 							start_rctu_unaligned);
-	twr_request_start(r->local);
+	twr_request_start(local);
 	access->method = MCPS802154_ACCESS_METHOD_MULTI;
 	access->ops = &twr_access_ops;
-	access->n_frames = ARRAY_SIZE(r->local->frames);
-	access->frames = r->local->frames;
+	access->n_frames = ARRAY_SIZE(local->frames);
+	access->frames = local->frames;
 	/* Hard-coded! */
 	access->frames[TWR_FRAME_POLL].is_tx = true;
 	access->frames[TWR_FRAME_POLL].tx_frame_info.timestamp_rctu =
@@ -637,12 +638,12 @@ twr_get_access(const struct mcps802154_region *region, u32 next_timestamp_dtu,
 	access->frames[TWR_FRAME_POLL].tx_frame_info.rx_enable_after_tx_dtu = 0;
 	access->frames[TWR_FRAME_POLL]
 		.tx_frame_info.rx_enable_after_tx_timeout_dtu = 0;
-	r->local->initiator.poll_tx_timestamp_rctu =
-		start_rctu + r->local->llhw->tx_rmarker_offset_rctu;
+	local->initiator.poll_tx_timestamp_rctu =
+		start_rctu + local->llhw->tx_rmarker_offset_rctu;
 
 	access->frames[TWR_FRAME_RESP].is_tx = false;
 	access->frames[TWR_FRAME_RESP].rx.info.timestamp_rctu =
-		start_rctu + r->local->slot_duration_rctu;
+		start_rctu + local->slot_duration_rctu;
 	access->frames[TWR_FRAME_RESP].rx.info.timeout_dtu = 0;
 	access->frames[TWR_FRAME_RESP].rx.info.flags =
 		MCPS802154_RX_INFO_TIMESTAMP_RCTU | MCPS802154_RX_INFO_RANGING |
@@ -653,7 +654,7 @@ twr_get_access(const struct mcps802154_region *region, u32 next_timestamp_dtu,
 
 	access->frames[TWR_FRAME_FINAL].is_tx = true;
 	access->frames[TWR_FRAME_FINAL].tx_frame_info.timestamp_rctu =
-		start_rctu + 2 * r->local->slot_duration_rctu;
+		start_rctu + 2 * local->slot_duration_rctu;
 	access->frames[TWR_FRAME_FINAL].tx_frame_info.flags =
 		MCPS802154_TX_FRAME_TIMESTAMP_RCTU |
 		MCPS802154_TX_FRAME_RANGING | MCPS802154_TX_FRAME_ENABLE_STS;
@@ -661,13 +662,13 @@ twr_get_access(const struct mcps802154_region *region, u32 next_timestamp_dtu,
 		0;
 	access->frames[TWR_FRAME_FINAL]
 		.tx_frame_info.rx_enable_after_tx_timeout_dtu = 0;
-	r->local->initiator.final_tx_timestamp_rctu =
-		start_rctu + 2 * r->local->slot_duration_rctu +
-		r->local->llhw->tx_rmarker_offset_rctu;
+	local->initiator.final_tx_timestamp_rctu =
+		start_rctu + 2 * local->slot_duration_rctu +
+		local->llhw->tx_rmarker_offset_rctu;
 
 	access->frames[TWR_FRAME_REPORT].is_tx = false;
 	access->frames[TWR_FRAME_REPORT].rx.info.timestamp_rctu =
-		start_rctu + 3 * r->local->slot_duration_rctu;
+		start_rctu + 3 * local->slot_duration_rctu;
 	access->frames[TWR_FRAME_REPORT].rx.info.timeout_dtu = 0;
 	access->frames[TWR_FRAME_REPORT].rx.info.flags =
 		MCPS802154_RX_INFO_TIMESTAMP_RCTU |
@@ -677,44 +678,44 @@ twr_get_access(const struct mcps802154_region *region, u32 next_timestamp_dtu,
 }
 
 static const struct mcps802154_region_ops simple_ranging_twr_region_ops = {
-	.name = "twr",
-	.alloc = twr_alloc,
+	.name = "twr_initiator",
 	.get_access = twr_get_access,
-	.free = twr_free,
 };
 
-/* Region handler. */
+/* Scheduler. */
 
-static struct mcps802154_open_region_handler *
-simple_ranging_region_handler_open(struct mcps802154_llhw *llhw)
+static struct mcps802154_scheduler *
+simple_ranging_scheduler_open(struct mcps802154_llhw *llhw)
 {
 	struct simple_ranging_local *local;
 
 	local = kzalloc(sizeof(*local), GFP_KERNEL);
 	if (!local)
 		return NULL;
+	local->region_resp.ops = &simple_ranging_twr_responder_region_ops;
+	local->region_init.ops = &simple_ranging_twr_region_ops;
 	local->llhw = llhw;
 	local->slot_duration_rctu = TWR_SLOT_DEFAULT_RCTU;
 	local->is_responder = false;
 
 	twr_requests_clear(local);
-	return &local->orh;
+	return &local->scheduler;
 }
 
 static void
-simple_ranging_region_handler_close(struct mcps802154_open_region_handler *orh)
+simple_ranging_scheduler_close(struct mcps802154_scheduler *scheduler)
 {
-	struct simple_ranging_local *local = orh_to_local(orh);
+	struct simple_ranging_local *local = scheduler_to_local(scheduler);
+
 	kfree(local);
 }
 
-static int simple_ranging_region_handler_update_schedule(
-	struct mcps802154_open_region_handler *orh,
+static int simple_ranging_scheduler_update_schedule(
+	struct mcps802154_scheduler *scheduler,
 	const struct mcps802154_schedule_update *schedule_update,
 	u32 next_timestamp_dtu)
 {
-	struct simple_ranging_local *local = orh_to_local(orh);
-	struct mcps802154_region *region;
+	struct simple_ranging_local *local = scheduler_to_local(scheduler);
 	const int slot_dtu = local->slot_duration_rctu / local->llhw->dtu_rctu;
 	int twr_slots = local->n_requests * N_TWR_FRAMES;
 	int r;
@@ -742,25 +743,26 @@ static int simple_ranging_region_handler_update_schedule(
 	WARN_RETURN(r);
 
 	if (local->is_responder) {
-		region = mcps802154_schedule_add_region(
-			schedule_update, TWR_RESPONDER_REGION, 0, 0);
+		r = mcps802154_schedule_add_region(schedule_update,
+						   &local->region_resp, 0, 0);
 	} else {
-		region = mcps802154_schedule_add_region(schedule_update,
-							TWR_INITIATOR_REGION, 0,
-							twr_slots * slot_dtu);
+		r = mcps802154_schedule_add_region(schedule_update,
+						   &local->region_init, 0,
+						   twr_slots * slot_dtu);
 	}
-	if (!region)
-		return -ENOMEM;
+	if (r)
+		return r;
 
 	return 0;
 }
 
-static int simple_ranging_region_handler_ranging_setup(
-	struct mcps802154_open_region_handler *orh,
+static int simple_ranging_scheduler_ranging_setup(
+	struct mcps802154_scheduler *scheduler,
 	const struct mcps802154_nl_ranging_request *requests,
 	unsigned int n_requests)
 {
-	struct simple_ranging_local *local = orh_to_local(orh);
+	struct simple_ranging_local *local = scheduler_to_local(scheduler);
+
 	if (local->is_responder) {
 		return -EOPNOTSUPP;
 	} else {
@@ -784,11 +786,12 @@ static int simple_ranging_region_handler_ranging_setup(
 	}
 }
 
-static int simple_ranging_region_handler_set_parameters(
-	struct mcps802154_open_region_handler *orh,
-	const struct nlattr *params_attr, struct netlink_ext_ack *extack)
+static int
+simple_ranging_scheduler_set_parameters(struct mcps802154_scheduler *scheduler,
+					const struct nlattr *params_attr,
+					struct netlink_ext_ack *extack)
 {
-	struct simple_ranging_local *local = orh_to_local(orh);
+	struct simple_ranging_local *local = scheduler_to_local(scheduler);
 	struct nlattr *attrs[SIMPLE_RANGING_REGION_SET_PARAMETERS_ATTR_MAX + 1];
 	int r;
 	static const struct nla_policy nla_policy[SIMPLE_RANGING_REGION_SET_PARAMETERS_ATTR_MAX +
@@ -829,30 +832,24 @@ static int simple_ranging_region_handler_set_parameters(
 	return 0;
 }
 
-static const struct mcps802154_region_ops *const simple_ranging_regions_ops[] = {
-	&simple_ranging_twr_region_ops,
-	&simple_ranging_twr_responder_region_ops,
-};
-
-static struct mcps802154_region_handler simple_ranging_region_handler = {
+static struct mcps802154_scheduler_ops simple_ranging_scheduler_ops = {
 	.owner = THIS_MODULE,
 	.name = "simple-ranging",
-	.n_regions_ops = ARRAY_SIZE(simple_ranging_regions_ops),
-	.regions_ops = simple_ranging_regions_ops,
-	.open = simple_ranging_region_handler_open,
-	.close = simple_ranging_region_handler_close,
-	.update_schedule = simple_ranging_region_handler_update_schedule,
-	.ranging_setup = simple_ranging_region_handler_ranging_setup,
-	.set_parameters = simple_ranging_region_handler_set_parameters,
+	.open = simple_ranging_scheduler_open,
+	.close = simple_ranging_scheduler_close,
+	.update_schedule = simple_ranging_scheduler_update_schedule,
+	.ranging_setup = simple_ranging_scheduler_ranging_setup,
+	.set_parameters = simple_ranging_scheduler_set_parameters,
 };
 
 int __init simple_ranging_region_init(void)
 {
-	return mcps802154_region_handler_register(
-		&simple_ranging_region_handler);
+	int r = mcps802154_scheduler_register(&simple_ranging_scheduler_ops);
+	/* TODO: register regions when they can be used from another scheduler. */
+	return r;
 }
 
 void __exit simple_ranging_region_exit(void)
 {
-	mcps802154_region_handler_unregister(&simple_ranging_region_handler);
+	mcps802154_scheduler_unregister(&simple_ranging_scheduler_ops);
 }

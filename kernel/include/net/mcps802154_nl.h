@@ -37,10 +37,19 @@
  *	devices.
  * @MCPS802154_CMD_NEW_HW:
  *	Result from information request.
- * @MCPS802154_CMD_SET_SCHEDULE_REGION_HANDLER:
- *	Set the region handler used to manage the schedule.
- * @MCPS802154_CMD_SET_SCHEDULE_REGION_HANDLER_PARAMS:
- *	Set the parameters of the current schedule region handler.
+ * @MCPS802154_CMD_SET_SCHEDULER:
+ *	Set the scheduler used to manage the schedule.
+ * @MCPS802154_CMD_SET_SCHEDULER_PARAMS:
+ *	Set the parameters of the current scheduler.
+ * @MCPS802154_CMD_SET_CALIBRATIONS:
+ *	Attempts to write the given value to the indicated calibration item.
+ * @MCPS802154_CMD_GET_CALIBRATIONS:
+ *	Requests information about a given calibration items.
+ * @MCPS802154_CMD_LIST_CALIBRATIONS:
+ *	Reports all calibrations existing.
+ * @MCPS802154_CMD_TESTMODE:
+ *	Run a testmode command with TESTDATA blob attribute to pass through
+ *	to the driver.
  * @MCPS802154_CMD_SET_RANGING_REQUESTS:
  *	Set the list of ranging requests.
  * @MCPS802154_CMD_RANGING_REPORT:
@@ -56,8 +65,14 @@ enum mcps802154_commands {
 	MCPS802154_CMD_GET_HW, /* can dump */
 	MCPS802154_CMD_NEW_HW,
 
-	MCPS802154_CMD_SET_SCHEDULE_REGION_HANDLER,
-	MCPS802154_CMD_SET_SCHEDULE_REGION_HANDLER_PARAMS,
+	MCPS802154_CMD_SET_SCHEDULER,
+	MCPS802154_CMD_SET_SCHEDULER_PARAMS,
+
+	MCPS802154_CMD_SET_CALIBRATIONS,
+	MCPS802154_CMD_GET_CALIBRATIONS,
+	MCPS802154_CMD_LIST_CALIBRATIONS,
+
+	MCPS802154_CMD_TESTMODE,
 
 	/* Temporary ranging interface. */
 	MCPS802154_CMD_SET_RANGING_REQUESTS,
@@ -74,10 +89,19 @@ enum mcps802154_commands {
  *	Hardware device index, internal to MCPS.
  * @MCPS802154_ATTR_WPAN_PHY_NAME:
  *	Name of corresponding wpan_phy device.
- * @MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_NAME:
- *	Name of the schedule region handler.
- * @MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_PARAMS:
- *	Parameters of the schedule region handler.
+ * @MCPS802154_ATTR_SCHEDULER_NAME:
+ *	Name of the scheduler.
+ * @MCPS802154_ATTR_SCHEDULER_PARAMS:
+ *	Parameters of the scheduler.
+ * @MCPS802154_ATTR_TESTDATA:
+ *	Testmode's data blob, passed through to the driver. It contains
+ *	driver-specific attributes.
+ * @MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU:
+ *	Tx rmarker used by calibration tools.
+ * @MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU:
+ *	Rx rmarker used by calibration tools.
+ * @MCPS802154_ATTR_CALIBRATIONS:
+ *	Nested array of calibrations.
  * @MCPS802154_ATTR_RANGING_REQUESTS:
  *	List of ranging requests. This is a nested attribute containing an array
  *	of nested attributes.
@@ -94,8 +118,14 @@ enum mcps802154_attrs {
 	MCPS802154_ATTR_HW,
 	MCPS802154_ATTR_WPAN_PHY_NAME,
 
-	MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_NAME,
-	MCPS802154_ATTR_SCHEDULE_REGION_HANDLER_PARAMS,
+	MCPS802154_ATTR_SCHEDULER_NAME,
+	MCPS802154_ATTR_SCHEDULER_PARAMS,
+
+	MCPS802154_ATTR_TESTDATA,
+
+	MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU,
+	MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU,
+	MCPS802154_ATTR_CALIBRATIONS,
 
 	/* Temporary ranging interface. */
 	MCPS802154_ATTR_RANGING_REQUESTS,
@@ -132,6 +162,29 @@ enum mcps802154_ranging_request_attrs {
 	__MCPS802154_RANGING_REQUEST_ATTR_AFTER_LAST,
 	MCPS802154_RANGING_REQUEST_ATTR_MAX =
 		__MCPS802154_RANGING_REQUEST_ATTR_AFTER_LAST - 1
+};
+
+/**
+ * enum mcps802154_calibration_attrs - Calibration item.
+ *
+ * @MCPS802154_CALIBRATION_REQUEST_ATTR_KEY:
+ *	Calibration name.
+ * @MCPS802154_CALIBRATION_REQUEST_ATTR_VALUE:
+ *	Calibration value.
+ * @MCPS802154_CALIBRATION_REQUEST_ATTR_STATUS:
+ *	Status in case of error on write or read.
+ *
+ */
+enum mcps802154_calibration_attrs {
+	MCPS802154_CALIBRATIONS_ATTR_UNSPEC,
+
+	MCPS802154_CALIBRATIONS_ATTR_KEY,
+	MCPS802154_CALIBRATIONS_ATTR_VALUE,
+	MCPS802154_CALIBRATIONS_ATTR_STATUS,
+
+	__MCPS802154_CALIBRATIONS_ATTR_AFTER_LAST,
+	MCPS802154_CALIBRATIONS_ATTR_MAX =
+		__MCPS802154_CALIBRATIONS_ATTR_AFTER_LAST - 1
 };
 
 /**

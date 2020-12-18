@@ -1,6 +1,9 @@
 obj-m := mcps802154.o
 
+ccflags-$(CONFIG_MCPS802154_TESTMODE) += -DCONFIG_MCPS802154_TESTMODE
+
 mcps802154-y := \
+	schedulers.o \
 	ca.o \
 	default_region.o \
 	fproc.o \

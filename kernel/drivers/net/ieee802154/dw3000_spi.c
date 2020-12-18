@@ -21,6 +21,7 @@
  * Qorvo.
  * Please contact Qorvo to inquire about licensing terms.
  */
+#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/spi/spi.h>
 #include <linux/of.h>
@@ -30,9 +31,14 @@
 #include "dw3000_stm.h"
 #include "dw3000_mcps.h"
 
-static int dw3000_thread_cpu = 0;
+static int dw3000_thread_cpu;
 module_param_named(cpu, dw3000_thread_cpu, uint, 0444);
 MODULE_PARM_DESC(cpu, "CPU on which the DW state machine's thread will run");
+
+static int dw3000_wifi_coex_gpio = -1;
+module_param_named(wificoex_gpio, dw3000_wifi_coex_gpio, int, 0444);
+MODULE_PARM_DESC(wificoex_gpio,
+		 "WiFi coexistence GPIO number, -1 for disabled (default)");
 
 static int dw3000_spi_probe(struct spi_device *spi)
 {
@@ -49,6 +55,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, dw);
 	dw->spi = spi;
 	dw->dev = &spi->dev;
+	dw->coex_gpio = (s8)dw3000_wifi_coex_gpio;
 
 	dev_info(dw->dev, "Loading driver...");
 
@@ -59,7 +66,9 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	dev_info(dw->dev, "can_dma: %d\n", spi->master->can_dma != NULL);
 
 	spi->bits_per_word = 8;
+#if (KERNEL_VERSION(5, 3, 0) <= LINUX_VERSION_CODE)
 	spi->rt = 1;
+#endif
 	rc = spi_setup(spi);
 	if (rc != 0)
 		goto err_spi_setup;

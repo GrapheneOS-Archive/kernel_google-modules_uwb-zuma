@@ -30,12 +30,20 @@
 #include <linux/tracepoint.h>
 
 #include "dw3000.h"
+#include "dw3000_testmode_nl.h"
 
 #define MAXNAME 32
 #define DW_ENTRY __array(char, dw_name, MAXNAME)
 #define DW_ASSIGN strlcpy(__entry->dw_name, dw->dev->kobj.name, MAXNAME)
 #define DW_PR_FMT "%s"
 #define DW_PR_ARG __entry->dw_name
+
+#ifdef CONFIG_MCPS802154_TESTMODE
+#define dw3000_tm_cmd_name(name)            \
+	{                                   \
+		DW3000_TM_CMD_##name, #name \
+	}
+#endif
 
 /* We don't want clang-format to modify the following events definition!
    Look at net/wireless/trace.h for the required format. */
@@ -260,6 +268,36 @@ DEFINE_EVENT(dw_only_evt, dw3000_read_rx_timestamp,
 	TP_PROTO(struct dw3000 *dw),
 	TP_ARGS(dw)
 );
+
+/*************************************************************
+ *		dw3000 optional functions traces	     *
+ *************************************************************/
+
+#ifdef CONFIG_MCPS802154_TESTMODE
+TRACE_EVENT(dw3000_tm_cmd,
+	TP_PROTO(struct dw3000 *dw, u32 cmd),
+	TP_ARGS(dw, cmd),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u32, cmd)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->cmd = cmd;
+	),
+	TP_printk(DW_PR_FMT ", testmode command: %s", DW_PR_ARG,
+		__print_symbolic(__entry->cmd,
+			dw3000_tm_cmd_name(START_RX_DIAG),
+			dw3000_tm_cmd_name(STOP_RX_DIAG),
+			dw3000_tm_cmd_name(GET_RX_DIAG),
+			dw3000_tm_cmd_name(CLEAR_RX_DIAG),
+			dw3000_tm_cmd_name(START_TX_CWTONE),
+			dw3000_tm_cmd_name(STOP_TX_CWTONE),
+			dw3000_tm_cmd_name(OTP_READ),
+			dw3000_tm_cmd_name(OTP_WRITE))
+		)
+);
+#endif
 
 /* clang-format on */
 #endif /* !__DW3000_TRACE || TRACE_HEADER_MULTI_READ */
