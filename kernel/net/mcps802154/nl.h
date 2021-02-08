@@ -41,22 +41,57 @@ struct mcps802154_nl_ranging_request {
 };
 
 /**
+ * struct mcps802154_nl_ranging_report - Measures report.
+ */
+struct mcps802154_nl_ranging_report {
+	/** @tof_rctu: Time of Flight, or INT_MIN. */
+	int tof_rctu;
+	/** @local_pdoa_rad_q11: Local Phase Difference Of Arrival, or INT_MIN. */
+	int local_pdoa_rad_q11;
+	/** @remote_pdoa_rad_q11: Remote Phase Difference  Of Arrival, or INT_MIN. */
+	int remote_pdoa_rad_q11;
+	/** @local_pdoa_elevation_rad_q11: Local Phase Difference Of Arrival, or INT_MIN. */
+	int local_pdoa_elevation_rad_q11;
+	/** @remote_pdoa_elevation_rad_q11: Remote Phase Difference Of Arrival, or INT_MIN. */
+	int remote_pdoa_elevation_rad_q11;
+	/** @is_same_rx_ant: Has azimuth and elevation AoA been done with same antenna? */
+	bool is_same_rx_ant;
+};
+
+/**
  * mcps802154_nl_ranging_report() - Report a ranging result, called from ranging
  * code.
  * @llhw: Low-level device pointer.
  * @id: Ranging identifier.
- * @tof_rctu: Time of flight, or INT_MIN.
- * @local_pdoa_rad_q11: Local Phase Difference Of Arrival, or INT_MIN.
- * @remote_pdoa_rad_q11: Remote Phase Difference  Of Arrival, or INT_MIN.
+ * @report: Phase Difference Of Arrival and Time of Flight.
  *
  * If this returns -ECONNREFUSED, the receiver is not listening anymore, ranging
  * can be stopped.
  *
  * Return: 0 or error.
  */
-int mcps802154_nl_ranging_report(struct mcps802154_llhw *llhw, int id,
-				 int tof_rctu, int local_pdoa_rad_q11,
-				 int remote_pdoa_rad_q11);
+int mcps802154_nl_ranging_report(
+	struct mcps802154_llhw *llhw, int id,
+	const struct mcps802154_nl_ranging_report *report);
+
+#ifdef CONFIG_MCPS802154_TESTMODE
+/**
+ * mcps802154_nl_ping_pong_report() - Report a ping pong result, called from
+ * factory tests code.
+ * @llhw: Low-level device pointer.
+ * @id: ping pong identifier.
+ * @t_0: t_0 of ping pong
+ * @t_3: t_3 of ping pong
+ * @t_4: t_4 of ping pong
+ *
+ * If this returns -ECONNREFUSED, the receiver is not listening anymore,
+ * ping pong can be stopped.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_nl_ping_pong_report(struct mcps802154_llhw *llhw, int id,
+				   u64 t_0, u64 t_3, u64 t_4);
+#endif
 
 int mcps802154_nl_init(void);
 void mcps802154_nl_exit(void);

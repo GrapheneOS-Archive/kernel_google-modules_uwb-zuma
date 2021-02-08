@@ -125,19 +125,6 @@ static inline int llhw_get_current_timestamp_dtu(struct mcps802154_local *local,
 	return r;
 }
 
-static inline int
-llhw_get_current_timestamp_rctu(struct mcps802154_local *local,
-				u64 *timestamp_rctu)
-{
-	int r;
-
-	trace_llhw_get_current_timestamp_rctu(local);
-	r = local->ops->get_current_timestamp_rctu(&local->llhw,
-						   timestamp_rctu);
-	trace_llhw_return_timestamp_rctu(local, r, *timestamp_rctu);
-	return r;
-}
-
 static inline u64 llhw_timestamp_dtu_to_rctu(struct mcps802154_local *local,
 					     u32 timestamp_dtu)
 {
@@ -150,11 +137,12 @@ static inline u32 llhw_timestamp_rctu_to_dtu(struct mcps802154_local *local,
 	return local->ops->timestamp_rctu_to_dtu(&local->llhw, timestamp_rctu);
 }
 
-static inline u64 llhw_align_tx_timestamp_rctu(struct mcps802154_local *local,
-					       u64 timestamp_rctu)
+static inline u64
+llhw_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_local *local,
+				      u32 tx_timestamp_dtu)
 {
-	return local->ops->align_tx_timestamp_rctu(&local->llhw,
-						   timestamp_rctu);
+	return local->ops->tx_timestamp_dtu_to_rmarker_rctu(&local->llhw,
+							    tx_timestamp_dtu);
 }
 
 static inline s64 llhw_difference_timestamp_rctu(struct mcps802154_local *local,

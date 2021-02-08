@@ -9,13 +9,15 @@ test: all
 	./build/utest/test_mac
 
 cov:
-	ninja -C build test_mac_coverage
+	ninja -C build-cov test_mac_coverage
 
 cmake:
-	cmake -B build -G Ninja -DENABLE_TEST_COVERAGE=on -DCMAKE_BUILD_TYPE=Debug
+	cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+	cmake -B build-cov -G Ninja -DENABLE_TEST_COVERAGE=on -DCMAKE_BUILD_TYPE=Debug -DDISABLE_SANITIZE=on
 
 clean:
-	ninja -C build clean
+	test -d build && ninja -C build clean
+	test -d build-cov && ninja -C build-cov clean
 
 check: check_format check_doc
 

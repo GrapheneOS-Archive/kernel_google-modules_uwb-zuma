@@ -139,6 +139,12 @@ void mcps802154_fproc_stopped_handle(struct mcps802154_local *local);
 void mcps802154_fproc_broken_handle(struct mcps802154_local *local);
 
 /**
+ * mcps802154_fproc_nothing_handle() - Handle inactivity.
+ * @local: MCPS private data.
+ */
+void mcps802154_fproc_nothing_handle(struct mcps802154_local *local);
+
+/**
  * mcps802154_fproc_rx_handle() - Handle an RX access and change state.
  * @local: MCPS private data.
  * @access: Current access to handle.

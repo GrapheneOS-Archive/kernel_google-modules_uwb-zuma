@@ -132,9 +132,8 @@ int mcps802154_schedule_recycle(
 	/* Update last region. */
 	last_sched_region =
 		sched->n_regions ? &sched->regions[sched->n_regions - 1] : NULL;
-	if (last_region_duration_dtu != MCPS802154_DURATION_NO_CHANGE) {
+	if (last_region_duration_dtu != MCPS802154_DURATION_NO_CHANGE)
 		last_sched_region->duration_dtu = last_region_duration_dtu;
-	}
 
 	/* Update schedule duration. */
 	if (!last_sched_region || last_sched_region->duration_dtu == 0) {
@@ -204,6 +203,15 @@ int mcps802154_schedule_add_region(
 	return 0;
 }
 EXPORT_SYMBOL(mcps802154_schedule_add_region);
+
+void mcps802154_reschedule(struct mcps802154_llhw *llhw)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	if (likely(local->started))
+		mcps802154_ca_may_reschedule(local);
+}
+EXPORT_SYMBOL(mcps802154_reschedule);
 
 void mcps802154_schedule_invalidate(struct mcps802154_llhw *llhw)
 {

@@ -139,3 +139,15 @@ int mcps802154_region_set_parameters(struct mcps802154_llhw *llhw,
 	return region->ops->set_parameters(region, params_attr, extack);
 }
 EXPORT_SYMBOL(mcps802154_region_set_parameters);
+
+int mcps802154_region_call(struct mcps802154_llhw *llhw,
+			   struct mcps802154_region *region, u32 call_id,
+			   const struct nlattr *params_attr,
+			   const struct genl_info *info)
+{
+	if (!region->ops->call)
+		return -EOPNOTSUPP;
+
+	return region->ops->call(region, call_id, params_attr, info);
+}
+EXPORT_SYMBOL(mcps802154_region_call);

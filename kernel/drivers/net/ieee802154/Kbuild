@@ -5,8 +5,11 @@ ccflags-$(CONFIG_MCPS802154_TESTMODE) += -DCONFIG_MCPS802154_TESTMODE
 
 dw3000-y := \
 		dw3000_calib.o \
+		dw3000_ccc.o \
+		dw3000_ccc_mailbox.o \
 		dw3000_chip_c0.o \
 		dw3000_chip_d0.o \
+		dw3000_chip_e0.o \
 		dw3000_core.o \
 		dw3000_mcps.o \
 		dw3000_spi.o \

@@ -25,6 +25,7 @@
  *
  */
 #include <linux/atomic.h>
+#include <linux/errno.h>
 #include <linux/ieee802154.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -36,6 +37,10 @@
 #include "llhw-ops.h"
 #include "default_region.h"
 #include "simple_ranging_region.h"
+#include "endless_scheduler.h"
+#ifdef CONFIG_MCPS802154_TESTMODE
+#include "ping_pong_region.h"
+#endif
 #include "nl.h"
 #include "warn_return.h"
 
@@ -173,6 +178,18 @@ __le16 mcps802154_get_short_addr(struct mcps802154_llhw *llhw)
 }
 EXPORT_SYMBOL(mcps802154_get_short_addr);
 
+int mcps802154_get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
+					 u32 *timestamp_dtu)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	if (!local->started)
+		return -ENETDOWN;
+
+	return llhw_get_current_timestamp_dtu(local, timestamp_dtu);
+}
+EXPORT_SYMBOL(mcps802154_get_current_timestamp_dtu);
+
 u64 mcps802154_timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
 				     u32 timestamp_dtu)
 {
@@ -191,14 +208,14 @@ u32 mcps802154_timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 }
 EXPORT_SYMBOL(mcps802154_timestamp_rctu_to_dtu);
 
-u64 mcps802154_align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
-				       u64 timestamp_rctu)
+u64 mcps802154_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
+						u32 tx_timestamp_dtu)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
 
-	return llhw_align_tx_timestamp_rctu(local, timestamp_rctu);
+	return llhw_tx_timestamp_dtu_to_rmarker_rctu(local, tx_timestamp_dtu);
 }
-EXPORT_SYMBOL(mcps802154_align_tx_timestamp_rctu);
+EXPORT_SYMBOL(mcps802154_tx_timestamp_dtu_to_rmarker_rctu);
 
 s64 mcps802154_difference_timestamp_rctu(struct mcps802154_llhw *llhw,
 					 u64 timestamp_a_rctu,
@@ -240,11 +257,21 @@ int __init mcps802154_init(void)
 	WARN_RETURN(r);
 	r = simple_ranging_region_init();
 	WARN_ON(r);
+	r = mcps802154_endless_scheduler_init();
+	WARN_ON(r);
+#ifdef CONFIG_MCPS802154_TESTMODE
+	r = ping_pong_region_init();
+	WARN_ON(r);
+#endif
 	return r;
 }
 
 void __exit mcps802154_exit(void)
 {
+#ifdef CONFIG_MCPS802154_TESTMODE
+	ping_pong_region_exit();
+#endif
+	mcps802154_endless_scheduler_exit();
 	simple_ranging_region_exit();
 	mcps802154_default_region_exit();
 	mcps802154_nl_exit();

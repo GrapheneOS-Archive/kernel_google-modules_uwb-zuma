@@ -136,19 +136,17 @@ mcps802154_fproc_multi_rx_schedule_change(struct mcps802154_local *local)
 		/* Disable RX. */
 		int r = llhw_rx_disable(local);
 
-		if (r == -EBUSY) {
+		if (r == -EBUSY)
 			/* Wait for RX result. */
 			return;
+
+		access->ops->rx_frame(access, frame_idx, NULL, NULL);
+		if (r) {
+			mcps802154_fproc_access_done(local);
+			mcps802154_fproc_broken_handle(local);
 		} else {
-			access->ops->rx_frame(access, frame_idx, NULL, NULL);
-			if (r) {
-				mcps802154_fproc_access_done(local);
-				mcps802154_fproc_broken_handle(local);
-			} else {
-				/* Next. */
-				mcps802154_fproc_multi_next(local, access,
-							    frame_idx);
-			}
+			/* Next. */
+			mcps802154_fproc_multi_next(local, access, frame_idx);
 		}
 	}
 }
@@ -178,7 +176,6 @@ static void
 mcps802154_fproc_multi_tx_schedule_change(struct mcps802154_local *local)
 {
 	/* Wait for end of current frame. */
-	return;
 }
 
 static const struct mcps802154_fproc_state mcps802154_fproc_multi_tx = {

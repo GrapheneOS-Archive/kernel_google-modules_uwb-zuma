@@ -32,6 +32,8 @@
 #include "dw3000_testmode.h"
 #include "dw3000_trc.h"
 
+#define sts_to_pdoa(s) ((s) ? DW3000_PDOA_M3 : DW3000_PDOA_M0)
+
 static inline u64 timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
 					u32 timestamp_dtu);
 
@@ -71,6 +73,12 @@ static int do_start(struct dw3000 *dw, void *in, void *out)
 		dev_err(&ctlr->dev, "Failed to power device: %d\n", ret);
 	}
 	dw->has_lock_pm = !ret;
+
+	/* Configure antenna selection GPIO if any */
+	ret = dw3000_config_antenna_gpios(dw);
+	if (unlikely(ret))
+		return ret;
+
 	/* Enable the device */
 	return dw3000_enable(dw);
 }
@@ -129,27 +137,28 @@ static int do_tx_frame(struct dw3000 *dw, void *in, void *out)
 	u32 rx_timeout_pac = 0;
 	int tx_delayed = 1;
 	int rc;
+	u8 sts_mode;
+
+	/* Check data : no data if SP3, must have data otherwise */
+	if (((info->flags & MCPS802154_TX_FRAME_STS_MODE_MASK) ==
+	     MCPS802154_TX_FRAME_SP3) != !params->skb)
+		return -EINVAL;
 
 	/* Enable STS */
-	if (info->flags & MCPS802154_TX_FRAME_ENABLE_STS) {
-		rc = dw3000_setsts(dw, DW3000_STS_MODE_1, DW3000_STS_LEN_256);
-		if (unlikely(rc))
-			return rc;
-		rc = dw3000_setpdoa(dw, DW3000_PDOA_M3);
-	} else {
-		rc = dw3000_setsts(dw, DW3000_STS_MODE_OFF, DW3000_STS_LEN_256);
-		if (unlikely(rc))
-			return rc;
-		rc = dw3000_setpdoa(dw, DW3000_PDOA_M0);
-	}
+	sts_mode = FIELD_GET(MCPS802154_TX_FRAME_STS_MODE_MASK, info->flags);
+	rc = dw3000_setsts(dw, sts_mode, DW3000_STS_LEN_256);
 	if (unlikely(rc))
 		return rc;
-
+	rc = dw3000_setpdoa(dw, sts_to_pdoa(sts_mode));
+	if (unlikely(rc))
+		return rc;
+	/* Ensure correct TX antenna is selected. */
+	rc = dw3000_set_tx_antenna(dw, info->ant_id);
+	if (unlikely(rc))
+		return rc;
 	/* Calculate the transfer date.*/
 	if (info->flags & MCPS802154_TX_FRAME_TIMESTAMP_DTU) {
 		tx_date_dtu = info->timestamp_dtu + llhw->shr_dtu;
-	} else if (info->flags & MCPS802154_TX_FRAME_TIMESTAMP_RCTU) {
-		tx_date_dtu = timestamp_rctu_to_dtu(llhw, info->timestamp_rctu);
 	} else {
 		/* Send immediately. */
 		tx_delayed = 0;
@@ -187,7 +196,7 @@ static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 	struct dw3000_stm_command cmd = { do_tx_frame, &params, NULL };
 	int ret;
 
-	trace_dw3000_mcps_tx_frame(dw, skb->len);
+	trace_dw3000_mcps_tx_frame(dw, skb ? skb->len : 0);
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
 	return ret;
@@ -201,28 +210,23 @@ static int do_rx_enable(struct dw3000 *dw, void *in, void *out)
 	u32 timeout_pac = 0;
 	int rx_delayed = 1;
 	int rc;
+	u8 sts_mode;
 
 	/* Enable STS */
-	if (info->flags & MCPS802154_RX_INFO_ENABLE_STS) {
-		rc = dw3000_setsts(dw, DW3000_STS_MODE_1, DW3000_STS_LEN_256);
-		if (unlikely(rc))
-			return rc;
-		rc = dw3000_setpdoa(dw, DW3000_PDOA_M3);
-	} else {
-		rc = dw3000_setsts(dw, DW3000_STS_MODE_OFF, DW3000_STS_LEN_256);
-		if (unlikely(rc))
-			return rc;
-		rc = dw3000_setpdoa(dw, DW3000_PDOA_M0);
-	}
+	sts_mode = FIELD_GET(MCPS802154_RX_INFO_STS_MODE_MASK, info->flags);
+	rc = dw3000_setsts(dw, sts_mode, DW3000_STS_LEN_256);
 	if (unlikely(rc))
 		return rc;
-
+	rc = dw3000_setpdoa(dw, sts_to_pdoa(sts_mode));
+	if (unlikely(rc))
+		return rc;
+	/* Ensure correct RX antenna are selected. */
+	rc = dw3000_set_rx_antennas(dw, info->ant_pair_id);
+	if (unlikely(rc))
+		return rc;
 	/* Calculate the transfer date. */
 	if (info->flags & MCPS802154_RX_INFO_TIMESTAMP_DTU) {
 		date_dtu = info->timestamp_dtu - DW3000_RX_ENABLE_STARTUP_DTU;
-	} else if (info->flags & MCPS802154_RX_INFO_TIMESTAMP_RCTU) {
-		date_dtu = timestamp_rctu_to_dtu(llhw, info->timestamp_rctu) -
-			   llhw->shr_dtu - DW3000_RX_ENABLE_STARTUP_DTU;
 	} else {
 		/* Receive immediately. */
 		rx_delayed = 0;
@@ -282,6 +286,7 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_rx *rx = &dw->rx;
 	unsigned long flags;
+	u64 timestamp_rctu;
 	int ret = 0;
 	u8 rx_flags;
 
@@ -296,7 +301,7 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	/* Acquire RX lock */
 	spin_lock_irqsave(&rx->lock, flags);
 	/* Check buffer available */
-	if (unlikely(!rx->skb)) {
+	if (unlikely(!rx->skb && !(rx->flags & DW3000_RX_FLAG_ND))) {
 		spin_unlock_irqrestore(&rx->lock, flags);
 		ret = -EAGAIN;
 		goto error;
@@ -305,12 +310,22 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	*skb = rx->skb;
 	rx->skb = NULL;
 	rx_flags = rx->flags;
+	timestamp_rctu = rx->ts_rctu;
 	/* Release RX lock */
 	spin_unlock_irqrestore(&rx->lock, flags);
 
-	if (info->flags & MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU) {
-		if (dw3000_read_rx_timestamp(dw, &info->timestamp_rctu))
-			info->flags &= ~MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU;
+	if (info->flags & (MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+			   MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU)) {
+		if (!(rx_flags & DW3000_RX_FLAG_TS))
+			info->flags &=
+				~(MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+				  MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU);
+		else {
+			info->timestamp_rctu = timestamp_rctu;
+			info->timestamp_dtu =
+				timestamp_rctu_to_dtu(llhw, timestamp_rctu) -
+				llhw->shr_dtu;
+		}
 	}
 	/* In case of auto-ack send. */
 	if (rx_flags & DW3000_RX_FLAG_AACK)
@@ -320,10 +335,10 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 		info->ranging_pdoa_rad_q11 = dw3000_readpdoa(dw);
 	/* Keep only implemented. */
 	info->flags &= (MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+			MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
 			MCPS802154_RX_FRAME_INFO_AACK |
 			MCPS802154_RX_FRAME_INFO_RANGING_PDOA);
-
-	trace_dw3000_return_int_u32(dw, info->flags, (*skb)->len);
+	trace_dw3000_return_int_u32(dw, info->flags, *skb ? (*skb)->len : 0);
 	return 0;
 
 error:
@@ -415,29 +430,6 @@ static int get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
 	return ret;
 }
 
-static int do_get_rctu(struct dw3000 *dw, void *in, void *out)
-{
-	u32 systime;
-	int ret = dw3000_read_sys_time(dw, &systime);
-
-	if (!ret)
-		*(u64 *)out = (u64)systime << 9;
-	return ret;
-}
-
-static int get_current_timestamp_rctu(struct mcps802154_llhw *llhw,
-				      u64 *timestamp_rctu)
-{
-	struct dw3000 *dw = llhw->priv;
-	struct dw3000_stm_command cmd = { do_get_rctu, NULL, timestamp_rctu };
-	int ret;
-
-	trace_dw3000_mcps_get_rctu(dw);
-	ret = dw3000_enqueue_generic(dw, &cmd);
-	trace_dw3000_return_int_u64(dw, ret, *timestamp_rctu);
-	return ret;
-}
-
 static inline u64 timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
 					u32 timestamp_dtu)
 {
@@ -450,13 +442,13 @@ static inline u32 timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 	return (u32)(timestamp_rctu / DW3000_RCTU_PER_DTU);
 }
 
-static inline u64 align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
-					  u64 timestamp_rctu)
+static inline u64 tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
+						   u32 tx_timestamp_dtu)
 {
-	/* Aligned DTU date need to have the LSb zeroed, mask one extra bit. */
-	const u64 bits_mask = DW3000_RCTU_PER_DTU * 2 - 1;
-
-	return (timestamp_rctu + bits_mask) & ~bits_mask;
+	/* LSB is ignored. */
+	const u32 bit_mask = ~1;
+	return timestamp_dtu_to_rctu(llhw, (tx_timestamp_dtu + llhw->shr_dtu) &
+						   bit_mask);
 }
 
 static inline s64 difference_timestamp_rctu(struct mcps802154_llhw *llhw,
@@ -478,29 +470,7 @@ static int compute_frame_duration_dtu(struct mcps802154_llhw *llhw,
 				      int payload_bytes)
 {
 	struct dw3000 *dw = llhw->priv;
-	const struct dw3000_prf_info *prf_info =
-		&_prf_info[dw->config.txCode >= 9 ? DW3000_PRF_64M :
-						    DW3000_PRF_16M];
-	const struct dw3000_bitrate_info *bitrate_info =
-		&_bitrate_info[dw->config.dataRate];
-	/* STS part */
-	const int sts_symb = dw->config.stsMode == DW3000_STS_MODE_OFF ?
-				     0 :
-				     32 << dw->config.stsLength;
-	const int sts_chips = sts_symb * prf_info->chip_per_symb;
-	/* PHR part. */
-	static const int phr_tail_bits = 19 + 2;
-	const int phr_chips = phr_tail_bits /* 1 bit/symbol */
-			      * bitrate_info->phr_chip_per_symb;
-	/* Data part, 48 Reed-Solomon bits per 330 bits. */
-	const int data_bits = payload_bytes * 8;
-	const int data_rs_bits = data_bits + (data_bits + 329) / 330 * 48;
-	const int data_chips = data_rs_bits /* 1 bit/symbol */
-			       * bitrate_info->data_chip_per_symb;
-	/* Done, convert to dtu. */
-	dev_dbg(dw->dev, "%s called\n", __func__);
-	return llhw->shr_dtu +
-	       (sts_chips + phr_chips + data_chips) / DW3000_CHIP_PER_DTU;
+	return dw3000_payload_duration_dtu(dw, payload_bytes) + llhw->shr_dtu;
 }
 
 struct do_set_channel_params {
@@ -724,10 +694,9 @@ static const struct mcps802154_ops dw3000_mcps_ops = {
 	.rx_get_error_frame = rx_get_error_frame,
 	.reset = reset,
 	.get_current_timestamp_dtu = get_current_timestamp_dtu,
-	.get_current_timestamp_rctu = get_current_timestamp_rctu,
 	.timestamp_dtu_to_rctu = timestamp_dtu_to_rctu,
 	.timestamp_rctu_to_dtu = timestamp_rctu_to_dtu,
-	.align_tx_timestamp_rctu = align_tx_timestamp_rctu,
+	.tx_timestamp_dtu_to_rmarker_rctu = tx_timestamp_dtu_to_rmarker_rctu,
 	.difference_timestamp_rctu = difference_timestamp_rctu,
 	.compute_frame_duration_dtu = compute_frame_duration_dtu,
 	.set_channel = set_channel,
@@ -779,8 +748,8 @@ struct dw3000 *dw3000_mcps_alloc(struct device *dev)
 	/* Set extended address. */
 	llhw->hw->phy->perm_extended_addr = 0xd6552cd6e41ceb57;
 
-	/* Driver phy channel 5 on page 4 as default */
-	llhw->hw->phy->current_channel = 5;
+	/* Driver phy page 4 as default, channel is copied from init config. */
+	llhw->hw->phy->current_channel = dw->config.chan;
 	llhw->hw->phy->current_page = 4;
 
 	return dw;

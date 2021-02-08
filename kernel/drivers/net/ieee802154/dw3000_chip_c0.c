@@ -25,6 +25,24 @@
 #include "dw3000_core.h"
 #include "dw3000_core_reg.h"
 
+/* Lookup table default values for channel 5 */
+static const u32 dw3000_c0_configmrxlut_ch5[DW3000_CONFIGMRXLUT_MAX] = {
+	0x1c0fd, 0x1c43e, 0x1c6be, 0x1c77e, 0x1cf36, 0x1cfb5, 0x1cff5
+};
+
+/* Lookup table default values for channel 9 */
+static const u32 dw3000_c0_configmrxlut_ch9[DW3000_CONFIGMRXLUT_MAX] = {
+	0x2a8fe, 0x2ac36, 0x2a5fe, 0x2af3e, 0x2af7d, 0x2afb5, 0x2afb5
+};
+
+const u32 *dw3000_c0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel)
+{
+	if (channel == 5)
+		return dw3000_c0_configmrxlut_ch5;
+	else
+		return dw3000_c0_configmrxlut_ch9;
+}
+
 static int dw3000_c0_softreset(struct dw3000 *dw)
 {
 	/* Reset HIF, TX, RX and PMSC */
@@ -49,9 +67,59 @@ static int dw3000_c0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 	return 0;
 }
 
+/**
+ * dw3000_prog_ldo_and_bias_tune() - Programs the device's LDO and BIAS tuning
+ * @dw: The DW device.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+static int dw3000_c0_prog_ldo_and_bias_tune(struct dw3000 *dw)
+{
+	const u16 bias_mask = DW3000_BIAS_CTRL_DIG_BIAS_DAC_ULV_BIT_MASK;
+	struct dw3000_local_data *local = &dw->data;
+	struct dw3000_otp_data *otp = &dw->otp_data;
+	int rc;
+	u16 bias_tune = (otp->bias_tune >> 16) & bias_mask;
+	if (otp->ldo_tune_lo && otp->ldo_tune_hi && bias_tune) {
+		rc = dw3000_reg_or16(dw, DW3000_NVM_CFG_ID, 0,
+				     DW3000_LDO_BIAS_KICK);
+		if (rc)
+			return rc;
+		rc = dw3000_reg_modify16(dw, DW3000_BIAS_CTRL_ID, 0, ~bias_mask,
+					 bias_tune);
+		if (rc)
+			return rc;
+	}
+	local->dgc_otp_set = DW3000_DGC_LOAD_FROM_SW;
+	return 0;
+}
+
+/**
+ * dw3000_c0_pre_read_sys_time() - Ensure SYS_TIME register is cleared
+ * @dw: The DW device.
+ *
+ * On C0 chips, the SYS_TIME register value is latched and any subsequent read
+ * will return the same value. To clear the current value in the register an SPI
+ * write transaction is necessary, the following read of the SYS_TIME register will
+ * return a new value.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+static int dw3000_c0_pre_read_sys_time(struct dw3000 *dw)
+{
+	/* The SPI_COLLISION register is choose to make this SPI write
+	 * transaction because it is unused and it is a small 8 bits register.
+	 */
+	return dw3000_clear_spi_collision_status(
+		dw, DW3000_SPI_COLLISION_STATUS_BIT_MASK);
+}
+
 const struct dw3000_chip_ops dw3000_chip_c0_ops = {
 	.softreset = dw3000_c0_softreset,
 	.init = dw3000_c0_init,
 	.coex_init = dw3000_c0_coex_init,
 	.coex_gpio = dw3000_c0_coex_gpio,
+	.prog_ldo_and_bias_tune = dw3000_c0_prog_ldo_and_bias_tune,
+	.get_config_mrxlut_chan = dw3000_c0_get_config_mrxlut_chan,
+	.pre_read_sys_time = dw3000_c0_pre_read_sys_time,
 };

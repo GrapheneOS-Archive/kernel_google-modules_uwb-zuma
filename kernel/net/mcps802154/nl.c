@@ -25,6 +25,7 @@
  */
 
 #include <linux/rtnetlink.h>
+#include <linux/version.h>
 #include <net/genetlink.h>
 
 #include <net/mcps802154_nl.h>
@@ -52,6 +53,15 @@ static const struct nla_policy
 		[MCPS802154_CALIBRATIONS_ATTR_STATUS] = { .type = NLA_S32 },
 	};
 
+static const struct nla_policy
+	mcps802154_nl_region_policy[MCPS802154_REGION_MAX + 1] = {
+		[MCPS802154_REGION_ATTR_ID] = ATTR_STRING_POLICY,
+		[MCPS802154_REGION_ATTR_NAME] = ATTR_STRING_POLICY,
+		[MCPS802154_REGION_ATTR_PARAMS] = { .type = NLA_NESTED },
+		[MCPS802154_REGION_ATTR_CALL] = { .type = NLA_U32 },
+		[MCPS802154_REGION_ATTR_CALL_PARAMS] = { .type = NLA_NESTED },
+	};
+
 static const struct nla_policy mcps802154_nl_ranging_request_policy
 	[MCPS802154_RANGING_REQUEST_ATTR_MAX + 1] = {
 		[MCPS802154_RANGING_REQUEST_ATTR_ID] = { .type = NLA_U32 },
@@ -65,6 +75,12 @@ static const struct nla_policy mcps802154_nl_policy[MCPS802154_ATTR_MAX + 1] = {
 	[MCPS802154_ATTR_WPAN_PHY_NAME] = ATTR_STRING_POLICY,
 	[MCPS802154_ATTR_SCHEDULER_NAME] = ATTR_STRING_POLICY,
 	[MCPS802154_ATTR_SCHEDULER_PARAMS] = { .type = NLA_NESTED },
+	[MCPS802154_ATTR_SCHEDULER_REGIONS] =
+		NLA_POLICY_NESTED_ARRAY(mcps802154_nl_region_policy),
+	[MCPS802154_ATTR_SCHEDULER_REGION_IDS] = { .type = NLA_NESTED },
+	[MCPS802154_ATTR_SCHEDULER_CALL] = { .type = NLA_U32 },
+	[MCPS802154_ATTR_SCHEDULER_CALL_PARAMS] = { .type = NLA_NESTED },
+	[MCPS802154_ATTR_SCHEDULER_REGION_CALL] = { .type = NLA_NESTED },
 	[MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU] = { .type = NLA_S32 },
 	[MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU] = { .type = NLA_S32 },
 	[MCPS802154_ATTR_CALIBRATIONS] = { .type = NLA_NESTED },
@@ -167,32 +183,199 @@ static int mcps802154_nl_dump_hw(struct sk_buff *skb,
 }
 
 /**
- * mcps802154_nl_set_scheduler_params() - Set scheduler parameters.
+ * mcps802154_nl_set_regions_params() - Set region parameters.
+ * @local: MCPS private data.
+ * @scheduler_name: Name of the scheduler.
+ * @regions_attr: Nested attribute containing regions parameters.
+ * @extack: Extended ACK report structure.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_set_regions_params(struct mcps802154_local *local,
+					    const char *scheduler_name,
+					    const struct nlattr *regions_attr,
+					    struct netlink_ext_ack *extack)
+{
+	struct nlattr *request;
+	struct nlattr *attrs[MCPS802154_REGION_MAX + 1];
+	int r, rem;
+	char region_id[ATTR_STRING_SIZE];
+	char region_name[ATTR_STRING_SIZE];
+
+	if (!regions_attr)
+		return 0;
+
+	nla_for_each_nested (request, regions_attr, rem) {
+		char *id = NULL;
+
+		r = nla_parse_nested(attrs, MCPS802154_REGION_MAX, request,
+				     mcps802154_nl_region_policy, extack);
+		if (r)
+			return r;
+
+		if (!attrs[MCPS802154_REGION_ATTR_NAME])
+			return -EINVAL;
+
+		if (attrs[MCPS802154_REGION_ATTR_ID]) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+			nla_strscpy(region_id, attrs[MCPS802154_REGION_ATTR_ID],
+				    sizeof(region_id));
+#else
+			nla_strlcpy(region_id, attrs[MCPS802154_REGION_ATTR_ID],
+				    sizeof(region_id));
+#endif
+			id = region_id;
+		}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+		nla_strscpy(region_name, attrs[MCPS802154_REGION_ATTR_NAME],
+			    sizeof(region_name));
+#else
+		nla_strlcpy(region_name, attrs[MCPS802154_REGION_ATTR_NAME],
+			    sizeof(region_name));
+#endif
+		mutex_lock(&local->fsm_lock);
+		r = mcps802154_ca_scheduler_set_region_parameters(
+			local, scheduler_name, id, region_name,
+			attrs[MCPS802154_REGION_ATTR_PARAMS], extack);
+		mutex_unlock(&local->fsm_lock);
+		if (r)
+			return r;
+	}
+
+	return 0;
+}
+
+/**
+ * mcps802154_nl_set_scheduler_info() - Set scheduler parameters and regions.
  * @skb: Request message.
  * @info: Request information.
  *
  * Return: 0 or error.
  */
-static int mcps802154_nl_set_scheduler_params(struct sk_buff *skb,
-					      struct genl_info *info)
+static int mcps802154_nl_set_scheduler_info(struct sk_buff *skb,
+					    struct genl_info *info)
 {
 	struct mcps802154_local *local = info->user_ptr[0];
 	int r;
 	struct nlattr *params_attr =
 		info->attrs[MCPS802154_ATTR_SCHEDULER_PARAMS];
+	struct nlattr *regions_attr =
+		info->attrs[MCPS802154_ATTR_SCHEDULER_REGIONS];
 	struct nlattr *name_attr = info->attrs[MCPS802154_ATTR_SCHEDULER_NAME];
 	char name[ATTR_STRING_SIZE];
 
-	if (!name_attr || !params_attr)
+	if (!name_attr ||
+	    (info->genlhdr->cmd == MCPS802154_CMD_SET_SCHEDULER_PARAMS &&
+	     !params_attr) ||
+	    (info->genlhdr->cmd == MCPS802154_CMD_SET_SCHEDULER_REGIONS &&
+	     !regions_attr))
 		return -EINVAL;
-	nla_strlcpy(name, name_attr, sizeof(name));
 
-	mutex_lock(&local->fsm_lock);
-	r = mcps802154_ca_scheduler_set_parameters(local, name, params_attr,
-						   info->extack);
-	mutex_unlock(&local->fsm_lock);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+	nla_strscpy(name, name_attr, sizeof(name));
+#else
+	nla_strlcpy(name, name_attr, sizeof(name));
+#endif
+
+	if (params_attr) {
+		mutex_lock(&local->fsm_lock);
+		r = mcps802154_ca_scheduler_set_parameters(
+			local, name, params_attr, info->extack);
+		mutex_unlock(&local->fsm_lock);
+
+		if (r)
+			return r;
+	}
+
+	if (regions_attr)
+		r = mcps802154_nl_set_regions_params(local, name, regions_attr,
+						     info->extack);
 
 	return r;
+}
+
+/**
+ * mcps802154_nl_send_region_ids() - Append regions ids to a netlink message.
+ * @local: MCPS private data.
+ * @msg: Message to write to.
+ * @portid: Destination port address.
+ * @seq: Message sequence number.
+ * @flags: Message flags (0 or NLM_F_MULTI).
+ * @region_ids: Regions ids array to put in the message. NULL terminated.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_send_region_ids(struct mcps802154_local *local,
+					 struct sk_buff *msg, u32 portid,
+					 u32 seq, int flags,
+					 const char **region_ids)
+{
+	void *hdr;
+	struct nlattr *regions;
+	int idx = 0;
+
+	hdr = genlmsg_put(msg, portid, seq, &mcps802154_nl_family, flags,
+			  MCPS802154_CMD_LIST_SCHEDULER_REGION_IDS);
+	if (!hdr)
+		return -ENOBUFS;
+
+	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx))
+		goto error;
+
+	if (local->ca.scheduler &&
+	    nla_put_string(msg, MCPS802154_ATTR_SCHEDULER_NAME,
+			   local->ca.scheduler->ops->name))
+		goto error;
+
+	regions = nla_nest_start(msg, MCPS802154_ATTR_SCHEDULER_REGION_IDS);
+	if (!regions)
+		goto error;
+
+	if (region_ids) {
+		while (*region_ids) {
+			if (nla_put_string(msg, idx++, *region_ids++))
+				goto error;
+		}
+	}
+
+	nla_nest_end(msg, regions);
+
+	genlmsg_end(msg, hdr);
+	return 0;
+error:
+	genlmsg_cancel(msg, hdr);
+	return -EMSGSIZE;
+}
+
+/**
+ * mcps802154_nl_list_scheduler_region_ids() - List scheduler regions ids.
+ * @skb: Request message.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_list_scheduler_region_ids(struct sk_buff *skb,
+						   struct genl_info *info)
+{
+	struct sk_buff *msg;
+	struct mcps802154_local *local = info->user_ptr[0];
+	const char **region_ids;
+
+	mutex_lock(&local->fsm_lock);
+	region_ids = mcps802154_ca_list_scheduler_region_ids(local);
+	mutex_unlock(&local->fsm_lock);
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	if (mcps802154_nl_send_region_ids(local, msg, info->snd_portid,
+					  info->snd_seq, 0, region_ids)) {
+		nlmsg_free(msg);
+		return -ENOBUFS;
+	}
+
+	return genlmsg_reply(msg, info);
 }
 
 /**
@@ -208,14 +391,20 @@ static int mcps802154_nl_set_scheduler(struct sk_buff *skb,
 	struct mcps802154_local *local = info->user_ptr[0];
 	struct nlattr *params_attr =
 		info->attrs[MCPS802154_ATTR_SCHEDULER_PARAMS];
+	struct nlattr *regions_attr =
+		info->attrs[MCPS802154_ATTR_SCHEDULER_REGIONS];
 	char name[ATTR_STRING_SIZE];
 	int r;
 
 	if (!info->attrs[MCPS802154_ATTR_SCHEDULER_NAME])
 		return -EINVAL;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+	nla_strscpy(name, info->attrs[MCPS802154_ATTR_SCHEDULER_NAME],
+		    sizeof(name));
+#else
 	nla_strlcpy(name, info->attrs[MCPS802154_ATTR_SCHEDULER_NAME],
 		    sizeof(name));
-
+#endif
 	mutex_lock(&local->fsm_lock);
 	if (local->started)
 		r = -EBUSY;
@@ -223,9 +412,188 @@ static int mcps802154_nl_set_scheduler(struct sk_buff *skb,
 		r = mcps802154_ca_set_scheduler(local, name, params_attr,
 						info->extack);
 	mutex_unlock(&local->fsm_lock);
+	if (r)
+		return r;
+
+	if (regions_attr)
+		r = mcps802154_nl_set_regions_params(local, name, regions_attr,
+						     info->extack);
 
 	return r;
 }
+
+/**
+ * mcps802154_nl_call_scheduler() - Call scheduler specific procedure.
+ * @skb: Request message.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_call_scheduler(struct sk_buff *skb,
+					struct genl_info *info)
+{
+	struct mcps802154_local *local = info->user_ptr[0];
+	int r;
+	struct nlattr *params_attr =
+		info->attrs[MCPS802154_ATTR_SCHEDULER_CALL_PARAMS];
+	struct nlattr *call_attr = info->attrs[MCPS802154_ATTR_SCHEDULER_CALL];
+	struct nlattr *name_attr = info->attrs[MCPS802154_ATTR_SCHEDULER_NAME];
+	char name[ATTR_STRING_SIZE];
+	u32 call_id;
+
+	if (!name_attr || !call_attr)
+		return -EINVAL;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+	nla_strscpy(name, name_attr, sizeof(name));
+#else
+	nla_strlcpy(name, name_attr, sizeof(name));
+#endif
+
+	call_id = nla_get_u32(call_attr);
+
+	mutex_lock(&local->fsm_lock);
+	r = mcps802154_ca_scheduler_call(local, name, call_id, params_attr,
+					 info);
+	mutex_unlock(&local->fsm_lock);
+
+	return r;
+}
+
+/**
+ * mcps802154_nl_call_region() - Call region specific procedure.
+ * @skb: Request message.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_call_region(struct sk_buff *skb,
+				     struct genl_info *info)
+{
+	struct mcps802154_local *local = info->user_ptr[0];
+	struct nlattr *region_call_attr =
+		info->attrs[MCPS802154_ATTR_SCHEDULER_REGION_CALL];
+	struct nlattr *name_attr = info->attrs[MCPS802154_ATTR_SCHEDULER_NAME];
+	struct nlattr *attrs[MCPS802154_REGION_MAX + 1];
+	int r, call_id;
+	char scheduler_name[ATTR_STRING_SIZE];
+	char region_id[ATTR_STRING_SIZE];
+	char region_name[ATTR_STRING_SIZE];
+	char *id = NULL;
+
+	if (!name_attr || !region_call_attr)
+		return -EINVAL;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+	nla_strscpy(scheduler_name, name_attr, sizeof(scheduler_name));
+#else
+	nla_strlcpy(scheduler_name, name_attr, sizeof(scheduler_name));
+#endif
+
+	r = nla_parse_nested(attrs, MCPS802154_REGION_MAX, region_call_attr,
+			     mcps802154_nl_region_policy, info->extack);
+	if (r)
+		return r;
+
+	if (!attrs[MCPS802154_REGION_ATTR_NAME] ||
+	    !attrs[MCPS802154_REGION_ATTR_CALL])
+		return -EINVAL;
+
+	if (attrs[MCPS802154_REGION_ATTR_ID]) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+		nla_strscpy(region_id, attrs[MCPS802154_REGION_ATTR_ID],
+			    sizeof(region_id));
+#else
+		nla_strlcpy(region_id, attrs[MCPS802154_REGION_ATTR_ID],
+			    sizeof(region_id));
+#endif
+
+		id = region_id;
+	}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+	nla_strscpy(region_name, attrs[MCPS802154_REGION_ATTR_NAME],
+		    sizeof(region_name));
+#else
+	nla_strlcpy(region_name, attrs[MCPS802154_REGION_ATTR_NAME],
+		    sizeof(region_name));
+#endif
+
+	call_id = nla_get_u32(attrs[MCPS802154_REGION_ATTR_CALL]);
+
+	mutex_lock(&local->fsm_lock);
+	r = mcps802154_ca_scheduler_call_region(
+		local, scheduler_name, id, region_name, call_id,
+		attrs[MCPS802154_REGION_ATTR_CALL_PARAMS], info);
+	mutex_unlock(&local->fsm_lock);
+
+	return r;
+}
+
+struct sk_buff *
+mcps802154_region_event_alloc_skb(struct mcps802154_llhw *llhw,
+				  struct mcps802154_region *region, u32 call_id,
+				  u32 portid, int approx_len, gfp_t gfp)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+	struct sk_buff *msg;
+	void *hdr;
+	struct nlattr *call, *params;
+
+	msg = nlmsg_new(approx_len + 100, gfp);
+	if (!msg)
+		return NULL;
+
+	hdr = genlmsg_put(msg, portid, 0, &mcps802154_nl_family, 0,
+			  MCPS802154_CMD_CALL_REGION);
+	if (!hdr)
+		goto nla_put_failure;
+
+	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx))
+		goto nla_put_failure;
+
+	call = nla_nest_start(msg, MCPS802154_ATTR_SCHEDULER_REGION_CALL);
+	if (!call)
+		goto nla_put_failure;
+
+	if (nla_put_string(msg, MCPS802154_REGION_ATTR_NAME,
+			   region->ops->name) ||
+	    nla_put_u32(msg, MCPS802154_REGION_ATTR_CALL, call_id))
+		goto nla_put_failure;
+
+	params = nla_nest_start(msg, MCPS802154_REGION_ATTR_CALL_PARAMS);
+	if (!params)
+		goto nla_put_failure;
+
+	((void **)msg->cb)[0] = hdr;
+	((void **)msg->cb)[1] = call;
+	((void **)msg->cb)[2] = params;
+
+	return msg;
+nla_put_failure:
+	kfree_skb(msg);
+	return NULL;
+}
+EXPORT_SYMBOL(mcps802154_region_event_alloc_skb);
+
+int mcps802154_region_event(struct mcps802154_llhw *llhw, struct sk_buff *skb)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+	void *hdr = ((void **)skb->cb)[0];
+	struct nlmsghdr *nlhdr = nlmsg_hdr(skb);
+	struct nlattr *call = ((void **)skb->cb)[1];
+	struct nlattr *params = ((void **)skb->cb)[2];
+
+	/* Clear CB data for netlink core to own from now on */
+	memset(skb->cb, 0, sizeof(skb->cb));
+
+	nla_nest_end(skb, params);
+	nla_nest_end(skb, call);
+	genlmsg_end(skb, hdr);
+
+	return genlmsg_unicast(wpan_phy_net(local->hw->phy), skb,
+			       nlhdr->nlmsg_pid);
+}
+EXPORT_SYMBOL(mcps802154_region_event);
 
 #ifdef CONFIG_MCPS802154_TESTMODE
 /**
@@ -318,6 +686,83 @@ int mcps802154_testmode_reply(struct mcps802154_llhw *llhw, struct sk_buff *skb)
 	return genlmsg_reply(skb, local->cur_cmd_info);
 }
 EXPORT_SYMBOL(mcps802154_testmode_reply);
+
+/**
+ * mcps802154_nl_send_ping_pong_report() - Append ping_pong result to a netlink
+ * message.
+ * @local: MCPS private data.
+ * @msg: Message to write to.
+ * @portid: Destination port address.
+ * @id: ping_pong identifier.
+ * @t_0: t_0 of ping pong
+ * @t_3: t_3 of ping pong
+ * @t_4: t_4 of ping pong
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_send_ping_pong_report(struct mcps802154_local *local,
+					       struct sk_buff *msg, u32 portid,
+					       int id, u64 t_0, u64 t_3,
+					       u64 t_4)
+{
+	void *hdr;
+	struct nlattr *result;
+
+	hdr = genlmsg_put(msg, ranging_report_portid, 0, &mcps802154_nl_family,
+			  0, MCPS802154_CMD_PING_PONG_REPORT);
+	if (!hdr)
+		return -ENOBUFS;
+
+	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx))
+		goto error;
+
+	result = nla_nest_start(msg, MCPS802154_ATTR_PING_PONG_RESULT);
+	if (!result)
+		goto error;
+
+	if (nla_put_u32(msg, MCPS802154_PING_PONG_RESULT_ATTR_ID, id) ||
+	    nla_put_u64_64bit(msg, MCPS802154_PING_PONG_RESULT_ATTR_T_0, t_0,
+			      0) ||
+	    nla_put_u64_64bit(msg, MCPS802154_PING_PONG_RESULT_ATTR_T_3, t_3,
+			      0) ||
+	    nla_put_u64_64bit(msg, MCPS802154_PING_PONG_RESULT_ATTR_T_4, t_4,
+			      0))
+		goto error;
+
+	nla_nest_end(msg, result);
+
+	genlmsg_end(msg, hdr);
+	return 0;
+error:
+	genlmsg_cancel(msg, hdr);
+	return -EMSGSIZE;
+}
+
+int mcps802154_nl_ping_pong_report(struct mcps802154_llhw *llhw, int id,
+				   u64 t_0, u64 t_3, u64 t_4)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+	struct sk_buff *msg;
+	int r;
+	if (ranging_report_portid == 0)
+		return -ECONNREFUSED;
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	if (mcps802154_nl_send_ping_pong_report(
+		    local, msg, ranging_report_portid, id, t_0, t_3, t_4)) {
+		nlmsg_free(msg);
+		return -ENOBUFS;
+	}
+
+	r = genlmsg_unicast(wpan_phy_net(local->hw->phy), msg,
+			    ranging_report_portid);
+	if (r == -ECONNREFUSED) {
+		ranging_report_portid = 0;
+	}
+	return r;
+}
 #endif
 
 /**
@@ -397,17 +842,13 @@ static int mcps802154_nl_set_ranging_requests(struct sk_buff *skb,
  * @msg: Message to write to.
  * @portid: Destination port address.
  * @id: Ranging identifier.
- * @tof_rctu: Time of flight.
- * @local_pdoa_rad_q11: Local Phase Difference Of Arrival.
- * @remote_pdoa_rad_q11: Remote Phase Difference  Of Arrival.
+ * @report: Phase Differences Of Arrival and Time of Flight.
  *
  * Return: 0 or error.
  */
-static int mcps802154_nl_send_ranging_report(struct mcps802154_local *local,
-					     struct sk_buff *msg, u32 portid,
-					     int id, int tof_rctu,
-					     int local_pdoa_rad_q11,
-					     int remote_pdoa_rad_q11)
+static int mcps802154_nl_send_ranging_report(
+	struct mcps802154_local *local, struct sk_buff *msg, u32 portid, int id,
+	const struct mcps802154_nl_ranging_report *report)
 {
 	void *hdr;
 	struct nlattr *result;
@@ -426,15 +867,25 @@ static int mcps802154_nl_send_ranging_report(struct mcps802154_local *local,
 
 	if (nla_put_u32(msg, MCPS802154_RANGING_RESULT_ATTR_ID, id) ||
 	    nla_put_s32(msg, MCPS802154_RANGING_RESULT_ATTR_TOF_RCTU,
-			tof_rctu) ||
+			report->tof_rctu) ||
 	    nla_put_s32(msg, MCPS802154_RANGING_RESULT_ATTR_LOCAL_PDOA_RAD_Q11,
-			local_pdoa_rad_q11) ||
+			report->local_pdoa_rad_q11) ||
 	    nla_put_s32(msg, MCPS802154_RANGING_RESULT_ATTR_REMOTE_PDOA_RAD_Q11,
-			remote_pdoa_rad_q11))
+			report->remote_pdoa_rad_q11))
 		goto error;
+	if (!report->is_same_rx_ant) {
+		if ((nla_put_s32(
+			     msg,
+			     MCPS802154_RANGING_RESULT_ATTR_LOCAL_PDOA_ELEVATION_RAD_Q11,
+			     report->local_pdoa_elevation_rad_q11) ||
+		     nla_put_s32(
+			     msg,
+			     MCPS802154_RANGING_RESULT_ATTR_REMOTE_PDOA_ELEVATION_RAD_Q11,
+			     report->remote_pdoa_elevation_rad_q11)))
+			goto error;
+	}
 
 	nla_nest_end(msg, result);
-
 	genlmsg_end(msg, hdr);
 	return 0;
 error:
@@ -442,9 +893,9 @@ error:
 	return -EMSGSIZE;
 }
 
-int mcps802154_nl_ranging_report(struct mcps802154_llhw *llhw, int id,
-				 int tof_rctu, int local_pdoa_rad_q11,
-				 int remote_pdoa_rad_q11)
+int mcps802154_nl_ranging_report(
+	struct mcps802154_llhw *llhw, int id,
+	const struct mcps802154_nl_ranging_report *report)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
 	struct sk_buff *msg;
@@ -458,8 +909,7 @@ int mcps802154_nl_ranging_report(struct mcps802154_llhw *llhw, int id,
 		return -ENOMEM;
 
 	if (mcps802154_nl_send_ranging_report(local, msg, ranging_report_portid,
-					      id, tof_rctu, local_pdoa_rad_q11,
-					      remote_pdoa_rad_q11)) {
+					      id, report)) {
 		nlmsg_free(msg);
 		return -ENOBUFS;
 	}
@@ -473,6 +923,47 @@ int mcps802154_nl_ranging_report(struct mcps802154_llhw *llhw, int id,
 }
 
 /**
+ * mcps802154_nl_put_calibration() - put on calibration in msg.
+ * @msg: Request message.
+ * @key: calibration name
+ * @status: status of reading operation.
+ * @data: calibration value or NULL to always put status.
+ * @onlykey: true to put only calibration key.
+ *
+ * Return: 0 or error.
+ */
+static int mcps802154_nl_put_calibration(struct sk_buff *msg, const char *key,
+					 int status, void *data, bool onlykey)
+{
+	struct nlattr *calibration;
+	int r;
+
+	calibration = nla_nest_start(msg, 1);
+	if (!calibration)
+		return -EMSGSIZE;
+
+	r = nla_put_string(msg, MCPS802154_CALIBRATIONS_ATTR_KEY, key);
+	if (r)
+		return -EMSGSIZE;
+	if (onlykey)
+		goto finish;
+
+	if (status < 0 || data == NULL)
+		r = nla_put_s32(msg, MCPS802154_CALIBRATIONS_ATTR_STATUS,
+				status);
+	else
+		// when positive, the status represent the data length.
+		r = nla_put(msg, MCPS802154_CALIBRATIONS_ATTR_VALUE, status,
+			    data);
+	if (r)
+		return -EMSGSIZE;
+
+finish:
+	nla_nest_end(msg, calibration);
+	return 0;
+}
+
+/**
  * mcps802154_nl_set_calibration() - Set calibrations parameters.
  * @skb: Request message.
  * @info: Request information.
@@ -482,11 +973,8 @@ int mcps802154_nl_ranging_report(struct mcps802154_llhw *llhw, int id,
 static int mcps802154_nl_set_calibration(struct sk_buff *skb,
 					 struct genl_info *info)
 {
-	struct nlattr *attrs[MCPS802154_CALIBRATIONS_ATTR_MAX + 1];
 	struct mcps802154_local *local = info->user_ptr[0];
 	int rx_rmarker_offset_rctu, tx_rmarker_offset_rctu;
-	struct nlattr *calibrations, *calibration;
-	struct nlattr *input;
 	struct sk_buff *msg;
 	void *hdr;
 	int err;
@@ -531,11 +1019,13 @@ static int mcps802154_nl_set_calibration(struct sk_buff *skb,
 		goto nla_put_failure;
 	}
 
-	calibrations = nla_nest_start(
-		msg, NLA_F_NESTED | MCPS802154_ATTR_CALIBRATIONS);
 	if (info->attrs[MCPS802154_ATTR_CALIBRATIONS]) {
+		struct nlattr *attrs[MCPS802154_CALIBRATIONS_ATTR_MAX + 1];
+		struct nlattr *calibrations, *input;
 		int rem;
 
+		calibrations =
+			nla_nest_start(msg, MCPS802154_ATTR_CALIBRATIONS);
 		nla_for_each_nested (
 			input, info->attrs[MCPS802154_ATTR_CALIBRATIONS], rem) {
 			char *key;
@@ -561,26 +1051,14 @@ static int mcps802154_nl_set_calibration(struct sk_buff *skb,
 							 nla_data(value),
 							 nla_len(value));
 			}
-
 			// Put the result in the response message.
-			calibration = nla_nest_start(msg, NLA_F_NESTED | 1);
-			if (!calibration) {
-				err = -EMSGSIZE;
+			err = mcps802154_nl_put_calibration(msg, key, r, NULL,
+							    false);
+			if (err)
 				goto nla_put_failure;
-			}
-			if (nla_put_string(msg,
-					   MCPS802154_CALIBRATIONS_ATTR_KEY,
-					   key) ||
-			    nla_put_s32(msg,
-					MCPS802154_CALIBRATIONS_ATTR_STATUS,
-					r)) {
-				err = -EMSGSIZE;
-				goto nla_put_failure;
-			}
-			nla_nest_end(msg, calibration);
 		}
+		nla_nest_end(msg, calibrations);
 	}
-	nla_nest_end(msg, calibrations);
 
 	genlmsg_end(msg, hdr);
 	return genlmsg_reply(msg, info);
@@ -590,35 +1068,6 @@ nla_put_failure:
 failure:
 	nlmsg_free(msg);
 	return err;
-}
-
-/**
- * mcps802154_nl_put_calibration() - put on calibration in msg.
- * @msg: Request message.
- * @key: calibration name
- * @status: status of reading operation.
- * @data: calibration value.
- *
- * Return: 0 or error.
- */
-static int mcps802154_nl_put_calibration(struct sk_buff *msg, const char *key,
-					 int status, void *data)
-{
-	struct nlattr *calibration;
-
-	calibration = nla_nest_start(msg, NLA_F_NESTED | 1);
-	if (!calibration)
-		return -ENOMEM;
-
-	nla_put_string(msg, MCPS802154_CALIBRATIONS_ATTR_KEY, key);
-	if (status < 0)
-		nla_put_s32(msg, MCPS802154_CALIBRATIONS_ATTR_STATUS, status);
-	else
-		// when positive, the status represent the data length.
-		nla_put(msg, MCPS802154_CALIBRATIONS_ATTR_VALUE, status, data);
-	nla_nest_end(msg, calibration);
-
-	return 0;
 }
 
 /**
@@ -645,7 +1094,9 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 	if (!local->ops->get_calibration)
 		return -EOPNOTSUPP;
 
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	/* NLMSG_DEFAULT_SIZE isn't enough for 4 antennas configuration.
+	   So add a full page to maintain page alignment of the message size. */
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE + PAGE_SIZE, GFP_KERNEL);
 	if (!msg)
 		return -ENOMEM;
 
@@ -667,8 +1118,7 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 		goto nla_put_failure;
 	}
 
-	calibrations = nla_nest_start(
-		msg, NLA_F_NESTED | MCPS802154_ATTR_CALIBRATIONS);
+	calibrations = nla_nest_start(msg, MCPS802154_ATTR_CALIBRATIONS);
 	if (info->attrs[MCPS802154_ATTR_CALIBRATIONS]) {
 		int rem;
 
@@ -686,11 +1136,10 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 			r = llhw_get_calibration(local, key, &tmp, sizeof(tmp));
 
 			// Put the result in the response message.
-			err = mcps802154_nl_put_calibration(msg, key, r, &tmp);
-			if (err < 0) {
-				err = -EMSGSIZE;
+			err = mcps802154_nl_put_calibration(msg, key, r, &tmp,
+							    false);
+			if (err)
 				goto nla_put_failure;
-			}
 		}
 	} else if (local->ops->list_calibration) {
 		const char *const *calibration;
@@ -707,11 +1156,9 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 
 			// Put the result in the response message.
 			err = mcps802154_nl_put_calibration(msg, *entry, r,
-							    &tmp);
-			if (err < 0) {
-				err = -EMSGSIZE;
+							    &tmp, false);
+			if (err)
 				goto nla_put_failure;
-			}
 		}
 	}
 	nla_nest_end(msg, calibrations);
@@ -737,7 +1184,7 @@ static int mcps802154_nl_list_calibration(struct sk_buff *skb,
 					  struct genl_info *info)
 {
 	struct mcps802154_local *local = info->user_ptr[0];
-	struct nlattr *calibrations, *calibration;
+	struct nlattr *calibrations;
 	const char *const *list;
 	const char *const *entry;
 	struct sk_buff *msg;
@@ -750,8 +1197,9 @@ static int mcps802154_nl_list_calibration(struct sk_buff *skb,
 	list = llhw_list_calibration(local);
 	if (!list)
 		return -ENOENT;
-
-	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	/* NLMSG_DEFAULT_SIZE isn't enough for 4 antennas configuration.
+	   So add a full page to maintain page alignment of the message size. */
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE + PAGE_SIZE, GFP_KERNEL);
 	if (!msg)
 		return -ENOMEM;
 
@@ -768,21 +1216,12 @@ static int mcps802154_nl_list_calibration(struct sk_buff *skb,
 		goto nla_put_failure;
 	}
 
-	calibrations = nla_nest_start(
-		msg, NLA_F_NESTED | MCPS802154_ATTR_CALIBRATIONS);
+	calibrations = nla_nest_start(msg, MCPS802154_ATTR_CALIBRATIONS);
 	for (entry = list; *entry; entry++) {
-		// Put the result in the response message.
-		calibration = nla_nest_start(msg, NLA_F_NESTED | 1);
-		if (!calibration) {
-			err = -EMSGSIZE;
+		/* Put the result in the response message. */
+		err = mcps802154_nl_put_calibration(msg, *entry, 0, NULL, true);
+		if (err)
 			goto nla_put_failure;
-		}
-		if (nla_put_string(msg, MCPS802154_CALIBRATIONS_ATTR_KEY,
-				   *entry)) {
-			err = -EMSGSIZE;
-			goto nla_put_failure;
-		}
-		nla_nest_end(msg, calibration);
 	}
 	nla_nest_end(msg, calibrations);
 
@@ -889,7 +1328,31 @@ static const struct genl_ops mcps802154_nl_ops[] = {
 	},
 	{
 		.cmd = MCPS802154_CMD_SET_SCHEDULER_PARAMS,
-		.doit = mcps802154_nl_set_scheduler_params,
+		.doit = mcps802154_nl_set_scheduler_info,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+	{
+		.cmd = MCPS802154_CMD_SET_SCHEDULER_REGIONS,
+		.doit = mcps802154_nl_set_scheduler_info,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+	{
+		.cmd = MCPS802154_CMD_LIST_SCHEDULER_REGION_IDS,
+		.doit = mcps802154_nl_list_scheduler_region_ids,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+	{
+		.cmd = MCPS802154_CMD_CALL_SCHEDULER,
+		.doit = mcps802154_nl_call_scheduler,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = MCPS802154_NL_NEED_HW,
+	},
+	{
+		.cmd = MCPS802154_CMD_CALL_REGION,
+		.doit = mcps802154_nl_call_region,
 		.flags = GENL_ADMIN_PERM,
 		.internal_flags = MCPS802154_NL_NEED_HW,
 	},

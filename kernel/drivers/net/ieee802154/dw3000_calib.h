@@ -27,7 +27,7 @@
 /**
  * DW3000_CALIBRATION_ANTENNA_MAX - number of antenna
  */
-#define DW3000_CALIBRATION_ANTENNA_MAX 2
+#define DW3000_CALIBRATION_ANTENNA_MAX 4
 /**
  * DW3000_CALIBRATION_CHANNEL_MAX - number of supported channels
  */
@@ -43,7 +43,12 @@
 #define DW3000_CALIBRATION_PDOA_LUT_MAX 7
 
 /**
- * struct dw3000_channel_calib - per-channel dependant calibration parameters
+ * DW3000_DEFAULT_ANT_DELAY - antenna delay default value
+ */
+#define DW3000_DEFAULT_ANT_DELAY 16450
+
+/**
+ * struct dw3000_channel_calib - per-channel dependent calibration parameters
  * @pll_locking_code: PLL locking code
  */
 struct dw3000_channel_calib {
@@ -52,10 +57,10 @@ struct dw3000_channel_calib {
 };
 
 /**
- * struct dw3000_antenna_calib - per-antenna dependant calibration parameters
- * @ch: table of channels and PRF dependant calibration values
+ * struct dw3000_antenna_calib - per-antenna dependent calibration parameters
+ * @ch: table of channels and PRF dependent calibration values
  * @ant: antenna pair specific calibration values
- * @port: port value this antenna belong to
+ * @port: port value this antenna belong to (0 for RF1, 1 for RF2)
  * @selector_gpio: GPIO number to select this antenna
  * @selector_gpio_value: GPIO value to select this antenna
  */
@@ -74,8 +79,8 @@ struct dw3000_antenna_calib {
 };
 
 /**
- * struct dw3000_antenna_pair_calib - antenna pair dependant calibration values
- * @ch: table of channels dependant calibration values
+ * struct dw3000_antenna_pair_calib - antenna pair dependent calibration values
+ * @ch: table of channels dependent calibration values
  */
 struct dw3000_antenna_pair_calib {
 	/* antX.antW.chY.* */
@@ -108,14 +113,30 @@ struct dw3000_antenna_pair_calib {
  *
  * Return: An index for the antpair table in [0;ANTPAIR_MAX-1] interval.
  */
-#define ANTPAIR_IDX(x, w) (ANTPAIR_OFFSET(x) + (w))
+#define ANTPAIR_IDX(x, w) (ANTPAIR_OFFSET(x) + ((w) - (x)-1))
+
+/**
+ * dw3000_calib_antpair_to_ant - convert antenna pair to corresponding antennas
+ * @ant_pair: antenna pair
+ * @antidx1: first antenna
+ * @antidx2: second antenna
+ */
+static inline void dw3000_calib_antpair_to_ant(int ant_pair, u8 *antidx1,
+					       u8 *antidx2)
+{
+	static const u8 pair_to_ant[ANTPAIR_MAX][2] = { { 0, 1 }, { 0, 2 },
+							{ 0, 3 }, { 1, 2 },
+							{ 1, 3 }, { 2, 3 } };
+	*antidx1 = pair_to_ant[ant_pair][0];
+	*antidx2 = pair_to_ant[ant_pair][1];
+}
 
 /**
  * struct dw3000_calibration_data - all per-antenna and per-channel calibration
  * parameters
- * @ant: table of antenna dependant calibration values
- * @antpair: table of antenna pair dependant calibration values
- * @ch: table of channel dependant calibration values
+ * @ant: table of antenna dependent calibration values
+ * @antpair: table of antenna pair dependent calibration values
+ * @ch: table of channel dependent calibration values
  */
 struct dw3000_calibration_data {
 	struct dw3000_antenna_calib ant[ANTMAX];

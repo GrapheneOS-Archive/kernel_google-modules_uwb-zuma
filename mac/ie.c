@@ -67,6 +67,7 @@ struct mcps802154_ie_cb {
 void mcps802154_ie_put_begin(struct sk_buff *skb)
 {
 	struct mcps802154_ie_cb *cb = (struct mcps802154_ie_cb *)&skb->cb;
+
 	cb->ie_state = MCPS802154_IE_STATE_INIT;
 }
 EXPORT_SYMBOL(mcps802154_ie_put_begin);
@@ -77,6 +78,7 @@ int mcps802154_ie_put_end(struct sk_buff *skb, bool data_payload)
 
 	if (data_payload) {
 		bool err = false;
+
 		if (cb->ie_state == MCPS802154_IE_STATE_HEADER_IE)
 			err = !mcps802154_ie_put_header_ie(
 				skb, IEEE802154_IE_HEADER_TERMINATION_2_ID, 0);
@@ -227,6 +229,9 @@ int mcps802154_ie_get(struct sk_buff *skb,
 		if (context->mlme_len)
 			/* This could only happen if caller made a mistake. */
 			return -EINVAL;
+		if (skb->len > 0)
+			/* Not enough for a header, but too much for nothing. */
+			return -EBADMSG;
 		context->kind = MCPS802154_IE_GET_KIND_NONE;
 		context->id = 0;
 		context->len = 0;

@@ -75,6 +75,10 @@ void mcps802154_fproc_access(struct mcps802154_local *local,
 	local->fproc.frame_idx = 0;
 
 	switch (access->method) {
+	case MCPS802154_ACCESS_METHOD_NOTHING:
+		mcps802154_fproc_nothing_handle(local);
+		r = 0;
+		break;
 	case MCPS802154_ACCESS_METHOD_IMMEDIATE_RX:
 		r = mcps802154_fproc_rx_handle(local, access);
 		break;

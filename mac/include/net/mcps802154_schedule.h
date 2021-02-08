@@ -30,6 +30,7 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/skbuff.h>
+#include <net/genetlink.h>
 #include <net/netlink.h>
 
 #include <net/mcps802154.h>
@@ -43,6 +44,8 @@ struct mcps802154_nl_ranging_request;
 
 /**
  * enum mcps802154_access_method - Method to implement an access.
+ * @MCPS802154_ACCESS_METHOD_NOTHING:
+ *      Nothing to do, wait for a schedule change.
  * @MCPS802154_ACCESS_METHOD_IMMEDIATE_RX:
  *	RX as soon as possible, without timeout, with auto-ack.
  * @MCPS802154_ACCESS_METHOD_IMMEDIATE_TX:
@@ -51,6 +54,7 @@ struct mcps802154_nl_ranging_request;
  *	Multiple frames described in frames table.
  */
 enum mcps802154_access_method {
+	MCPS802154_ACCESS_METHOD_NOTHING,
 	MCPS802154_ACCESS_METHOD_IMMEDIATE_RX,
 	MCPS802154_ACCESS_METHOD_IMMEDIATE_TX,
 	MCPS802154_ACCESS_METHOD_MULTI,
@@ -222,6 +226,11 @@ struct mcps802154_region_ops {
 			      const struct nlattr *attrs,
 			      struct netlink_ext_ack *extack);
 	/**
+	 * @call: Call region procedure, may be NULL.
+	 */
+	int (*call)(struct mcps802154_region *region, u32 call_id,
+		    const struct nlattr *attrs, const struct genl_info *info);
+	/**
 	 * @get_access: Get access for a given region at the given timestamp.
 	 * Access is valid until &mcps802154_access_ops.access_done() callback
 	 * is called. Return NULL if access is not possible.
@@ -297,11 +306,35 @@ struct mcps802154_scheduler_ops {
 	 */
 	void (*close)(struct mcps802154_scheduler *scheduler);
 	/**
+	 * @list_region_ids: List scheduler region identifiers.
+	 */
+	const char **(*list_region_ids)(struct mcps802154_scheduler *scheduler);
+	/**
 	 * @set_parameters: Configure the scheduler.
 	 */
 	int (*set_parameters)(struct mcps802154_scheduler *scheduler,
 			      const struct nlattr *attrs,
 			      struct netlink_ext_ack *extack);
+	/**
+	 * @set_region_parameters: Configure the region inside the scheduler.
+	 */
+	int (*set_region_parameters)(struct mcps802154_scheduler *scheduler,
+				     const char *region_id,
+				     const char *region_name,
+				     const struct nlattr *attrs,
+				     struct netlink_ext_ack *extack);
+	/**
+	 * @call: Call scheduler specific procedure.
+	 */
+	int (*call)(struct mcps802154_scheduler *scheduler, u32 call_id,
+		    const struct nlattr *attrs, const struct genl_info *info);
+	/**
+	 * @call_region: Call region specific procedure.
+	 */
+	int (*call_region)(struct mcps802154_scheduler *scheduler,
+			   const char *region_id, const char *region_name,
+			   u32 call_id, const struct nlattr *attrs,
+			   const struct genl_info *info);
 	/**
 	 * @update_schedule: Called to initialize and update the schedule.
 	 */
@@ -372,6 +405,48 @@ int mcps802154_region_set_parameters(struct mcps802154_llhw *llhw,
 				     struct netlink_ext_ack *extack);
 
 /**
+ * mcps802154_region_call() - Call specific procedure in this region.
+ * @llhw: Low-level device pointer.
+ * @region: Pointer to the open region.
+ * @call_id: Identifier of the procedure, region specific.
+ * @params_attr: Nested attribute containing region parameters, may be NULL.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_region_call(struct mcps802154_llhw *llhw,
+			   struct mcps802154_region *region, u32 call_id,
+			   const struct nlattr *params_attr,
+			   const struct genl_info *info);
+
+/**
+ * mcps802154_region_event_alloc_skb() - Allocate buffer to send a notification
+ * for a region.
+ * @llhw: Low-level device pointer.
+ * @region: Pointer to the open region.
+ * @call_id: Identifier of the procedure, region specific.
+ * @portid: Port identifier of the receiver.
+ * @approx_len: Upper bound of the data to be put into the buffer.
+ * @gfp: Allocation flags.
+ *
+ * Return: An allocated and pre-filled buffer, or NULL on error.
+ */
+struct sk_buff *
+mcps802154_region_event_alloc_skb(struct mcps802154_llhw *llhw,
+				  struct mcps802154_region *region, u32 call_id,
+				  u32 portid, int approx_len, gfp_t gfp);
+
+/**
+ * mcps802154_region_event() - Send a previously allocated and filled
+ * buffer.
+ * @llhw: Low-level device pointer.
+ * @skb: Buffer to send.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_region_event(struct mcps802154_llhw *llhw, struct sk_buff *skb);
+
+/**
  * mcps802154_scheduler_register() - Register a scheduler, to be called when
  * your module is loaded.
  * @scheduler_ops: Scheduler to register.
@@ -428,6 +503,19 @@ int mcps802154_schedule_recycle(
 int mcps802154_schedule_add_region(
 	const struct mcps802154_schedule_update *schedule_update,
 	struct mcps802154_region *region, int start_dtu, int duration_dtu);
+
+/**
+ * mcps802154_reschedule() - Request to change access as possible.
+ * @llhw: Low-level device pointer.
+ *
+ * Use this to reevaluate the current access as new data is available. For
+ * example, the device may be sleeping, or waiting to receive a frame, and you
+ * have a fresh frame to send.
+ *
+ * Request may be ignored if the device is busy, in which case the current
+ * access will be done before the new access is examined.
+ */
+void mcps802154_reschedule(struct mcps802154_llhw *llhw);
 
 /**
  * mcps802154_schedule_invalidate() - Request to invalidate the schedule.

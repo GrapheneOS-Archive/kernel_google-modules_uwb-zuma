@@ -206,11 +206,6 @@ DEFINE_EVENT(dw_only_evt, dw3000_mcps_get_timestamp,
 	TP_ARGS(dw)
 );
 
-DEFINE_EVENT(dw_only_evt, dw3000_mcps_get_rctu,
-	TP_PROTO(struct dw3000 *dw),
-	TP_ARGS(dw)
-);
-
 TRACE_EVENT(dw3000_mcps_set_channel,
 	TP_PROTO(struct dw3000 *dw, u8 page, u8 channel, u8 pcode),
 	TP_ARGS(dw, page, channel, pcode),
@@ -267,6 +262,26 @@ TRACE_EVENT(dw3000_isr,
 DEFINE_EVENT(dw_only_evt, dw3000_read_rx_timestamp,
 	TP_PROTO(struct dw3000 *dw),
 	TP_ARGS(dw)
+);
+
+TRACE_EVENT(dw3000_power_stats,
+	TP_PROTO(struct dw3000 *dw, int state, u64 boot_time, int len_or_date),
+	TP_ARGS(dw, state, boot_time, len_or_date),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(int, state)
+		__field(u64, boot_time)
+		__field(int, len_or_date)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->state = state;
+		__entry->boot_time = boot_time;
+		__entry->len_or_date = len_or_date;
+	),
+	TP_printk(DW_PR_FMT ", state: %d, boot_time: %llu, len_or_date: %u",
+		  DW_PR_ARG, __entry->state, __entry->boot_time,
+		  (unsigned)__entry->len_or_date)
 );
 
 /*************************************************************

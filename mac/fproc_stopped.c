@@ -76,7 +76,6 @@ err_stop:
 err:
 	/* Device is broken, but stopped. */
 	WARN_ON(local->started);
-	return;
 }
 
 const struct mcps802154_fproc_state mcps802154_fproc_stopped = {

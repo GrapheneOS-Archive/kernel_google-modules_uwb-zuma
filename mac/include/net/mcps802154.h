@@ -29,6 +29,11 @@
 
 #include <net/mac802154.h>
 
+/* Antenna index to use for transmission by default. */
+#define TX_ANT_ID_DEFAULT 0
+/* Antenna pair index to use for reception by default. */
+#define RX_ANT_PAIR_ID_DEFAULT 0
+
 /**
  * enum mcps802154_llhw_flags - Low-level hardware without MCPS flags.
  * @MCPS802154_LLHW_RDEV:
@@ -124,43 +129,40 @@ struct mcps802154_llhw {
  * enum mcps802154_tx_frame_info_flags - Flags for transmitting a frame.
  * @MCPS802154_TX_FRAME_TIMESTAMP_DTU:
  *	Start transmission at given timestamp in device time unit.
- * @MCPS802154_TX_FRAME_TIMESTAMP_RCTU:
- *	Start transmission so that RMARKER is precisely at given timestamp in
- *	ranging counter time unit (RDEV only).
  * @MCPS802154_TX_FRAME_CCA:
  *	Use CCA before transmission using the programmed mode.
  * @MCPS802154_TX_FRAME_RANGING:
  *	Enable precise timestamping for the transmitted frame and its response
  *	(RDEV only).
- * @MCPS802154_TX_FRAME_ENABLE_STS:
- *	Enable the STS during this transmission.
+ * @MCPS802154_TX_FRAME_SP1:
+ *	Enable the STS during this transmission mode 1 (STS in the frame).
+ * @MCPS802154_TX_FRAME_SP2:
+ *	Enable the STS during this transmission mode 2 (STS at the end of the frame).
+ * @MCPS802154_TX_FRAME_SP3:
+ *	Enable the STS during this transmission mode 3 (STS without payload).
+ * @MCPS802154_TX_FRAME_STS_MODE_MASK:
+ *      Mask covering all the STS mode configuration values.
  *
  * If no timestamp flag is given, transmit as soon as possible.
  */
 enum mcps802154_tx_frame_info_flags {
 	MCPS802154_TX_FRAME_TIMESTAMP_DTU = BIT(0),
-	MCPS802154_TX_FRAME_TIMESTAMP_RCTU = BIT(1),
-	MCPS802154_TX_FRAME_CCA = BIT(2),
-	MCPS802154_TX_FRAME_RANGING = BIT(3),
-	MCPS802154_TX_FRAME_ENABLE_STS = BIT(4),
+	MCPS802154_TX_FRAME_CCA = BIT(1),
+	MCPS802154_TX_FRAME_RANGING = BIT(2),
+	MCPS802154_TX_FRAME_SP1 = BIT(3),
+	MCPS802154_TX_FRAME_SP2 = BIT(4),
+	MCPS802154_TX_FRAME_SP3 = BIT(3) | BIT(4),
+	MCPS802154_TX_FRAME_STS_MODE_MASK = BIT(3) | BIT(4),
 };
 
 /**
  * struct mcps802154_tx_frame_info - Information for transmitting a frame.
  */
 struct mcps802154_tx_frame_info {
-	union {
-		/**
-		 * @timestamp_dtu: If timestamped in device time unit, date of
-		 * transmission start.
-		 */
-		u32 timestamp_dtu;
-		/**
-		 * @timestamp_rctu: If timestamped in ranging counter time unit,
-		 * date of transmitted frame RMARKER.
-		 */
-		u64 timestamp_rctu;
-	};
+	/**
+	 * @timestamp_dtu: If timestamped, date of transmission start.
+	 */
+	u32 timestamp_dtu;
 	/**
 	 * @rx_enable_after_tx_dtu: If positive, enable receiver this number of
 	 * device time unit after the end of the transmitted frame.
@@ -177,48 +179,49 @@ struct mcps802154_tx_frame_info {
 	 * @flags: See &enum mcps802154_tx_frame_info_flags.
 	 */
 	u8 flags;
+	/**
+	 * @ant_id: antenna index to use for transmit.
+	 */
+	int ant_id;
 };
 
 /**
  * enum mcps802154_rx_info_flags - Flags for enabling the receiver.
  * @MCPS802154_RX_INFO_TIMESTAMP_DTU:
  *	Enable receiver at given timestamp in device time unit.
- * @MCPS802154_RX_INFO_TIMESTAMP_RCTU:
- *	Enable receiver so that a frame whose RMARKER is precisely at given
- *	timestamp in ranging counter time unit will be received (RDEV only).
  * @MCPS802154_RX_INFO_AACK:
  *	Enable automatic acknowledgment.
  * @MCPS802154_RX_INFO_RANGING:
  *	Enable precise timestamping for the received frame (RDEV only).
- * @MCPS802154_RX_INFO_ENABLE_STS:
- *	Enable the STS during this reception.
+ * @MCPS802154_RX_INFO_SP1:
+ *	Enable the STS during this reception mode 1 (STS in the frame).
+ * @MCPS802154_RX_INFO_SP2:
+ *	Enable the STS during this reception mode 2 (STS at the end of the frame).
+ * @MCPS802154_RX_INFO_SP3:
+ *	Enable the STS during this reception mode 3 (STS without payload).
+ * @MCPS802154_RX_INFO_STS_MODE_MASK:
+ *      Mask covering all the STS mode configuration values.
  *
  * If no timestamp flag is given, enable receiver as soon as possible.
  */
 enum mcps802154_rx_info_flags {
 	MCPS802154_RX_INFO_TIMESTAMP_DTU = BIT(0),
-	MCPS802154_RX_INFO_TIMESTAMP_RCTU = BIT(1),
-	MCPS802154_RX_INFO_AACK = BIT(2),
-	MCPS802154_RX_INFO_RANGING = BIT(3),
-	MCPS802154_RX_INFO_ENABLE_STS = BIT(4),
+	MCPS802154_RX_INFO_AACK = BIT(1),
+	MCPS802154_RX_INFO_RANGING = BIT(2),
+	MCPS802154_RX_INFO_SP1 = BIT(3),
+	MCPS802154_RX_INFO_SP2 = BIT(4),
+	MCPS802154_RX_INFO_SP3 = BIT(3) | BIT(4),
+	MCPS802154_RX_INFO_STS_MODE_MASK = BIT(3) | BIT(4),
 };
 
 /**
  * struct mcps802154_rx_info - Information for enabling the receiver.
  */
 struct mcps802154_rx_info {
-	union {
-		/**
-		 * @timestamp_dtu: If timestamped in device time unit, date to
-		 * enable the receiver.
-		 */
-		u32 timestamp_dtu;
-		/**
-		 * @timestamp_rctu: If timestamped in ranging counter time unit,
-		 * date of the expected RMARKER.
-		 */
-		u64 timestamp_rctu;
-	};
+	/**
+	 * @timestamp_dtu: If timestamped, date to enable the receiver.
+	 */
+	u32 timestamp_dtu;
 	/**
 	 * @timeout_dtu: If negative, no timeout, if zero, use a default timeout
 	 * value, else this is the timeout value in device time unit.
@@ -228,6 +231,10 @@ struct mcps802154_rx_info {
 	 * @flags: See &enum mcps802154_rx_info_flags.
 	 */
 	u8 flags;
+	/**
+	 * @ant_pair_id: Antenna pair index to use for reception.
+	 */
+	u8 ant_pair_id;
 };
 
 /**
@@ -235,8 +242,8 @@ struct mcps802154_rx_info {
  * @MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU:
  *	Set by MCPS to request timestamp in device time unit.
  * @MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU:
- *	Set by MCPS to request timestamp in ranging counter time unit (RDEV
- *	only).
+ *	Set by MCPS to request RMARKER timestamp in ranging counter time unit
+ *	(RDEV only).
  * @MCPS802154_RX_FRAME_INFO_LQI:
  *	Set by MCPS to request link quality indicator (LQI).
  * @MCPS802154_RX_FRAME_INFO_RSSI:
@@ -395,14 +402,6 @@ struct mcps802154_ops {
 	int (*get_current_timestamp_dtu)(struct mcps802154_llhw *llhw,
 					 u32 *timestamp_dtu);
 	/**
-	 * @get_current_timestamp_rctu: Get current timestamp in ranging counter
-	 * time unit.
-	 *
-	 * Return: 0 or error.
-	 */
-	int (*get_current_timestamp_rctu)(struct mcps802154_llhw *llhw,
-					  u64 *timestamp_rctu);
-	/**
 	 * @timestamp_dtu_to_rctu: Convert a timestamp in device time unit to
 	 * a timestamp in ranging counter time unit.
 	 */
@@ -415,14 +414,14 @@ struct mcps802154_ops {
 	u32 (*timestamp_rctu_to_dtu)(struct mcps802154_llhw *llhw,
 				     u64 timestamp_rctu);
 	/**
-	 * @align_tx_timestamp_rctu: Align a transmission timestamp value so
-	 * that the transmission can be done at the exact timestamp value (RDEV
-	 * only).
+	 * @tx_timestamp_dtu_to_rmarker_rctu: Compute the RMARKER timestamp in
+	 * ranging counter time unit for a frame transmitted at given timestamp
+	 * in device time unit (RDEV only).
 	 *
-	 * Return: The aligned timestamp.
+	 * Return: The RMARKER timestamp.
 	 */
-	u64 (*align_tx_timestamp_rctu)(struct mcps802154_llhw *llhw,
-				       u64 timestamp_rctu);
+	u64 (*tx_timestamp_dtu_to_rmarker_rctu)(struct mcps802154_llhw *llhw,
+						u32 tx_timestamp_dtu);
 	/**
 	 * @difference_timestamp_rctu: Compute the difference between two
 	 * timestamp values.

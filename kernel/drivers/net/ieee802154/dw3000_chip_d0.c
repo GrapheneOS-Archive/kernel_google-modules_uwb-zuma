@@ -24,20 +24,23 @@
 #include "dw3000.h"
 #include "dw3000_core.h"
 #include "dw3000_core_reg.h"
+#include "dw3000_ccc_mailbox.h"
 
-static int dw3000_d0_softreset(struct dw3000 *dw)
+const u32 *dw3000_c0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel);
+
+int dw3000_d0_softreset(struct dw3000 *dw)
 {
 	/* D0 require a FAST command to start soft-reset */
 	return dw3000_write_fastcmd(dw, DW3000_CMD_SEMA_RESET);
 }
 
-static int dw3000_d0_init(struct dw3000 *dw)
+int dw3000_d0_init(struct dw3000 *dw)
 {
-	/* TODO */
-	return 0;
+	/* Disable CCC Mailbox */
+	return dw3000_ccc_disable(dw);
 }
 
-static int dw3000_d0_coex_init(struct dw3000 *dw)
+int dw3000_d0_coex_init(struct dw3000 *dw)
 {
 	u32 modemask;
 	u16 dirmask;
@@ -63,7 +66,7 @@ static int dw3000_d0_coex_init(struct dw3000 *dw)
 	return 0;
 }
 
-static int dw3000_d0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
+int dw3000_d0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 {
 	int offset;
 	/* /!\ could be called first with (true, 1000), then before end of 1000
@@ -81,9 +84,33 @@ static int dw3000_d0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 	return 0;
 }
 
+/**
+ * dw3000_prog_ldo_and_bias_tune() - Programs the device's LDO and BIAS tuning
+ * @dw: The DW device.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+int dw3000_d0_prog_ldo_and_bias_tune(struct dw3000 *dw)
+{
+	struct dw3000_local_data *local = &dw->data;
+	struct dw3000_otp_data *otp = &dw->otp_data;
+	if (otp->ldo_tune_lo && otp->ldo_tune_hi) {
+		dw3000_reg_or16(dw, DW3000_NVM_CFG_ID, 0, DW3000_LDO_BIAS_KICK);
+		/* Save the kicks for the on-wake configuration */
+		local->sleep_mode |= DW3000_LOADLDO;
+	}
+	/* Use DGC_CFG from OTP */
+	local->dgc_otp_set = otp->dgc_addr == DW3000_DGC_CFG0 ?
+				     DW3000_DGC_LOAD_FROM_OTP :
+				     DW3000_DGC_LOAD_FROM_SW;
+	return 0;
+}
+
 const struct dw3000_chip_ops dw3000_chip_d0_ops = {
 	.softreset = dw3000_d0_softreset,
 	.init = dw3000_d0_init,
 	.coex_init = dw3000_d0_coex_init,
 	.coex_gpio = dw3000_d0_coex_gpio,
+	.prog_ldo_and_bias_tune = dw3000_d0_prog_ldo_and_bias_tune,
+	.get_config_mrxlut_chan = dw3000_c0_get_config_mrxlut_chan,
 };

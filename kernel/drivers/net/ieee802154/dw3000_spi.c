@@ -40,6 +40,12 @@ module_param_named(wificoex_gpio, dw3000_wifi_coex_gpio, int, 0444);
 MODULE_PARM_DESC(wificoex_gpio,
 		 "WiFi coexistence GPIO number, -1 for disabled (default)");
 
+static int dw3000_lna_pa_mode = 0;
+module_param_named(lna_pa_mode, dw3000_lna_pa_mode, int, 0444);
+MODULE_PARM_DESC(
+	lna_pa_mode,
+	"Configure LNA/PA mode. May conflict with WiFi coexistence GPIO number, 0 for disabled (default)");
+
 static int dw3000_spi_probe(struct spi_device *spi)
 {
 	struct dw3000 *dw;
@@ -54,10 +60,11 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	dw->llhw->hw->parent = &spi->dev;
 	spi_set_drvdata(spi, dw);
 	dw->spi = spi;
-	dw->dev = &spi->dev;
 	dw->coex_gpio = (s8)dw3000_wifi_coex_gpio;
+	dw->lna_pa_mode = (s8)dw3000_lna_pa_mode;
 
 	dev_info(dw->dev, "Loading driver...");
+	dw3000_sysfs_init(dw);
 
 	/* Setup SPI parameters */
 	dev_info(dw->dev, "setup mode: %d, %u bits/w, %u Hz max\n",
@@ -135,6 +142,7 @@ err_state_init:
 err_transfers_init:
 err_setup_gpios:
 err_spi_setup:
+	dw3000_sysfs_remove(dw);
 	dw3000_mcps_free(dw);
 err_alloc_hw:
 	return rc;
@@ -143,6 +151,8 @@ err_alloc_hw:
 static int dw3000_spi_remove(struct spi_device *spi)
 {
 	struct dw3000 *dw = spi_get_drvdata(spi);
+
+	dw3000_sysfs_remove(dw);
 
 	dev_dbg(dw->dev, "unloading...");
 

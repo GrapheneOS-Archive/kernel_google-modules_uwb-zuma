@@ -30,6 +30,9 @@
 
 #include <linux/skbuff.h>
 
+#define IEEE802154_FC_NO_SEQ_SHIFT 8
+#define IEEE802154_FC_NO_SEQ (1 << IEEE802154_FC_NO_SEQ_SHIFT)
+
 #define IEEE802154_FC_IE_PRESENT_SHIFT 9
 #define IEEE802154_FC_IE_PRESENT (1 << IEEE802154_FC_IE_PRESENT_SHIFT)
 
@@ -57,10 +60,12 @@
 
 #define IEEE802154_IE_NESTED_SHORT_MIN_SID 0x10
 
+#define IEEE802154_IE_HEADER_VENDOR_ID 0x00
 #define IEEE802154_IE_HEADER_TERMINATION_1_ID 0x7e
 #define IEEE802154_IE_HEADER_TERMINATION_2_ID 0x7f
 
 #define IEEE802154_IE_PAYLOAD_MLME_GID 0x1
+#define IEEE802154_IE_PAYLOAD_VENDOR_GID 0x2
 #define IEEE802154_IE_PAYLOAD_TERMINATION_GID 0xf
 
 struct mcps802154_llhw;
@@ -237,6 +242,17 @@ __le16 mcps802154_get_pan_id(struct mcps802154_llhw *llhw);
 __le16 mcps802154_get_short_addr(struct mcps802154_llhw *llhw);
 
 /**
+ * mcps802154_get_current_timestamp_dtu() - Get current timestamp in device time
+ * unit.
+ * @llhw: Low-level device pointer.
+ * @timestamp_dtu: Pointer to timestamp to write.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
+					 u32 *timestamp_dtu);
+
+/**
  * mcps802154_timestamp_dtu_to_rctu() - Convert a timestamp in device time unit
  * to a timestamp in ranging counter time unit.
  * @llhw: Low-level device pointer.
@@ -259,15 +275,16 @@ u32 mcps802154_timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 				     u64 timestamp_rctu);
 
 /**
- * mcps802154_align_tx_timestamp_rctu() - Align a transmission timestamp so that
- * the transmission can be done at the exact timestamp value (RDEV only).
+ * mcps802154_tx_timestamp_dtu_to_rmarker_rctu() - Compute the RMARKER timestamp
+ * in ranging counter time unit for a frame transmitted at given timestamp in
+ * device time unit (RDEV only).
  * @llhw: Low-level device pointer.
- * @timestamp_rctu: Timestamp value to align.
+ * @tx_timestamp_dtu: TX timestamp in device time unit.
  *
- * Return: Aligned timestamp.
+ * Return: RMARKER timestamp in ranging count time unit.
  */
-u64 mcps802154_align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
-				       u64 timestamp_rctu);
+u64 mcps802154_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
+						u32 tx_timestamp_dtu);
 
 /**
  * mcps802154_difference_timestamp_rctu() - Compute the difference between two

@@ -24,66 +24,16 @@
 #include "dw3000.h"
 
 // clang-format off
-/**
- * dw3000_calib_keys - calibration parameters keys table
- */
-const char *const dw3000_calib_keys[] = {
-	// ant0.ch*
-	"ant0.ch5.prf16.antenna_delay",
-	"ant0.ch5.prf16.tx_power",
-	"ant0.ch5.prf16.pg_count",
-	"ant0.ch5.prf16.pg_delay",
-	"ant0.ch5.prf64.antenna_delay",
-	"ant0.ch5.prf64.tx_power",
-	"ant0.ch5.prf64.pg_count",
-	"ant0.ch5.prf64.pg_delay",
-	"ant0.ch9.prf16.antenna_delay",
-	"ant0.ch9.prf16.tx_power",
-	"ant0.ch9.prf16.pg_count",
-	"ant0.ch9.prf16.pg_delay",
-	"ant0.ch9.prf64.antenna_delay",
-	"ant0.ch9.prf64.tx_power",
-	"ant0.ch9.prf64.pg_count",
-	"ant0.ch9.prf64.pg_delay",
-	// ant0.*
-	"ant0.port",
-	"ant0.selector_gpio",
-	"ant0.selector_gpio_value",
-	// ant1.ch*
-	"ant1.ch5.prf16.antenna_delay",
-	"ant1.ch5.prf16.tx_power",
-	"ant1.ch5.prf16.pg_count",
-	"ant1.ch5.prf16.pg_delay",
-	"ant1.ch5.prf64.antenna_delay",
-	"ant1.ch5.prf64.tx_power",
-	"ant1.ch5.prf64.pg_count",
-	"ant1.ch5.prf64.pg_delay",
-	"ant1.ch9.prf16.antenna_delay",
-	"ant1.ch9.prf16.tx_power",
-	"ant1.ch9.prf16.pg_count",
-	"ant1.ch9.prf16.pg_delay",
-	"ant1.ch9.prf64.antenna_delay",
-	"ant1.ch9.prf64.tx_power",
-	"ant1.ch9.prf64.pg_count",
-	"ant1.ch9.prf64.pg_delay",
-	// ant1.*
-	"ant1.port",
-	"ant1.selector_gpio",
-	"ant1.selector_gpio_value",
-	// ant0.ant1.*
-	"ant0.ant1.ch5.pdoa_offset",
-	"ant0.ant1.ch5.pdoa_lut",
-	"ant0.ant1.ch9.pdoa_offset",
-	"ant0.ant1.ch9.pdoa_lut",
-	// chY.*
-	"ch5.pll_locking_code",
-	"ch9.pll_locking_code",
-	// other
-	"xtal_trim",
-	"temperature_reference",
-	// NULL terminated array for caller of dw3000_calib_list_keys().
-	NULL
-};
+#define CHAN_PRF_PARAMS (4 * DW3000_CALIBRATION_PRF_MAX)
+#define ANT_CHAN_PARAMS (CHAN_PRF_PARAMS * DW3000_CALIBRATION_CHANNEL_MAX)
+#define ANT_OTHER_PARAMS (3) /* port, selector_gpio... */
+#define ANTPAIR_CHAN_PARAMS (2 * DW3000_CALIBRATION_CHANNEL_MAX)
+#define OTHER_PARAMS (2) /* xtal_trim & temperature_reference */
+
+#define MAX_CALIB_KEYS ((ANTMAX * (ANT_CHAN_PARAMS + ANT_OTHER_PARAMS)) + \
+			(ANTPAIR_MAX * ANTPAIR_CHAN_PARAMS) +		\
+			(DW3000_CALIBRATION_CHANNEL_MAX) +		\
+			OTHER_PARAMS)
 
 #define CAL_OFFSET(m) offsetof(struct dw3000, calib_data.m)
 #define CAL_SIZE(m) sizeof_field(struct dw3000, calib_data.m)
@@ -93,61 +43,101 @@ const char *const dw3000_calib_keys[] = {
 #define OTP_SIZE(m) sizeof_field(struct dw3000, otp_data.m)
 #define OTP_INFO(m) { .offset = OTP_OFFSET(m), .length = OTP_SIZE(m) }
 
-struct {
+#define PRF_CAL_INFO(b,x)			\
+	CAL_INFO(b.prf[x].ant_delay),		\
+	CAL_INFO(b.prf[x].tx_power),		\
+	CAL_INFO(b.prf[x].pg_count),		\
+	CAL_INFO(b.prf[x].pg_delay)
+
+#define ANTENNA_CAL_INFO(x)			\
+	PRF_CAL_INFO(ant[x].ch[0], 0),		\
+	PRF_CAL_INFO(ant[x].ch[0], 1),		\
+	PRF_CAL_INFO(ant[x].ch[1], 0),		\
+	PRF_CAL_INFO(ant[x].ch[1], 1),		\
+	CAL_INFO(ant[x].port),			\
+	CAL_INFO(ant[x].selector_gpio),		\
+	CAL_INFO(ant[x].selector_gpio_value)
+
+#define ANTPAIR_CAL_INFO(x,y)					\
+	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[0].pdoa_offset),	\
+	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[0].pdoa_lut),	\
+	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[1].pdoa_offset),	\
+	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[1].pdoa_lut)
+
+static const struct {
 	unsigned int offset;
 	unsigned int length;
-} dw3000_calib_keys_info[] = {
+} dw3000_calib_keys_info[MAX_CALIB_KEYS] = {
 	// ant0.*
-	CAL_INFO(ant[0].ch[0].prf[0].ant_delay),
-	CAL_INFO(ant[0].ch[0].prf[0].tx_power),
-	CAL_INFO(ant[0].ch[0].prf[0].pg_count),
-	CAL_INFO(ant[0].ch[0].prf[0].pg_delay),
-	CAL_INFO(ant[0].ch[0].prf[1].ant_delay),
-	CAL_INFO(ant[0].ch[0].prf[1].tx_power),
-	CAL_INFO(ant[0].ch[0].prf[1].pg_count),
-	CAL_INFO(ant[0].ch[0].prf[1].pg_delay),
-	CAL_INFO(ant[0].ch[1].prf[0].ant_delay),
-	CAL_INFO(ant[0].ch[1].prf[0].tx_power),
-	CAL_INFO(ant[0].ch[1].prf[0].pg_count),
-	CAL_INFO(ant[0].ch[1].prf[0].pg_delay),
-	CAL_INFO(ant[0].ch[1].prf[1].ant_delay),
-	CAL_INFO(ant[0].ch[1].prf[1].tx_power),
-	CAL_INFO(ant[0].ch[1].prf[1].pg_count),
-	CAL_INFO(ant[0].ch[1].prf[1].pg_delay),
-	CAL_INFO(ant[0].port),
-	CAL_INFO(ant[0].selector_gpio),
-	CAL_INFO(ant[0].selector_gpio_value),
+	ANTENNA_CAL_INFO(0),
 	// ant1.*
-	CAL_INFO(ant[1].ch[0].prf[0].ant_delay),
-	CAL_INFO(ant[1].ch[0].prf[0].tx_power),
-	CAL_INFO(ant[1].ch[0].prf[0].pg_count),
-	CAL_INFO(ant[1].ch[0].prf[0].pg_delay),
-	CAL_INFO(ant[1].ch[0].prf[1].ant_delay),
-	CAL_INFO(ant[1].ch[0].prf[1].tx_power),
-	CAL_INFO(ant[1].ch[0].prf[1].pg_count),
-	CAL_INFO(ant[1].ch[0].prf[1].pg_delay),
-	CAL_INFO(ant[1].ch[1].prf[0].ant_delay),
-	CAL_INFO(ant[1].ch[1].prf[0].tx_power),
-	CAL_INFO(ant[1].ch[1].prf[0].pg_count),
-	CAL_INFO(ant[1].ch[1].prf[0].pg_delay),
-	CAL_INFO(ant[1].ch[1].prf[1].ant_delay),
-	CAL_INFO(ant[1].ch[1].prf[1].tx_power),
-	CAL_INFO(ant[1].ch[1].prf[1].pg_count),
-	CAL_INFO(ant[1].ch[1].prf[1].pg_delay),
-	CAL_INFO(ant[1].port),
-	CAL_INFO(ant[1].selector_gpio),
-	CAL_INFO(ant[1].selector_gpio_value),
+	ANTENNA_CAL_INFO(1),
+	// ant0.*
+	ANTENNA_CAL_INFO(2),
+	// ant1.*
+	ANTENNA_CAL_INFO(3),
 	// antX.antW.*
-	CAL_INFO(antpair[ANTPAIR_IDX(0, 1)].ch[0].pdoa_offset),
-	CAL_INFO(antpair[ANTPAIR_IDX(0, 1)].ch[0].pdoa_lut),
-	CAL_INFO(antpair[ANTPAIR_IDX(0, 1)].ch[1].pdoa_offset),
-	CAL_INFO(antpair[ANTPAIR_IDX(0, 1)].ch[1].pdoa_lut),
+	ANTPAIR_CAL_INFO(0,1),
+	ANTPAIR_CAL_INFO(0,2),
+	ANTPAIR_CAL_INFO(0,3),
+	ANTPAIR_CAL_INFO(1,2),
+	ANTPAIR_CAL_INFO(1,3),
+	ANTPAIR_CAL_INFO(2,3),
 	// chY.*
 	CAL_INFO(ch[0].pll_locking_code),
 	CAL_INFO(ch[1].pll_locking_code),
 	// other with defaults from OTP
 	OTP_INFO(xtal_trim),
-	OTP_INFO(tempP),
+	OTP_INFO(tempP)
+};
+
+#define PRF_CAL_LABEL(a,c,p)				\
+	"ant" #a ".ch" #c ".prf" #p ".ant_delay",	\
+	"ant" #a ".ch" #c ".prf" #p ".tx_power",	\
+	"ant" #a ".ch" #c ".prf" #p ".pg_count",	\
+	"ant" #a ".ch" #c ".prf" #p ".pg_delay"
+
+#define ANTENNA_CAL_LABEL(x)			\
+	PRF_CAL_LABEL(x, 5, 16),		\
+	PRF_CAL_LABEL(x, 5, 64),		\
+	PRF_CAL_LABEL(x, 9, 16),		\
+	PRF_CAL_LABEL(x, 9, 64),		\
+	"ant" #x ".port",			\
+	"ant" #x ".selector_gpio",		\
+	"ant" #x ".selector_gpio_value"
+
+#define PDOA_CAL_LABEL(a, b, c)				\
+	"ant" #a ".ant" #b ".ch" #c ".pdoa_offset",	\
+	"ant" #a ".ant" #b ".ch" #c ".pdoa_lut"
+
+#define ANTPAIR_CAL_LABEL(x,y)			\
+	PDOA_CAL_LABEL(x, y, 5),		\
+	PDOA_CAL_LABEL(x, y, 9)
+
+/**
+ * dw3000_calib_keys - calibration parameters keys table
+ */
+static const char *const dw3000_calib_keys[MAX_CALIB_KEYS + 1] = {
+	/* antX */
+	ANTENNA_CAL_LABEL(0),
+	ANTENNA_CAL_LABEL(1),
+	ANTENNA_CAL_LABEL(2),
+	ANTENNA_CAL_LABEL(3),
+	// antX.antY.*
+	ANTPAIR_CAL_LABEL(0,1),
+	ANTPAIR_CAL_LABEL(0,2),
+	ANTPAIR_CAL_LABEL(0,3),
+	ANTPAIR_CAL_LABEL(1,2),
+	ANTPAIR_CAL_LABEL(1,3),
+	ANTPAIR_CAL_LABEL(2,3),
+	// chY.*
+	"ch5.pll_locking_code",
+	"ch9.pll_locking_code",
+	// other
+	"xtal_trim",
+	"temperature_reference",
+	// NULL terminated array for caller of dw3000_calib_list_keys().
+	NULL
 };
 // clang-format on
 
@@ -207,9 +197,13 @@ int dw3000_calib_update_config(struct dw3000 *dw)
 	struct mcps802154_llhw *llhw = dw->llhw;
 	struct dw3000_config *config = &dw->config;
 	struct dw3000_txconfig *txconfig = &dw->txconfig;
-	struct dw3000_antenna_calib *ant_calib = &dw->calib_data.ant[0];
+	int ant_rf1 = config->ant[0];
+	int ant_rf2 = config->ant[1];
+	int antpair = ant_rf2 > ant_rf1 ? ANTPAIR_IDX(ant_rf1, ant_rf2) :
+					  ANTPAIR_IDX(ant_rf2, ant_rf1);
+	struct dw3000_antenna_calib *ant_calib = &dw->calib_data.ant[ant_rf1];
 	struct dw3000_antenna_pair_calib *antpair_calib =
-		&dw->calib_data.antpair[0];
+		&dw->calib_data.antpair[antpair];
 	int chanidx = config->chan == 9;
 	int prfidx = config->txCode > 9;
 	/* Update TX configuration */
@@ -224,12 +218,11 @@ int dw3000_calib_update_config(struct dw3000 *dw)
 			ant_calib->ch[chanidx].prf[prfidx].pg_count :
 			0;
 	/* Update RMARKER offsets */
-	llhw->rx_rmarker_offset_rctu =
-		ant_calib->ch[chanidx].prf[prfidx].ant_delay;
 	llhw->tx_rmarker_offset_rctu =
+		ant_calib->ch[chanidx].prf[prfidx].ant_delay;
+	llhw->rx_rmarker_offset_rctu =
 		ant_calib->ch[chanidx].prf[prfidx].ant_delay;
 	/* Update PDOA offset */
 	config->pdoaOffset = antpair_calib->ch[chanidx].pdoa_offset;
-	/* TODO: add support for port/gpios, etc... */
 	return 0;
 }

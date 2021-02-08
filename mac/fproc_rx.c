@@ -93,17 +93,16 @@ static void mcps802154_fproc_rx_schedule_change(struct mcps802154_local *local)
 
 	/* Disable RX. */
 	r = llhw_rx_disable(local);
-	if (r == -EBUSY) {
+	if (r == -EBUSY)
 		/* Wait for RX result. */
 		return;
-	} else {
-		mcps802154_fproc_access_done(local);
-		if (r)
-			mcps802154_fproc_broken_handle(local);
-		else
-			/* Next access. */
-			mcps802154_fproc_access_now(local);
-	}
+
+	mcps802154_fproc_access_done(local);
+	if (r)
+		mcps802154_fproc_broken_handle(local);
+	else
+		/* Next access. */
+		mcps802154_fproc_access_now(local);
 }
 
 static const struct mcps802154_fproc_state mcps802154_fproc_rx = {

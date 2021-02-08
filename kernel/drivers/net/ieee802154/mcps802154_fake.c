@@ -227,18 +227,6 @@ static int get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
 	return 0;
 }
 
-static int get_current_timestamp_rctu(struct mcps802154_llhw *llhw,
-				      u64 *timestamp_rctu)
-{
-	if (!started) {
-		pr_err("fake_mcps: %s called and not started\n", __func__);
-		return -EIO;
-	}
-	pr_info("fake_mcps: %s called\n", __func__);
-	*timestamp_rctu = 0;
-	return 0;
-}
-
 static u64 timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
 				 u32 timestamp_dtu)
 {
@@ -261,8 +249,8 @@ static u32 timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 	return 0;
 }
 
-static u64 align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
-				   u64 timestamp_rctu)
+static u64 tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
+					    u32 tx_timestamp_dtu)
 {
 	if (!started) {
 		pr_err("fake_mcps: %s called and not started\n", __func__);
@@ -419,10 +407,9 @@ static const struct mcps802154_ops fake_ops = {
 	.rx_get_error_frame = rx_get_error_frame,
 	.reset = reset,
 	.get_current_timestamp_dtu = get_current_timestamp_dtu,
-	.get_current_timestamp_rctu = get_current_timestamp_rctu,
 	.timestamp_dtu_to_rctu = timestamp_dtu_to_rctu,
 	.timestamp_rctu_to_dtu = timestamp_rctu_to_dtu,
-	.align_tx_timestamp_rctu = align_tx_timestamp_rctu,
+	.tx_timestamp_dtu_to_rmarker_rctu = tx_timestamp_dtu_to_rmarker_rctu,
 	.difference_timestamp_rctu = difference_timestamp_rctu,
 	.compute_frame_duration_dtu = compute_frame_duration_dtu,
 	.set_channel = set_channel,

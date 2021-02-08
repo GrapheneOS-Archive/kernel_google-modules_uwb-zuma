@@ -10,9 +10,16 @@ enable_testing()
 add_library(mac
 	ca.c
 	default_region.c
+	endless_scheduler.c
+	fira_access.c
+	fira_frame.c
+	fira_region.c
+	fira_region_call.c
+	fira_session.c
 	fproc.c
 	fproc_broken.c
 	fproc_multi.c
+	fproc_nothing.c
 	fproc_rx.c
 	fproc_stopped.c
 	fproc_tx.c
@@ -24,7 +31,7 @@ add_library(mac
 	schedulers.c
 	simple_ranging_region.c
 	regions.c)
-target_include_directories(mac PUBLIC include include/compat include/stub)
+target_include_directories(mac PUBLIC include)
 target_compile_options(mac PRIVATE
 	-Wall
 	-Wdeclaration-after-statement

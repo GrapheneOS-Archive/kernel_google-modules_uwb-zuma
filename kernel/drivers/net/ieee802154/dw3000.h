@@ -55,11 +55,14 @@ enum dw3000_spi_crc_mode {
 				    also enabled */
 };
 
-/* RX ISR data */
+/* ISR data */
 struct dw3000_isr_data {
 	u32 status; /* initial value of register as ISR is entered */
+	u16 status_hi; /* initial value of register as ISR is entered, 2 hi bytes */
 	u16 datalength; /* length of frame */
-	u8 rx_flags; /* RX frame flags, see above */
+	u64 ts_rctu; /* frame timestamp in RCTU unit */
+	u8 dss_stat; /* value of the dual-SPI semaphore events */
+	u8 rx_flags; /* RX frame flags, see dw3000_rx_flags */
 };
 
 /* Time units and conversion factor */
@@ -69,14 +72,14 @@ struct dw3000_isr_data {
 #define DW3000_DTU_FREQ (DW3000_CHIP_FREQ / DW3000_CHIP_PER_DTU)
 #define DW3000_RCTU_PER_CHIP 128
 #define DW3000_RCTU_PER_DTU (DW3000_RCTU_PER_CHIP * DW3000_CHIP_PER_DTU)
+#define DW3000_RCTU_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_RCTU_PER_CHIP)
+#define DW3000_NSEC_PER_DTU (1000000000 / DW3000_DTU_FREQ)
 /* 6.9.1.5 in 4z, for HRP UWB PHY:
    416 chips = 416 / (499.2 * 10^6) ~= 833.33 ns */
 #define DW3000_DTU_PER_RSTU (416 / DW3000_CHIP_PER_DTU)
+#define DW3000_DTU_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_CHIP_PER_DTU)
 
 #define DW3000_RX_ENABLE_STARTUP_DLY 16
-#define DW3000_RX_ENABLE_STARTUP_RCTU                         \
-	(DW3000_RX_ENABLE_STARTUP_DLY * DW3000_CHIP_PER_DLY * \
-	 DW3000_RCTU_PER_CHIP)
 #define DW3000_RX_ENABLE_STARTUP_DTU                          \
 	(DW3000_RX_ENABLE_STARTUP_DLY * DW3000_CHIP_PER_DLY / \
 	 DW3000_CHIP_PER_DTU)
@@ -117,6 +120,7 @@ enum dw3000_ciagdiag_reg_select {
 };
 
 /* DW3000 data */
+/* TODO: Delete */
 struct dw3000_local_data {
 	enum dw3000_spi_crc_mode spicrc;
 	/* Flag to check if DC values are programmed in OTP.
@@ -168,10 +172,22 @@ struct dw3000_stats {
  */
 #define DW3000_MAX_SKB_LEN (IEEE802154_MAX_SIFS_FRAME_SIZE - IEEE802154_FCS_LEN)
 
-/* Additional informations on rx. */
+/* Additional information on rx. */
 enum dw3000_rx_flags {
-	/* Set if an automatix ack is send. */
+	/* Set if an automatic ack is send. */
 	DW3000_RX_FLAG_AACK = BIT(0),
+	/* Set if no data. */
+	DW3000_RX_FLAG_ND = BIT(1),
+	/* Set if timestamp known. */
+	DW3000_RX_FLAG_TS = BIT(2),
+	/* Ranging bit */
+	DW3000_RX_FLAG_RNG = BIT(3),
+	/* CIA done */
+	DW3000_RX_FLAG_CIA = BIT(4),
+	/* CIA error */
+	DW3000_RX_FLAG_CER = BIT(5),
+	/* STS error */
+	DW3000_RX_FLAG_CPER = BIT(6)
 };
 
 /* Receive descriptor */
@@ -180,6 +196,8 @@ struct dw3000_rx {
 	spinlock_t lock;
 	/* Socket buffer */
 	struct sk_buff *skb;
+	/* Frame timestamp */
+	u64 ts_rctu;
 	/* Additional information on rx. See dw3000_rx_flags. */
 	u8 flags;
 };
@@ -197,7 +215,9 @@ enum dw3000_sts_lengths {
 	DW3000_STS_LEN_2048 = 8
 };
 
-/* Structure for setting device configuration via dw3000_configure() function */
+/**
+ * dw3000_config - Structure holding current device configuration
+ */
 struct dw3000_config {
 	/* Channel number (5 or 9) */
 	u8 chan;
@@ -225,6 +245,8 @@ struct dw3000_config {
 	u8 pdoaMode;
 	/* Calibrated PDOA offset */
 	s16 pdoaOffset;
+	/* Antenna currently connected to RF1 & RF2 ports respectively. */
+	s8 ant[2];
 };
 
 /* TX configuration,  power & PG delay */
@@ -241,10 +263,41 @@ struct dw3000_txconfig {
 	bool testmode_enabled;
 };
 
+struct sysfs_power_stats {
+	u64 dur;
+	u64 count;
+};
+
+enum power_state {
+	DW3000_PWR_OFF = 0,
+	DW3000_PWR_RUN,
+	DW3000_PWR_IDLE,
+	DW3000_PWR_RX,
+	DW3000_PWR_TX,
+	DW3000_PWR_MAX,
+};
+
+/**
+ * struct dw3000_power - DW3000 device power related data
+ * @stats: calculated stats
+ * @start_time: timestamp of current state start
+ * @cur_state: current state
+ * @tx_adjust: TX time adjustment based on frame length
+ * @rx_start: RX start date in DTU for RX time adjustment
+ */
+struct dw3000_power {
+	struct sysfs_power_stats stats[DW3000_PWR_MAX];
+	u64 start_time;
+	int cur_state;
+	int tx_adjust;
+	u32 rx_start;
+};
+
 /**
  * struct dw3000 - main DW3000 device structure
  * @spi: pointer to corresponding spi device
  * @dev: pointer to generic device holding sysfs attributes
+ * @sysfs_power_dir: kobject holding sysfs power directory
  * @chip_ops: version specific chip operations
  * @llhw: pointer to associated struct mcps802154_llhw
  * @config: current running chip configuration
@@ -253,8 +306,17 @@ struct dw3000_txconfig {
  * @otp_data: OTP data cache
  * @calib_data: calibration data
  * @stats: statistics
+ * @power: power related statistics and states
+ * @chip_dev_id: identified chip device ID
  * @has_lock_pm: power management locked status
  * @reset_gpio: GPIO to use for hard reset
+ * @chips_per_pac: chips per PAC unit
+ * @pre_timeout_pac: preamble timeout in PAC unit
+ * @autoack: auto-ack status, true if activated
+ * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
+ * @lna_pa_mode: LNA/PA configuration to use
+ * @nfcc_mode: NFCC mode enabled, true if activated
+ * @pgf_cal_running: true if pgf calibration is running
  * @stm: High-priority thread state machine
  * @rx: received skbuff and associated spinlock
  * @msg_mutex: mutex protecting @msg_readwrite_fdx
@@ -267,18 +329,20 @@ struct dw3000_txconfig {
  * @msg_read_rx_timestamp_a: pre-computed SPI message
  * @msg_read_rx_timestamp_b: pre-computed SPI message
  * @msg_read_sys_status: pre-computed SPI message
+ * @msg_read_sys_status_hi: pre-computed SPI message
  * @msg_read_sys_time: pre-computed SPI message
  * @msg_write_sys_status: pre-computed SPI message
- * @chips_per_pac: chips per PAC unit
- * @pre_timeout_pac: preamble timeout in PAC unit
- * @autoack: auto-ack status, true if activated
- * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
+ * @msg_read_dss_status: pre-computed SPI message
+ * @msg_write_dss_status: pre-computed SPI message
+ * @msg_write_spi_collision_status: pre-computed SPI message
  */
 struct dw3000 {
 	/* SPI device */
 	struct spi_device *spi;
 	/* Generic device */
 	struct device *dev;
+	/* Kernel object holding sysfs power sub-directory */
+	struct kobject sysfs_power_dir;
 	/* Chip version specific operations */
 	const struct dw3000_chip_ops *chip_ops;
 	/* MCPS 802.15.4 device */
@@ -292,10 +356,27 @@ struct dw3000 {
 	struct dw3000_calibration_data calib_data;
 	/* Statistics */
 	struct dw3000_stats stats;
+	struct dw3000_power power;
+	/* Detected chip device ID */
+	u32 chip_dev_id;
 	/* SPI controller power-management */
 	int has_lock_pm;
 	/* Control GPIOs */
 	int reset_gpio;
+	/* Chips per PAC unit. */
+	int chips_per_pac;
+	/* Preamble timeout in PAC unit. */
+	int pre_timeout_pac;
+	/* Is auto-ack activated? */
+	bool autoack;
+	/* WiFi coexistence GPIO */
+	s8 coex_gpio;
+	/* LNA/PA mode */
+	s8 lna_pa_mode;
+	/* Is NFCC mode enabled */
+	bool nfcc_mode;
+	/* pgf calibration running */
+	bool pgf_cal_running;
 	/* State machine */
 	struct dw3000_state stm;
 	/* Receive descriptor */
@@ -310,16 +391,12 @@ struct dw3000 {
 	struct spi_message *msg_read_rx_timestamp_a;
 	struct spi_message *msg_read_rx_timestamp_b;
 	struct spi_message *msg_read_sys_status;
+	struct spi_message *msg_read_sys_status_hi;
 	struct spi_message *msg_read_sys_time;
 	struct spi_message *msg_write_sys_status;
-	/* Chips per PAC unit. */
-	int chips_per_pac;
-	/* Preamble timeout in PAC unit. */
-	int pre_timeout_pac;
-	/* Is auto-ack activated? */
-	bool autoack;
-	/* WiFi coexistence GPIO */
-	s8 coex_gpio;
+	struct spi_message *msg_read_dss_status;
+	struct spi_message *msg_write_dss_status;
+	struct spi_message *msg_write_spi_collision_status;
 };
 
 #endif /* __DW3000_H */

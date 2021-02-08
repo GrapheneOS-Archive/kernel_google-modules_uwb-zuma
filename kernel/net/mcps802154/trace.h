@@ -184,30 +184,31 @@ TRACE_EVENT(llhw_tx_frame,
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__field(u32, timestamp_dtu)
-		__field(u64, timestamp_rctu)
 		__field(int, rx_enable_after_tx_dtu)
 		__field(int, rx_enable_after_tx_timeout_dtu)
+		__field(int, ant_id)
 		__field(u8, flags)
 		),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
 		__entry->timestamp_dtu = info->timestamp_dtu;
-		__entry->timestamp_rctu = info->timestamp_rctu;
 		__entry->rx_enable_after_tx_dtu = info->rx_enable_after_tx_dtu;
 		__entry->rx_enable_after_tx_timeout_dtu = info->rx_enable_after_tx_timeout_dtu;
+		__entry->ant_id = info->ant_id;
 		__entry->flags = info->flags;
 		),
-	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x timestamp_rctu=0x%llx rx_enable_after_tx_dtu=%d rx_enable_after_tx_timeout_dtu=%d"
-		  " flags=%s", LOCAL_PR_ARG, __entry->timestamp_dtu,
-		  __entry->timestamp_rctu, __entry->rx_enable_after_tx_dtu,
-		  __entry->rx_enable_after_tx_timeout_dtu,
+	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x rx_enable_after_tx_dtu=%d rx_enable_after_tx_timeout_dtu=%d"
+		  " ant_id=%d flags=%s", LOCAL_PR_ARG, __entry->timestamp_dtu,
+		  __entry->rx_enable_after_tx_dtu, __entry->rx_enable_after_tx_timeout_dtu,
+		  __entry->ant_id,
 		  __print_flags(__entry->flags, "|",
 			{ MCPS802154_TX_FRAME_TIMESTAMP_DTU, "TIMESTAMP_DTU" },
-			{ MCPS802154_TX_FRAME_TIMESTAMP_RCTU, "TIMESTAMP_RCTU" },
 			{ MCPS802154_TX_FRAME_CCA, "CCA" },
 			{ MCPS802154_TX_FRAME_RANGING, "RANGING" },
-			{ MCPS802154_TX_FRAME_ENABLE_STS, "ENABLE_STS" })
-		 )
+			{ MCPS802154_TX_FRAME_SP3, "SP3" },
+			{ MCPS802154_TX_FRAME_SP2, "SP2" },
+			{ MCPS802154_TX_FRAME_SP1, "SP1" })
+		  )
 	);
 
 TRACE_EVENT(llhw_rx_enable,
@@ -217,27 +218,29 @@ TRACE_EVENT(llhw_rx_enable,
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__field(u32, timestamp_dtu)
-		__field(u64, timestamp_rctu)
 		__field(int, timeout_dtu)
 		__field(u8, flags)
+		__field(u8, ant_pair_id)
 		),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
 		__entry->timestamp_dtu = info->timestamp_dtu;
-		__entry->timestamp_rctu = info->timestamp_rctu;
 		__entry->timeout_dtu = info->timeout_dtu;
 		__entry->flags = info->flags;
+		__entry->ant_pair_id = info->ant_pair_id;
 		),
-	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x timestamp_rctu=0x%llx timeout_dtu=%d flags=%s",
+	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x timeout_dtu=%d ant_pair_id=%d flags=%s",
 		  LOCAL_PR_ARG,
-		  __entry->timestamp_dtu, __entry->timestamp_rctu,
-		  __entry->timeout_dtu, __print_flags(__entry->flags, "|",
+		  __entry->timestamp_dtu, __entry->timeout_dtu,
+		  __entry->ant_pair_id,
+		  __print_flags(__entry->flags, "|",
 			{ MCPS802154_RX_INFO_TIMESTAMP_DTU, "TIMESTAMP_DTU" },
-			{ MCPS802154_RX_INFO_TIMESTAMP_RCTU, "TIMESTAMP_RCTU" },
 			{ MCPS802154_RX_INFO_AACK, "AACK" },
 			{ MCPS802154_RX_INFO_RANGING, "RANGING" },
-			{ MCPS802154_RX_INFO_ENABLE_STS, "ENABLE_STS" })
-		 )
+			{ MCPS802154_RX_INFO_SP3, "SP3" },
+			{ MCPS802154_RX_INFO_SP2, "SP2" },
+			{ MCPS802154_RX_INFO_SP1, "SP1" })
+		  )
 	);
 
 DEFINE_EVENT(local_only_evt, llhw_rx_disable,
@@ -279,11 +282,6 @@ DEFINE_EVENT(local_only_evt, llhw_reset,
 	);
 
 DEFINE_EVENT(local_only_evt, llhw_get_current_timestamp_dtu,
-	TP_PROTO(const struct mcps802154_local *local),
-	TP_ARGS(local)
-	);
-
-DEFINE_EVENT(local_only_evt, llhw_get_current_timestamp_rctu,
 	TP_PROTO(const struct mcps802154_local *local),
 	TP_ARGS(local)
 	);
@@ -543,6 +541,71 @@ TRACE_EVENT(ca_set_scheduler_parameters,
 		__assign_str(name, name);
 		),
 	TP_printk(LOCAL_PR_FMT " name=\"%s\"", LOCAL_PR_ARG, __get_str(name))
+	);
+
+TRACE_EVENT(ca_scheduler_set_region_parameters,
+	TP_PROTO(const struct mcps802154_local *local,
+		 const char *scheduler_name, const char *region_id,
+		 const char *region_name),
+	TP_ARGS(local, scheduler_name, region_id, region_name),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		__string(scheduler_name, scheduler_name)
+		__string(region_id, region_id)
+		__string(region_name, region_name)
+		),
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		__assign_str(scheduler_name, scheduler_name);
+		__assign_str(region_id, region_id);
+		__assign_str(region_name, region_name);
+		),
+	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=\"%s\" region_name=\"%s\"",
+		  LOCAL_PR_ARG, __get_str(scheduler_name), __get_str(region_id),
+		  __get_str(region_name))
+	);
+
+TRACE_EVENT(ca_scheduler_call,
+	TP_PROTO(const struct mcps802154_local *local,
+		const char *scheduler_name, u32 call_id),
+	TP_ARGS(local, scheduler_name, call_id),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		__string(scheduler_name, scheduler_name)
+		__field(u32, call_id)
+		),
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		__assign_str(scheduler_name, scheduler_name);
+		__entry->call_id = call_id;
+		),
+	TP_printk(LOCAL_PR_FMT" scheduler=\"%s\" call_id=0x%x",
+		  LOCAL_PR_ARG, __get_str(scheduler_name), __entry->call_id)
+	);
+
+TRACE_EVENT(ca_scheduler_call_region,
+	TP_PROTO(const struct mcps802154_local *local,
+		const char *scheduler_name, const char *region_id,
+		const char *region_name, u32 call_id),
+	TP_ARGS(local, scheduler_name, region_id, region_name, call_id),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		__string(scheduler_name, scheduler_name)
+		__string(region_id, region_id)
+		__string(region_name, region_name)
+		__field(u32, call_id)
+		),
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		__assign_str(scheduler_name, scheduler_name);
+		__assign_str(region_id, region_id);
+		__assign_str(region_name, region_name);
+		__entry->call_id = call_id;
+		),
+	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=\"%s\" region_name=\"%s\" call_id=0x%x",
+		  LOCAL_PR_ARG, __get_str(scheduler_name),
+		  __get_str(region_id), __get_str(region_name),
+		  __entry->call_id)
 	);
 
 TRACE_EVENT(ca_get_access,

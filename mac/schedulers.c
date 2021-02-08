@@ -135,3 +135,47 @@ int mcps802154_scheduler_set_parameters(struct mcps802154_scheduler *scheduler,
 
 	return scheduler->ops->set_parameters(scheduler, params_attr, extack);
 }
+
+const char **
+mcps802154_scheduler_list_region_ids(struct mcps802154_scheduler *scheduler)
+{
+	if (!scheduler->ops->list_region_ids)
+		return NULL;
+
+	return scheduler->ops->list_region_ids(scheduler);
+}
+
+int mcps802154_scheduler_set_region_parameters(
+	struct mcps802154_scheduler *scheduler, const char *region_id,
+	const char *region_name, const struct nlattr *params_attr,
+	struct netlink_ext_ack *extack)
+{
+	if (!scheduler->ops->set_region_parameters)
+		return -EOPNOTSUPP;
+
+	return scheduler->ops->set_region_parameters(
+		scheduler, region_id, region_name, params_attr, extack);
+}
+
+int mcps802154_scheduler_call(struct mcps802154_scheduler *scheduler,
+			      u32 call_id, const struct nlattr *params_attr,
+			      const struct genl_info *info)
+{
+	if (!scheduler->ops->call)
+		return -EOPNOTSUPP;
+
+	return scheduler->ops->call(scheduler, call_id, params_attr, info);
+}
+
+int mcps802154_scheduler_call_region(struct mcps802154_scheduler *scheduler,
+				     const char *region_id,
+				     const char *region_name, u32 call_id,
+				     const struct nlattr *params_attr,
+				     const struct genl_info *info)
+{
+	if (!scheduler->ops->call_region)
+		return -EOPNOTSUPP;
+
+	return scheduler->ops->call_region(scheduler, region_id, region_name,
+					   call_id, params_attr, info);
+}
