@@ -28,14 +28,26 @@
  * DW3000_CALIBRATION_ANTENNA_MAX - number of antenna
  */
 #define DW3000_CALIBRATION_ANTENNA_MAX 4
+
 /**
- * DW3000_CALIBRATION_CHANNEL_MAX - number of supported channels
+ * enum dw3000_calibration_channels - calibration channel number.
  */
-#define DW3000_CALIBRATION_CHANNEL_MAX 2
+enum dw3000_calibration_channel {
+	DW3000_CALIBRATION_CHANNEL_5,
+	DW3000_CALIBRATION_CHANNEL_9,
+
+	DW3000_CALIBRATION_CHANNEL_MAX
+};
+
 /**
- * DW3000_CALIBRATION_PRF_MAX - number of supported PRF types
+ * enum dw3000_calibration_prfs - calibration Pulse Repetition Frequency.
  */
-#define DW3000_CALIBRATION_PRF_MAX 2
+enum dw3000_calibration_prf {
+	DW3000_CALIBRATION_PRF_16MHZ,
+	DW3000_CALIBRATION_PRF_64MHZ,
+
+	DW3000_CALIBRATION_PRF_MAX
+};
 
 /**
  * DW3000_CALIBRATION_PDOA_LUT_MAX - number of value in PDOA LUT table
@@ -57,6 +69,20 @@ struct dw3000_channel_calib {
 };
 
 /**
+ * struct dw3000_antenna_calib_prf - antenna calibration parameters
+ * @ant_delay: antenna delay
+ * @tx_power: tx power
+ * @pg_count: PG count
+ * @pg_delay: PG delay
+ */
+struct dw3000_antenna_calib_prf {
+	u32 ant_delay;
+	u32 tx_power;
+	u8 pg_count;
+	u8 pg_delay;
+};
+
+/**
  * struct dw3000_antenna_calib - per-antenna dependent calibration parameters
  * @ch: table of channels and PRF dependent calibration values
  * @ant: antenna pair specific calibration values
@@ -67,12 +93,7 @@ struct dw3000_channel_calib {
 struct dw3000_antenna_calib {
 	/* antX.chY.prfZ.* */
 	struct {
-		struct {
-			u32 ant_delay;
-			u32 tx_power;
-			u8 pg_count;
-			u8 pg_delay;
-		} prf[DW3000_CALIBRATION_PRF_MAX];
+		struct dw3000_antenna_calib_prf prf[DW3000_CALIBRATION_PRF_MAX];
 	} ch[DW3000_CALIBRATION_CHANNEL_MAX];
 	/* antX.* */
 	u8 port, selector_gpio, selector_gpio_value;
@@ -146,8 +167,21 @@ struct dw3000_calibration_data {
 
 struct dw3000;
 
+/**
+ * dw3000_calib_parse_key - parse key and find corresponding param
+ * @dw: the DW device
+ * @key: pointer to NUL terminated string to retrieve param address and len
+ * @param: pointer where to store the corresponding parameter address
+ *
+ * This function lookup the NULL terminated table @dw3000_calib_keys and
+ * if specified key is found, store the corresponding address in @param and
+ *
+ * Return: length of corresponding parameter if found, else a -ENOENT error.
+ */
 int dw3000_calib_parse_key(struct dw3000 *dw, const char *key, void **param);
+
 const char *const *dw3000_calib_list_keys(struct dw3000 *dw);
+
 int dw3000_calib_update_config(struct dw3000 *dw);
 
 #endif /* __DW3000_CALIB_H */

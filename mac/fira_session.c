@@ -30,6 +30,41 @@
 #include <linux/errno.h>
 #include <linux/ieee802154.h>
 
+/**
+ * fira_session_controlees_max() - Calculate the maximum number of controlees
+ * for current session.
+ * @params: Session params.
+ *
+ * Return: Maximum number of controlees possible with current parameters.
+ */
+static size_t fira_session_controlees_max(struct fira_session_params *params)
+{
+	/* TODO: use parameters (embedded mode, ranging mode, device type...)
+	   to calculate the size of frames, number of messages...
+	   Currently using default parameters configuration. */
+	const u8 mrm_size_without_delays = 40;
+	const u8 delay_size_per_controlee = 6;
+	const u8 rcm_size_without_slots = 36;
+	const u8 slots_size = 4;
+	const u8 controller_messages = 4;
+	const u8 controlee_messages = 2;
+	const u8 frame_size_max = 125;
+
+	const size_t mrm_max_controlees =
+		(frame_size_max - mrm_size_without_delays) /
+		delay_size_per_controlee;
+
+	const size_t rcm_max_controlees =
+		(frame_size_max - rcm_size_without_slots -
+		 slots_size * controller_messages) /
+		(slots_size * controlee_messages);
+
+	const size_t controlees_max =
+		min(mrm_max_controlees, rcm_max_controlees);
+
+	return controlees_max;
+}
+
 struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 {
 	struct fira_session *session;
@@ -49,6 +84,15 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	session->params.round_duration_slots =
 		FIRA_ROUND_DURATION_SLOTS_DEFAULT;
 	session->params.priority = FIRA_PRIORITY_DEFAULT;
+
+	/* Antenna parameters which have a default value not equal to zero. */
+	session->params.rx_antenna_pair_azimuth = FIRA_RX_ANTENNA_PAIR_INVALID;
+	session->params.rx_antenna_pair_elevation =
+		FIRA_RX_ANTENNA_PAIR_INVALID;
+	session->params.tx_antenna_selection = 0x01;
+	/* Report parameters. */
+	session->params.aoa_result_req = true;
+	session->params.report_tof = true;
 
 	list_add(&session->entry, &local->inactive_sessions);
 
@@ -90,6 +134,8 @@ int fira_session_new_controlees(struct fira_local *local,
 {
 	int i, j;
 
+	/* TODO: If active, use session->params.n_controlees_max instead
+	   of FIRA_CONTROLEES_MAX */
 	if (session->params.n_controlees + n_controlees > FIRA_CONTROLEES_MAX)
 		return -EINVAL;
 
@@ -138,13 +184,29 @@ int fira_session_del_controlees(struct fira_local *local,
 bool fira_session_is_ready(struct fira_local *local,
 			   struct fira_session *session)
 {
-	int round_duration_dtu = session->params.slot_duration_dtu *
-				 session->params.round_duration_slots;
+	int round_duration_dtu;
+	struct fira_session_params *params = &session->params;
 
-	return session->params.slot_duration_dtu != 0 &&
-	       session->params.block_duration_dtu != 0 &&
-	       session->params.round_duration_slots != 0 &&
-	       round_duration_dtu < session->params.block_duration_dtu;
+	if (params->multi_node_mode == FIRA_MULTI_NODE_MODE_UNICAST) {
+		if (params->n_controlees > 1)
+			return false;
+	} else {
+		params->n_controlees_max = fira_session_controlees_max(params);
+		if (params->n_controlees > params->n_controlees_max)
+			return false;
+	}
+	/* RFRAME (INITIATION and FINAL) reception on different antenna is
+	   not implemented on CONTROLLER. */
+	if (params->rx_antenna_switch == FIRA_RX_ANTENNA_SWITCH_DURING_ROUND &&
+	    params->device_type == FIRA_DEVICE_TYPE_CONTROLLER)
+		return false;
+
+	round_duration_dtu =
+		params->slot_duration_dtu * params->round_duration_slots;
+	return params->slot_duration_dtu != 0 &&
+	       params->block_duration_dtu != 0 &&
+	       params->round_duration_slots != 0 &&
+	       round_duration_dtu < params->block_duration_dtu;
 }
 
 static void fira_session_update(struct fira_local *local,

@@ -24,6 +24,7 @@
 #include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/pm_runtime.h>
+#include <linux/bitfield.h>
 #include <net/mcps802154.h>
 
 #include "dw3000.h"
@@ -56,6 +57,35 @@ static inline int dtu_to_dly(struct mcps802154_llhw *llhw, int dtu)
 static inline int rctu_to_dly(struct mcps802154_llhw *llhw, int rctu)
 {
 	return (rctu / DW3000_RCTU_PER_CHIP / DW3000_CHIP_PER_DLY);
+}
+
+static inline u32 tx_rmarker_offset(struct dw3000 *dw, int ant_id)
+{
+	struct dw3000_config *config = &dw->config;
+	const struct dw3000_antenna_calib *ant_calib;
+	const struct dw3000_antenna_calib_prf *ant_calib_prf;
+	int chanidx;
+	int prfidx;
+
+	if (ant_id >= ANTMAX || ant_id < 0) {
+		dev_err(dw->dev, "ant_id %d is out of antenna range, max is %d",
+			ant_id, ANTMAX);
+		return 0;
+	}
+	/* Current configured ant_id. */
+	if (ant_id == config->ant[0])
+		return config->rmarkerOffset;
+
+	ant_calib = &dw->calib_data.ant[ant_id];
+
+	chanidx = config->chan == 9 ? DW3000_CALIBRATION_CHANNEL_9 :
+				      DW3000_CALIBRATION_CHANNEL_5;
+	prfidx = config->txCode >= 9 ? DW3000_CALIBRATION_PRF_64MHZ :
+				       DW3000_CALIBRATION_PRF_16MHZ;
+
+	ant_calib_prf = &ant_calib->ch[chanidx].prf[prfidx];
+
+	return ant_calib_prf->ant_delay;
 }
 
 static int do_start(struct dw3000 *dw, void *in, void *out)
@@ -135,7 +165,7 @@ static int do_tx_frame(struct dw3000 *dw, void *in, void *out)
 	u32 tx_date_dtu = 0;
 	int rx_delay_dly = -1;
 	u32 rx_timeout_pac = 0;
-	int tx_delayed = 1;
+	bool tx_delayed = true;
 	int rc;
 	u8 sts_mode;
 
@@ -161,7 +191,7 @@ static int do_tx_frame(struct dw3000 *dw, void *in, void *out)
 		tx_date_dtu = info->timestamp_dtu + llhw->shr_dtu;
 	} else {
 		/* Send immediately. */
-		tx_delayed = 0;
+		tx_delayed = false;
 	}
 
 	if (info->rx_enable_after_tx_dtu > 0) {
@@ -208,7 +238,7 @@ static int do_rx_enable(struct dw3000 *dw, void *in, void *out)
 	struct mcps802154_llhw *llhw = dw->llhw;
 	u32 date_dtu = 0;
 	u32 timeout_pac = 0;
-	int rx_delayed = 1;
+	bool rx_delayed = true;
 	int rc;
 	u8 sts_mode;
 
@@ -229,7 +259,7 @@ static int do_rx_enable(struct dw3000 *dw, void *in, void *out)
 		date_dtu = info->timestamp_dtu - DW3000_RX_ENABLE_STARTUP_DTU;
 	} else {
 		/* Receive immediately. */
-		rx_delayed = 0;
+		rx_delayed = false;
 	}
 
 	if (info->flags & MCPS802154_RX_INFO_AACK) {
@@ -284,6 +314,7 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 			struct mcps802154_rx_frame_info *info)
 {
 	struct dw3000 *dw = llhw->priv;
+	struct dw3000_config *config = &dw->config;
 	struct dw3000_rx *rx = &dw->rx;
 	unsigned long flags;
 	u64 timestamp_rctu;
@@ -321,7 +352,8 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 				~(MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
 				  MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU);
 		else {
-			info->timestamp_rctu = timestamp_rctu;
+			info->timestamp_rctu =
+				timestamp_rctu - config->rmarkerOffset;
 			info->timestamp_dtu =
 				timestamp_rctu_to_dtu(llhw, timestamp_rctu) -
 				llhw->shr_dtu;
@@ -332,7 +364,8 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 		info->flags |= MCPS802154_RX_FRAME_INFO_AACK;
 	/* In case of PDoA. */
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA)
-		info->ranging_pdoa_rad_q11 = dw3000_readpdoa(dw);
+		info->ranging_pdoa_rad_q11 =
+			dw3000_readpdoa(dw) - config->pdoaOffset;
 	/* Keep only implemented. */
 	info->flags &= (MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
 			MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
@@ -443,12 +476,15 @@ static inline u32 timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 }
 
 static inline u64 tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
-						   u32 tx_timestamp_dtu)
+						   u32 tx_timestamp_dtu,
+						   int ant_id)
 {
+	struct dw3000 *dw = llhw->priv;
 	/* LSB is ignored. */
 	const u32 bit_mask = ~1;
-	return timestamp_dtu_to_rctu(llhw, (tx_timestamp_dtu + llhw->shr_dtu) &
-						   bit_mask);
+	const u64 rctu = timestamp_dtu_to_rctu(
+		llhw, (tx_timestamp_dtu + llhw->shr_dtu) & bit_mask);
+	return rctu + tx_rmarker_offset(dw, ant_id);
 }
 
 static inline s64 difference_timestamp_rctu(struct mcps802154_llhw *llhw,
@@ -653,6 +689,7 @@ static int set_calibration(struct mcps802154_llhw *llhw, const char *key,
 	/* FIXME: This copy isn't big-endian compatible. */
 	memcpy(param, value, len);
 	/* One parameter has changed. */
+	dw3000_calib_update_config(dw);
 	/* TODO: need reconfiguration? */
 	return 0;
 }

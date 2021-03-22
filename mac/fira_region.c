@@ -83,10 +83,27 @@ static int fira_call(struct mcps802154_region *region, u32 call_id,
 	}
 }
 
+static int fira_report_local_aoa(struct fira_local *local, struct sk_buff *msg,
+				 const struct fira_local_aoa_info *info)
+{
+#define A(x) FIRA_RANGING_DATA_MEASUREMENTS_AOA_ATTR_##x
+	if (nla_put_u8(msg, A(RX_ANTENNA_PAIR), info->rx_ant_pair))
+		goto nla_put_failure;
+	if (nla_put_s16(msg, A(AOA_2PI), info->aoa_2pi))
+		goto nla_put_failure;
+	if (nla_put_s16(msg, A(PDOA_2PI), info->pdoa_2pi))
+		goto nla_put_failure;
+#undef A
+	return 0;
+nla_put_failure:
+	return -EMSGSIZE;
+}
+
 static int fira_report_measurement(struct fira_local *local,
 				   struct sk_buff *msg,
 				   const struct fira_ranging_info *ranging_info)
 {
+	struct nlattr *aoa;
 #define A(x) FIRA_RANGING_DATA_MEASUREMENTS_ATTR_##x
 
 	if (nla_put_u16(msg, A(SHORT_ADDR), ranging_info->short_addr) ||
@@ -102,6 +119,43 @@ static int fira_report_measurement(struct fira_local *local,
 			ranging_info->tof_rctu * speed_of_light_mm_per_s,
 			(u64)local->llhw->dtu_freq_hz * local->llhw->dtu_rctu);
 		if (nla_put_u32(msg, A(DISTANCE_MM), distance_mm))
+			goto nla_put_failure;
+	}
+
+	if (ranging_info->local_aoa.present) {
+		aoa = nla_nest_start(msg, A(LOCAL_AOA));
+		if (!aoa)
+			goto nla_put_failure;
+		if (fira_report_local_aoa(local, msg, &ranging_info->local_aoa))
+			goto nla_put_failure;
+		nla_nest_end(msg, aoa);
+	}
+	if (ranging_info->local_aoa_azimuth.present) {
+		aoa = nla_nest_start(msg, A(LOCAL_AOA_AZIMUTH));
+		if (!aoa)
+			goto nla_put_failure;
+		if (fira_report_local_aoa(local, msg,
+					  &ranging_info->local_aoa_azimuth))
+			goto nla_put_failure;
+		nla_nest_end(msg, aoa);
+	}
+	if (ranging_info->local_aoa_elevation.present) {
+		aoa = nla_nest_start(msg, A(LOCAL_AOA_ELEVATION));
+		if (!aoa)
+			goto nla_put_failure;
+		if (fira_report_local_aoa(local, msg,
+					  &ranging_info->local_aoa_elevation))
+			goto nla_put_failure;
+		nla_nest_end(msg, aoa);
+	}
+	if (ranging_info->remote_aoa_azimuth_present) {
+		if (nla_put_s16(msg, A(REMOTE_AOA_AZIMUTH_2PI),
+				ranging_info->remote_aoa_azimuth_2pi))
+			goto nla_put_failure;
+	}
+	if (ranging_info->remote_aoa_elevation_present) {
+		if (nla_put_s16(msg, A(REMOTE_AOA_ELEVATION_PI),
+				ranging_info->remote_aoa_elevation_pi))
 			goto nla_put_failure;
 	}
 

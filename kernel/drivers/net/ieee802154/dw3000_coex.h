@@ -28,10 +28,10 @@
 
 #define DTU_TO_US(x) (int)((s64)(x)*1000000 / DW3000_DTU_FREQ)
 #define US_TO_DTU(x) (int)((s64)(x)*DW3000_DTU_FREQ / 1000000)
-#define COEX_TIME_US 1000
-#define COEX_TIME_DTU US_TO_DTU(COEX_TIME_US)
+
+#define COEX_TIME_US (dw->coex_delay_us)
+
 #define COEX_MARGIN_US 20
-#define COEX_MARGIN_DTU US_TO_DTU(COEX_MARGIN_US)
 
 /**
  * dw3000_coex_gpio - change the state of the GPIO used for WiFi coexistence
@@ -59,7 +59,7 @@ static inline int dw3000_coex_gpio(struct dw3000 *dw, int state, int delay_us)
  *
  * Return: 0 on success, else a negative error code.
  */
-static inline int dw3000_coex_start(struct dw3000 *dw, int *trx_delayed,
+static inline int dw3000_coex_start(struct dw3000 *dw, bool *trx_delayed,
 				    u32 *trx_date_dtu)
 {
 	u32 cur_time_dtu;
@@ -71,21 +71,21 @@ static inline int dw3000_coex_start(struct dw3000 *dw, int *trx_delayed,
 	ret = dw3000_read_sys_time(dw, &cur_time_dtu);
 	if (unlikely(ret))
 		return ret;
-	if (*trx_delayed == 0) {
+	delay_us = COEX_TIME_US + COEX_MARGIN_US;
+	if (*trx_delayed == false) {
+		/* Change to delayed TX/RX with the configured delay */
+		*trx_date_dtu = cur_time_dtu + US_TO_DTU(delay_us);
+		*trx_delayed = true;
 		/* Set gpio now */
 		delay_us = 0;
-		/* Change to delayed TX/RX with a 1ms delay */
-		*trx_date_dtu = cur_time_dtu + COEX_TIME_DTU + COEX_MARGIN_DTU;
-		*trx_delayed = true;
 	} else {
 		/* Calculate when we need to toggle the gpio */
 		int time_difference_dtu = *trx_date_dtu - cur_time_dtu;
 		int time_difference_us = DTU_TO_US(time_difference_dtu);
-		if (time_difference_us <= COEX_TIME_US + COEX_MARGIN_US)
+		if (time_difference_us <= delay_us)
 			delay_us = 0;
 		else
-			delay_us = time_difference_us - COEX_TIME_US -
-				   COEX_MARGIN_US;
+			delay_us = time_difference_us - delay_us;
 	}
 	/* Set coexistence gpio on chip */
 	return dw3000_coex_gpio(dw, true, delay_us);

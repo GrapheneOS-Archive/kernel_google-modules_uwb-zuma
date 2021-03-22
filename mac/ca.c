@@ -103,7 +103,7 @@ int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
 	return 0;
 }
 
-const char **
+const char *const *
 mcps802154_ca_list_scheduler_region_ids(struct mcps802154_local *local)
 {
 	struct mcps802154_scheduler *scheduler;

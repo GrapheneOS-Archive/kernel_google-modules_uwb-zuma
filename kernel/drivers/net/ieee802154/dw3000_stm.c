@@ -24,6 +24,7 @@
 #include <linux/version.h>
 #include <linux/workqueue.h>
 #include <linux/sched.h>
+#include <linux/interrupt.h>
 
 #include "dw3000.h"
 #include "dw3000_core.h"

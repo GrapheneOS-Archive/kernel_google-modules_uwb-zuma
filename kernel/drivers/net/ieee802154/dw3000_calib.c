@@ -23,7 +23,7 @@
  */
 #include "dw3000.h"
 
-// clang-format off
+/* clang-format off */
 #define CHAN_PRF_PARAMS (4 * DW3000_CALIBRATION_PRF_MAX)
 #define ANT_CHAN_PARAMS (CHAN_PRF_PARAMS * DW3000_CALIBRATION_CHANNEL_MAX)
 #define ANT_OTHER_PARAMS (3) /* port, selector_gpio... */
@@ -68,25 +68,25 @@ static const struct {
 	unsigned int offset;
 	unsigned int length;
 } dw3000_calib_keys_info[MAX_CALIB_KEYS] = {
-	// ant0.*
+	/* ant0.* */
 	ANTENNA_CAL_INFO(0),
-	// ant1.*
+	/* ant1.* */
 	ANTENNA_CAL_INFO(1),
-	// ant0.*
+	/* ant0.* */
 	ANTENNA_CAL_INFO(2),
-	// ant1.*
+	/* ant1.* */
 	ANTENNA_CAL_INFO(3),
-	// antX.antW.*
+	/* antX.antW.* */
 	ANTPAIR_CAL_INFO(0,1),
 	ANTPAIR_CAL_INFO(0,2),
 	ANTPAIR_CAL_INFO(0,3),
 	ANTPAIR_CAL_INFO(1,2),
 	ANTPAIR_CAL_INFO(1,3),
 	ANTPAIR_CAL_INFO(2,3),
-	// chY.*
+	/* chY.* */
 	CAL_INFO(ch[0].pll_locking_code),
 	CAL_INFO(ch[1].pll_locking_code),
-	// other with defaults from OTP
+	/* other with defaults from OTP */
 	OTP_INFO(xtal_trim),
 	OTP_INFO(tempP)
 };
@@ -123,35 +123,24 @@ static const char *const dw3000_calib_keys[MAX_CALIB_KEYS + 1] = {
 	ANTENNA_CAL_LABEL(1),
 	ANTENNA_CAL_LABEL(2),
 	ANTENNA_CAL_LABEL(3),
-	// antX.antY.*
+	/* antX.antY.* */
 	ANTPAIR_CAL_LABEL(0,1),
 	ANTPAIR_CAL_LABEL(0,2),
 	ANTPAIR_CAL_LABEL(0,3),
 	ANTPAIR_CAL_LABEL(1,2),
 	ANTPAIR_CAL_LABEL(1,3),
 	ANTPAIR_CAL_LABEL(2,3),
-	// chY.*
+	/* chY.* */
 	"ch5.pll_locking_code",
 	"ch9.pll_locking_code",
-	// other
+	/* other */
 	"xtal_trim",
 	"temperature_reference",
-	// NULL terminated array for caller of dw3000_calib_list_keys().
+	/* NULL terminated array for caller of dw3000_calib_list_keys(). */
 	NULL
 };
-// clang-format on
+/* clang-format on */
 
-/**
- * dw3000_calib_parse_key - parse key and find corresponding param
- * @dw: the DW device
- * @key: pointer to NUL terminated string to retrieve param address and len
- * @param: pointer where to store the corresponding parameter address
- *
- * This function lookup the NULL terminated table @dw3000_calib_keys and
- * if specified key is found, store the corresponding address in @param and
- *
- * Return: length of corresponding parameter if found, else a -ENOENT error.
- */
 int dw3000_calib_parse_key(struct dw3000 *dw, const char *key, void **param)
 {
 	int i;
@@ -194,34 +183,52 @@ const char *const *dw3000_calib_list_keys(struct dw3000 *dw)
  */
 int dw3000_calib_update_config(struct dw3000 *dw)
 {
-	struct mcps802154_llhw *llhw = dw->llhw;
 	struct dw3000_config *config = &dw->config;
 	struct dw3000_txconfig *txconfig = &dw->txconfig;
-	int ant_rf1 = config->ant[0];
-	int ant_rf2 = config->ant[1];
-	int antpair = ant_rf2 > ant_rf1 ? ANTPAIR_IDX(ant_rf1, ant_rf2) :
-					  ANTPAIR_IDX(ant_rf2, ant_rf1);
-	struct dw3000_antenna_calib *ant_calib = &dw->calib_data.ant[ant_rf1];
-	struct dw3000_antenna_pair_calib *antpair_calib =
-		&dw->calib_data.antpair[antpair];
-	int chanidx = config->chan == 9;
-	int prfidx = config->txCode > 9;
+	const struct dw3000_antenna_calib *ant_calib;
+	const struct dw3000_antenna_calib_prf *ant_calib_prf;
+	const struct dw3000_antenna_pair_calib *antpair_calib;
+	int ant_rf1, ant_rf2, antpair;
+	int chanidx, prfidx;
+
+	ant_rf1 = config->ant[0];
+	ant_rf2 = config->ant[1];
+	/* At least, RF1 port must have a valid antenna */
+	if (ant_rf1 < 0)
+		/* Not configured yet, does nothing. */
+		return 0;
+	if (ant_rf1 >= ANTMAX)
+		return -1;
+	ant_calib = &dw->calib_data.ant[ant_rf1];
+
+	/* Convert config into index of array. */
+	chanidx = config->chan == 9 ? DW3000_CALIBRATION_CHANNEL_9 :
+				      DW3000_CALIBRATION_CHANNEL_5;
+	prfidx = config->txCode >= 9 ? DW3000_CALIBRATION_PRF_64MHZ :
+				       DW3000_CALIBRATION_PRF_16MHZ;
+
+	/* Shortcut pointers to reduce line length. */
+	ant_calib_prf = &ant_calib->ch[chanidx].prf[prfidx];
+
 	/* Update TX configuration */
-	txconfig->power = ant_calib->ch[chanidx].prf[prfidx].tx_power ?
-				  ant_calib->ch[chanidx].prf[prfidx].tx_power :
-				  0xfefefefe;
-	txconfig->PGdly = ant_calib->ch[chanidx].prf[prfidx].pg_delay ?
-				  ant_calib->ch[chanidx].prf[prfidx].pg_delay :
-				  0x34;
-	txconfig->PGcount =
-		ant_calib->ch[chanidx].prf[prfidx].pg_count ?
-			ant_calib->ch[chanidx].prf[prfidx].pg_count :
-			0;
+	txconfig->power = ant_calib_prf->tx_power ? ant_calib_prf->tx_power :
+						    0xfefefefe;
+	txconfig->PGdly = ant_calib_prf->pg_delay ? ant_calib_prf->pg_delay :
+						    0x34;
+	txconfig->PGcount = ant_calib_prf->pg_count ? ant_calib_prf->pg_count :
+						      0;
 	/* Update RMARKER offsets */
-	llhw->tx_rmarker_offset_rctu =
-		ant_calib->ch[chanidx].prf[prfidx].ant_delay;
-	llhw->rx_rmarker_offset_rctu =
-		ant_calib->ch[chanidx].prf[prfidx].ant_delay;
+	config->rmarkerOffset = ant_calib_prf->ant_delay;
+
+	/* Early exit if RF2 isn't configured yet. */
+	if (ant_rf2 < 0)
+		return 0;
+	if (ant_rf2 >= ANTMAX)
+		return -EINVAL;
+	/* RF2 port has a valid antenna, so antpair can be used */
+	antpair = ant_rf2 > ant_rf1 ? ANTPAIR_IDX(ant_rf1, ant_rf2) :
+				      ANTPAIR_IDX(ant_rf2, ant_rf1);
+	antpair_calib = &dw->calib_data.antpair[antpair];
 	/* Update PDOA offset */
 	config->pdoaOffset = antpair_calib->ch[chanidx].pdoa_offset;
 	return 0;

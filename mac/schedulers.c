@@ -136,7 +136,7 @@ int mcps802154_scheduler_set_parameters(struct mcps802154_scheduler *scheduler,
 	return scheduler->ops->set_parameters(scheduler, params_attr, extack);
 }
 
-const char **
+const char *const *
 mcps802154_scheduler_list_region_ids(struct mcps802154_scheduler *scheduler)
 {
 	if (!scheduler->ops->list_region_ids)

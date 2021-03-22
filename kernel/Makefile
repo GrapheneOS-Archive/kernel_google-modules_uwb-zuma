@@ -1,14 +1,10 @@
-ifneq ($(O),)
-# Called from Android build system, use $(O) as kernel build directory.
-KDIR := $(O)
-endif
-
 export CONFIG_MCPS_FAKE := n
 export CONFIG_MCPS802154_TESTMODE := y
+export CONFIG_QCOM_SPI_LOWLATENCY := n
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
-
 PROJECTS_BUILD := $(abspath $(CURDIR)/../projects/linux-build)
+
 ifeq ($(PROJECTS_BUILD),$(abspath $(KDIR)/../../../../..))
 
 # Build in projects/linux-build, use a separated build tree.
@@ -30,14 +26,24 @@ modules modules_install:
 clean help:
 	$(MAKE) -C $(KDIR) O=$O M=$M $@
 
-else
+else # ifeq ($(PROJECTS_BUILD),$(abspath $(KDIR)/../../../../..))
 
 # Regular build, build here.
+ifneq ($(KERNEL_SRC),)
+# Compile Android external module in $OUT
+# M = output directory
+# KERNEL_SRC = Kernel path
+$(info Android Build )
+KDIR := $(KERNEL_SRC)
+else # ifneq ($(KERNEL_SRC),)
+M := $(CURDIR)
+endif # ifneq ($(KERNEL_SRC),)
 
 default:
-	$(MAKE) -C $(KDIR) M=$(CURDIR)
-
+	$(MAKE) -C $(KDIR) M=$(M)
+all:
+	$(MAKE) -C $(KDIR) M=$(M) modules $(KBUILD_OPTIONS)
 modules modules_install clean help:
-	$(MAKE) -C $(KDIR) M=$(CURDIR) $@
+	$(MAKE) -C $(KDIR) M=$(M) $@
 
-endif
+endif # ifeq ($(PROJECTS_BUILD),$(abspath $(KDIR)/../../../../..))

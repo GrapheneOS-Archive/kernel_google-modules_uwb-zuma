@@ -25,22 +25,26 @@
 #include "dw3000_core.h"
 #include "dw3000_core_reg.h"
 
-/* Lookup table default values for channel 5 */
-static const u32 dw3000_c0_configmrxlut_ch5[DW3000_CONFIGMRXLUT_MAX] = {
-	0x1c0fd, 0x1c43e, 0x1c6be, 0x1c77e, 0x1cf36, 0x1cfb5, 0x1cff5
-};
-
-/* Lookup table default values for channel 9 */
-static const u32 dw3000_c0_configmrxlut_ch9[DW3000_CONFIGMRXLUT_MAX] = {
-	0x2a8fe, 0x2ac36, 0x2a5fe, 0x2af3e, 0x2af7d, 0x2afb5, 0x2afb5
-};
-
 const u32 *dw3000_c0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel)
 {
-	if (channel == 5)
+	/* Lookup table default values for channel 5 */
+	static const u32 dw3000_c0_configmrxlut_ch5[DW3000_CONFIGMRXLUT_MAX] = {
+		0x1c0fd, 0x1c47d, 0x1c67d, 0x1c7fd, 0x1cf7d, 0x1cffd, 0x0fffd
+	};
+
+	/* Lookup table default values for channel 9 */
+	static const u32 dw3000_c0_configmrxlut_ch9[DW3000_CONFIGMRXLUT_MAX] = {
+		0x2a07d, 0x2a3fd, 0x2a57d, 0x2a77d, 0x2a7fd, 0x2ad7d, 0x2affd
+	};
+
+	switch (channel) {
+	case 5:
 		return dw3000_c0_configmrxlut_ch5;
-	else
+	case 9:
 		return dw3000_c0_configmrxlut_ch9;
+	default:
+		return NULL;
+	}
 }
 
 static int dw3000_c0_softreset(struct dw3000 *dw)

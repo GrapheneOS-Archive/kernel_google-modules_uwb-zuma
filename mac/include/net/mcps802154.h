@@ -28,19 +28,26 @@
 #define NET_MCPS802154_H
 
 #include <net/mac802154.h>
+#include <crypto/aes.h>
 
 /* Antenna index to use for transmission by default. */
 #define TX_ANT_ID_DEFAULT 0
 /* Antenna pair index to use for reception by default. */
 #define RX_ANT_PAIR_ID_DEFAULT 0
 
+/** Maximum number of STS segments. */
+#define MCPS802154_STS_N_SEGS_MAX 4
+
 /**
  * enum mcps802154_llhw_flags - Low-level hardware without MCPS flags.
  * @MCPS802154_LLHW_RDEV:
  *	Support for ranging (RDEV). TODO: move to &ieee802154_hw.
+ * @MCPS802154_LLHW_ERDEV:
+ *	Support for enhanced ranging (ERDEV). TODO: move to &ieee802154_hw.
  */
 enum mcps802154_llhw_flags {
 	MCPS802154_LLHW_RDEV = BIT(0),
+	MCPS802154_LLHW_ERDEV = BIT(1),
 };
 
 /**
@@ -81,18 +88,6 @@ struct mcps802154_llhw {
 	 * (ERDEV only).
 	 */
 	int rstu_dtu;
-	/**
-	 * @rx_rmarker_offset_rctu: Difference between the reported RMARKER
-	 * timestamp and the time the RMARKER actually arrives at the antenna in
-	 * ranging counter time unit. Can be changed by MCTS.
-	 */
-	int rx_rmarker_offset_rctu;
-	/**
-	 * @tx_rmarker_offset_rctu: Difference between the reported RMARKER
-	 * timestamp and the time the RMARKER actually launches at the antenna
-	 * in ranging counter time unit. Can be changed by MCTS.
-	 */
-	int tx_rmarker_offset_rctu;
 	/**
 	 * @anticip_dtu: Reasonable delay between reading the current timestamp
 	 * and doing an operation in device time unit.
@@ -135,11 +130,14 @@ struct mcps802154_llhw {
  *	Enable precise timestamping for the transmitted frame and its response
  *	(RDEV only).
  * @MCPS802154_TX_FRAME_SP1:
- *	Enable the STS during this transmission mode 1 (STS in the frame).
+ *	Enable STS for the transmitted frame and its response, mode 1 (STS after
+ *	SFD and before PHR, ERDEV only).
  * @MCPS802154_TX_FRAME_SP2:
- *	Enable the STS during this transmission mode 2 (STS at the end of the frame).
+ *	Enable STS for the transmitted frame and its response, mode 2 (STS after
+ *	the payload, ERDEV only).
  * @MCPS802154_TX_FRAME_SP3:
- *	Enable the STS during this transmission mode 3 (STS without payload).
+ *	Enable STS for the transmitted frame and its response, mode 3 (STS after
+ *	SFD, no PHR, no payload, ERDEV only).
  * @MCPS802154_TX_FRAME_STS_MODE_MASK:
  *      Mask covering all the STS mode configuration values.
  *
@@ -194,11 +192,14 @@ struct mcps802154_tx_frame_info {
  * @MCPS802154_RX_INFO_RANGING:
  *	Enable precise timestamping for the received frame (RDEV only).
  * @MCPS802154_RX_INFO_SP1:
- *	Enable the STS during this reception mode 1 (STS in the frame).
+ *	Enable STS for the received frame, mode 1 (STS after SFD and before PHR,
+ *	ERDEV only).
  * @MCPS802154_RX_INFO_SP2:
- *	Enable the STS during this reception mode 2 (STS at the end of the frame).
+ *	Enable STS for the received frame, mode 2 (STS after the payload, ERDEV
+ *	only).
  * @MCPS802154_RX_INFO_SP3:
- *	Enable the STS during this reception mode 3 (STS without payload).
+ *	Enable STS for the received frame, mode 3 (STS after SFD, no PHR, no
+ *	payload, ERDEV only).
  * @MCPS802154_RX_INFO_STS_MODE_MASK:
  *      Mask covering all the STS mode configuration values.
  *
@@ -254,6 +255,16 @@ struct mcps802154_rx_info {
  *	Set by MCPS to request clock characterization data (RDEV only).
  * @MCPS802154_RX_FRAME_INFO_RANGING_PDOA:
  *	Set by MCPS to request phase difference of arrival (RDEV only).
+ * @MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM:
+ *	Set by MCPS to request phase difference of arrival figure of merit (FoM,
+ *	RDEV only).
+ * @MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU:
+ *	Set by MCPS to request SRMARKERx timestamps for each STS segments in
+ *	ranging counter time unit (ERDEV only).
+ * @MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM:
+ *	Set by MCPS to request STS segments figure of merit measuring the
+ *	correlation strength between the received STS segment and the expected
+ *	one (FoM, ERDEV only).
  * @MCPS802154_RX_FRAME_INFO_AACK:
  *	Set by low-level driver if an automatic acknowledgment was sent or is
  *	being sent.
@@ -269,13 +280,14 @@ enum mcps802154_rx_frame_info_flags {
 	MCPS802154_RX_FRAME_INFO_RANGING_FOM = BIT(4),
 	MCPS802154_RX_FRAME_INFO_RANGING_OFFSET = BIT(5),
 	MCPS802154_RX_FRAME_INFO_RANGING_PDOA = BIT(6),
-	MCPS802154_RX_FRAME_INFO_AACK = BIT(7),
+	MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM = BIT(7),
+	MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU = BIT(8),
+	MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM = BIT(9),
+	MCPS802154_RX_FRAME_INFO_AACK = BIT(10),
 };
 
 /**
  * struct mcps802154_rx_frame_info - Information on a received frame.
- *
- * TODO: STS timestamp, STS FoM, PDoA.
  */
 struct mcps802154_rx_frame_info {
 	/**
@@ -313,17 +325,73 @@ struct mcps802154_rx_frame_info {
 	 */
 	int ranging_pdoa_rad_q11;
 	/**
+	 * @ranging_sts_timestamp_diffs_rctu: For each SRMARKERx, difference
+	 * between the measured timestamp and the expected timestamp relative to
+	 * RMARKER in ranging count time unit (ERDEV only). When STS mode is
+	 * 1 or 3, SRMARKER0 is the same as RMARKER and difference is always 0.
+	 */
+	s16 ranging_sts_timestamp_diffs_rctu[MCPS802154_STS_N_SEGS_MAX + 1];
+	/**
 	 * @lqi: Link quality indicator (LQI).
 	 */
 	u8 lqi;
 	/**
-	 * @ranging_fom: Ranging figure of merit (FoM, RDEV only).
+	 * @ranging_fom: Ranging figure of merit (FoM, RDEV only). Should be
+	 * formatted according to 802.15.4.
 	 */
 	u8 ranging_fom;
+	/**
+	 * @ranging_pdoa_fom: Phase difference of arrival figure of merit (FoM,
+	 * RDEV only). Range is 0 to 255, with 0 being an invalid measure and
+	 * 255 being a 100% confidence.
+	 */
+	u8 ranging_pdoa_fom;
+	/**
+	 * @ranging_sts_fom: Table of figures of merit measuring the correlation
+	 * strength between the received STS segment and the expected one (FoM,
+	 * ERDEV only). Range is 0 to 255, with 0 being an invalid measure and
+	 * 255 being a 100% confidence.
+	 */
+	u8 ranging_sts_fom[MCPS802154_STS_N_SEGS_MAX];
 	/**
 	 * @flags: See &enum mcps802154_rx_frame_info_flags.
 	 */
 	u16 flags;
+};
+
+/**
+ * struct mcps802154_sts_params - STS parameters for HRP UWB.
+ */
+struct mcps802154_sts_params {
+	/**
+	 * @v: Value V used in DRBG for generating the STS. The 32 LSB are the
+	 * VCounter which is incremented every 128 generated pulse.
+	 */
+	u8 v[AES_BLOCK_SIZE];
+	/**
+	 * @key: STS AES key used in DRBG for generating the STS.
+	 */
+	u8 key[AES_KEYSIZE_128];
+	/**
+	 * @n_segs: Number of STS segments.
+	 */
+	int n_segs;
+	/**
+	 * @seg_len: Length of STS segments.
+	 */
+	int seg_len;
+	/**
+	 * @sp2_tx_gap_4chips: For SP2 frame format, additional gap in unit of
+	 * 4 chips between the end of the payload and the start of the STS, used
+	 * for TX.
+	 */
+	int sp2_tx_gap_4chips;
+	/**
+	 * @sp2_rx_gap_4chips: For SP2 frame format, additional gap in unit of
+	 * 4 chips between the end of the payload and the start of the STS, used
+	 * for RX. A0 and A1 bits in PHR are used to index the array.
+	 */
+	int sp2_rx_gap_4chips[MCPS802154_STS_N_SEGS_MAX];
 };
 
 /**
@@ -421,7 +489,8 @@ struct mcps802154_ops {
 	 * Return: The RMARKER timestamp.
 	 */
 	u64 (*tx_timestamp_dtu_to_rmarker_rctu)(struct mcps802154_llhw *llhw,
-						u32 tx_timestamp_dtu);
+						u32 tx_timestamp_dtu,
+						int ant_id);
 	/**
 	 * @difference_timestamp_rctu: Compute the difference between two
 	 * timestamp values.
@@ -458,6 +527,13 @@ struct mcps802154_ops {
 	int (*set_hrp_uwb_params)(struct mcps802154_llhw *llhw, int prf,
 				  int psr, int sfd_selector, int phr_rate,
 				  int data_rate);
+	/**
+	 * @set_sts_params: Set STS parameters (ERDEV only).
+	 *
+	 * Return: 0 or error.
+	 */
+	int (*set_sts_params)(struct mcps802154_llhw *llhw,
+			      const struct mcps802154_sts_params *params);
 	/**
 	 * @set_hw_addr_filt: Set hardware filter parameters.
 	 *

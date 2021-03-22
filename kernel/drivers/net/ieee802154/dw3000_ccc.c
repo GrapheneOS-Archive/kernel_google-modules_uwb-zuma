@@ -124,7 +124,7 @@ static void ccc_add_tlv_slots(struct ccc_msg *msg, u32 start, u32 end)
 	msg->tlvs_len += TLV_TYPELEN_LEN + tlv->len;
 }
 
-int dw3000_ccc_process_received_msg(struct dw3000 *dw, char *buffer)
+int dw3000_ccc_process_received_msg(struct dw3000 *dw, u8 *buffer)
 {
 	struct ccc_msg *in;
 	struct ccc_msg out;

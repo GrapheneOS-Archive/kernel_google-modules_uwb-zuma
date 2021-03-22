@@ -40,6 +40,12 @@ module_param_named(wificoex_gpio, dw3000_wifi_coex_gpio, int, 0444);
 MODULE_PARM_DESC(wificoex_gpio,
 		 "WiFi coexistence GPIO number, -1 for disabled (default)");
 
+static unsigned dw3000_wifi_coex_delay_us = 1000;
+module_param_named(wificoex_delay_us, dw3000_wifi_coex_delay_us, uint, 0444);
+MODULE_PARM_DESC(
+	wificoex_delay_us,
+	"Delay between WiFi coexistence GPIO activation and TX in us (default is 1000us)");
+
 static int dw3000_lna_pa_mode = 0;
 module_param_named(lna_pa_mode, dw3000_lna_pa_mode, int, 0444);
 MODULE_PARM_DESC(
@@ -61,7 +67,9 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, dw);
 	dw->spi = spi;
 	dw->coex_gpio = (s8)dw3000_wifi_coex_gpio;
+	dw->coex_delay_us = dw3000_wifi_coex_delay_us;
 	dw->lna_pa_mode = (s8)dw3000_lna_pa_mode;
+	dw->current_operational_state = DW3000_OP_STATE_OFF;
 
 	dev_info(dw->dev, "Loading driver...");
 	dw3000_sysfs_init(dw);

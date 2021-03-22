@@ -26,20 +26,62 @@
 #include "dw3000_core_reg.h"
 #include "dw3000_ccc_mailbox.h"
 
-const u32 *dw3000_c0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel);
+const u32 *dw3000_d0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel)
+{
+	/* Lookup table default values for channel 5 */
+	static const u32 dw3000_d0_configmrxlut_ch5[DW3000_CONFIGMRXLUT_MAX] = {
+		0x1c0fd, 0x1c43e, 0x1c6be, 0x1c77e, 0x1cf36, 0x1cfb5, 0x1cff5
+	};
 
+	/* Lookup table default values for channel 9 */
+	static const u32 dw3000_d0_configmrxlut_ch9[DW3000_CONFIGMRXLUT_MAX] = {
+		0x2a8fe, 0x2ac36, 0x2a5fe, 0x2af3e, 0x2af7d, 0x2afb5, 0x2afb5
+	};
+
+	switch (channel) {
+	case 5:
+		return dw3000_d0_configmrxlut_ch5;
+	case 9:
+		return dw3000_d0_configmrxlut_ch9;
+	default:
+		return NULL;
+	}
+}
+
+/**
+ * dw3000_d0_softreset() - D0 chip specific software reset
+ * @dw: The DW device.
+ *
+ * Return: zero on success, else a negative error code.
+ */
 int dw3000_d0_softreset(struct dw3000 *dw)
 {
 	/* D0 require a FAST command to start soft-reset */
 	return dw3000_write_fastcmd(dw, DW3000_CMD_SEMA_RESET);
 }
 
+/**
+ * dw3000_d0_init() - D0 chip specific initialisation
+ * @dw: The DW device.
+ *
+ * Note: Still used by dw3000_e0_init().
+ *
+ * Return: zero on success, else a negative error code.
+ */
 int dw3000_d0_init(struct dw3000 *dw)
 {
 	/* Disable CCC Mailbox */
 	return dw3000_ccc_disable(dw);
 }
 
+/**
+ * dw3000_d0_coex_init() - Configure the device's WiFi coexistence GPIO
+ * @dw: The DW device.
+ *
+ * Note: Still used by dw3000_e0_coex_init() as GPIO pin need to be configured.
+ *
+ * Return: zero on success, else a negative error code.
+ */
 int dw3000_d0_coex_init(struct dw3000 *dw)
 {
 	u32 modemask;
@@ -66,7 +108,15 @@ int dw3000_d0_coex_init(struct dw3000 *dw)
 	return 0;
 }
 
-int dw3000_d0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
+/**
+ * dw3000_d0_coex_gpio() - Update the device's WiFi coexistence GPIO
+ * @dw: The DW device.
+ * @state: The WiFi coexistence GPIO state to apply.
+ * @delay_us: The delay in us before changing GPIO state.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+static int dw3000_d0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 {
 	int offset;
 	/* /!\ could be called first with (true, 1000), then before end of 1000
@@ -85,7 +135,7 @@ int dw3000_d0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 }
 
 /**
- * dw3000_prog_ldo_and_bias_tune() - Programs the device's LDO and BIAS tuning
+ * dw3000_d0_prog_ldo_and_bias_tune() - Programs the device's LDO and BIAS tuning
  * @dw: The DW device.
  *
  * Return: zero on success, else a negative error code.
@@ -112,5 +162,5 @@ const struct dw3000_chip_ops dw3000_chip_d0_ops = {
 	.coex_init = dw3000_d0_coex_init,
 	.coex_gpio = dw3000_d0_coex_gpio,
 	.prog_ldo_and_bias_tune = dw3000_d0_prog_ldo_and_bias_tune,
-	.get_config_mrxlut_chan = dw3000_c0_get_config_mrxlut_chan,
+	.get_config_mrxlut_chan = dw3000_d0_get_config_mrxlut_chan,
 };

@@ -356,14 +356,11 @@ static void twr_responder_rx_frame(struct mcps802154_access *access,
 		else
 			local->responder.local_pdoa_rad_q11 =
 				info->ranging_pdoa_rad_q11;
-		local->responder.poll_rx_timestamp_rctu =
-			info->timestamp_rctu -
-			local->llhw->rx_rmarker_offset_rctu;
+		local->responder.poll_rx_timestamp_rctu = info->timestamp_rctu;
 		resp_tx_dtu = info->timestamp_dtu + local->slot_duration_dtu;
 		local->responder.resp_tx_timestamp_rctu =
 			mcps802154_tx_timestamp_dtu_to_rmarker_rctu(
-				local->llhw, resp_tx_dtu) +
-			local->llhw->tx_rmarker_offset_rctu;
+				local->llhw, resp_tx_dtu, local->tx_ant);
 		/* Set the timings for the next frames. */
 		access->frames[TWR_FRAME_RESP].tx_frame_info.timestamp_dtu =
 			resp_tx_dtu;
@@ -391,8 +388,7 @@ static void twr_responder_rx_frame(struct mcps802154_access *access,
 		else
 			local->responder.local_pdoa_elevation_rad_q11 =
 				info->ranging_pdoa_rad_q11;
-		final_rx_timestamp_rctu = info->timestamp_rctu -
-					  local->llhw->rx_rmarker_offset_rctu;
+		final_rx_timestamp_rctu = info->timestamp_rctu;
 		local->responder.tof_x4_rctu =
 			tof_half_rctu -
 			mcps802154_difference_timestamp_rctu(
@@ -487,8 +483,7 @@ static void twr_rx_frame(struct mcps802154_access *access, int frame_idx,
 			local->initiator.local_pdoa_rad_q11 =
 				info->ranging_pdoa_rad_q11;
 
-		resp_rx_timestamp_rctu = info->timestamp_rctu -
-					 local->llhw->rx_rmarker_offset_rctu;
+		resp_rx_timestamp_rctu = info->timestamp_rctu;
 		local->initiator.tof_half_tag_rctu =
 			mcps802154_difference_timestamp_rctu(
 				local->llhw, resp_rx_timestamp_rctu,
@@ -589,48 +584,58 @@ twr_responder_get_access(struct mcps802154_region *region,
 	access->n_frames = ARRAY_SIZE(local->frames);
 	access->frames = local->frames;
 
-	access->frames[TWR_FRAME_POLL].is_tx = false;
-	access->frames[TWR_FRAME_POLL].rx.info.timestamp_dtu = start_dtu;
-	access->frames[TWR_FRAME_POLL].rx.info.timeout_dtu = -1;
-	access->frames[TWR_FRAME_POLL].rx.info.flags =
-		MCPS802154_RX_INFO_TIMESTAMP_DTU | MCPS802154_RX_INFO_RANGING |
-		MCPS802154_RX_INFO_SP1;
-	access->frames[TWR_FRAME_POLL].rx.info.ant_pair_id =
-		local->rx_ant_pair_azimuth;
-	access->frames[TWR_FRAME_POLL].rx.frame_info_flags_request =
-		MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
-		MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
-		MCPS802154_RX_FRAME_INFO_RANGING_PDOA;
+	access->frames[TWR_FRAME_POLL] = (struct mcps802154_access_frame){
+		.is_tx = false,
+		.rx = {
+			.info = {
+				.timestamp_dtu = start_dtu,
+				.timeout_dtu = -1,
+				.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU |
+					MCPS802154_RX_INFO_RANGING |
+					MCPS802154_RX_INFO_SP1,
+				.ant_pair_id = local->rx_ant_pair_azimuth,
+			},
+			.frame_info_flags_request =
+				MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
+				MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+				MCPS802154_RX_FRAME_INFO_RANGING_PDOA,
+		},
+	};
 
-	access->frames[TWR_FRAME_RESP].is_tx = true;
-	access->frames[TWR_FRAME_RESP].tx_frame_info.flags =
-		MCPS802154_TX_FRAME_TIMESTAMP_DTU |
-		MCPS802154_TX_FRAME_RANGING | MCPS802154_TX_FRAME_SP1;
-	access->frames[TWR_FRAME_RESP].tx_frame_info.rx_enable_after_tx_dtu = 0;
-	access->frames[TWR_FRAME_RESP]
-		.tx_frame_info.rx_enable_after_tx_timeout_dtu = 0;
-	access->frames[TWR_FRAME_RESP].tx_frame_info.ant_id = local->tx_ant;
+	access->frames[TWR_FRAME_RESP] = (struct mcps802154_access_frame){
+		.is_tx = true,
+		.tx_frame_info = {
+			.flags = MCPS802154_TX_FRAME_TIMESTAMP_DTU |
+				MCPS802154_TX_FRAME_RANGING |
+				MCPS802154_TX_FRAME_SP1,
+			.ant_id = local->tx_ant,
+		},
+	};
 
-	access->frames[TWR_FRAME_FINAL].is_tx = false;
-	access->frames[TWR_FRAME_FINAL].rx.info.flags =
-		MCPS802154_RX_INFO_TIMESTAMP_DTU | MCPS802154_RX_INFO_RANGING |
-		MCPS802154_RX_INFO_SP1;
-	access->frames[TWR_FRAME_FINAL].rx.info.timeout_dtu = 0;
-	access->frames[TWR_FRAME_FINAL].rx.frame_info_flags_request =
-		MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
-		MCPS802154_RX_FRAME_INFO_RANGING_PDOA;
-	access->frames[TWR_FRAME_FINAL].rx.info.ant_pair_id =
-		local->rx_ant_pair_elevation;
+	access->frames[TWR_FRAME_FINAL] = (struct mcps802154_access_frame){
+		.is_tx = false,
+		.rx = {
+			.info = {
+				.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU |
+					MCPS802154_RX_INFO_RANGING |
+					MCPS802154_RX_INFO_SP1,
+				.ant_pair_id = local->rx_ant_pair_elevation,
+			},
+			.frame_info_flags_request =
+				MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+				MCPS802154_RX_FRAME_INFO_RANGING_PDOA,
+		},
+	};
 
-	access->frames[TWR_FRAME_REPORT].is_tx = true;
-	access->frames[TWR_FRAME_REPORT].tx_frame_info.flags =
-		MCPS802154_TX_FRAME_TIMESTAMP_DTU |
-		MCPS802154_TX_FRAME_RANGING | MCPS802154_TX_FRAME_SP1;
-	access->frames[TWR_FRAME_REPORT].tx_frame_info.rx_enable_after_tx_dtu =
-		0;
-	access->frames[TWR_FRAME_REPORT]
-		.tx_frame_info.rx_enable_after_tx_timeout_dtu = 0;
-	access->frames[TWR_FRAME_REPORT].tx_frame_info.ant_id = local->tx_ant;
+	access->frames[TWR_FRAME_REPORT] = (struct mcps802154_access_frame){
+		.is_tx = true,
+		.tx_frame_info = {
+			.flags = MCPS802154_TX_FRAME_TIMESTAMP_DTU |
+				MCPS802154_TX_FRAME_RANGING |
+				MCPS802154_TX_FRAME_SP1,
+			.ant_id = local->tx_ant,
+		},
+	};
 
 	return access;
 }
@@ -667,63 +672,71 @@ twr_get_access(struct mcps802154_region *region, u32 next_timestamp_dtu,
 	access->ops = &twr_access_ops;
 	access->n_frames = ARRAY_SIZE(local->frames);
 	access->frames = local->frames;
-	/* Hard-coded! */
-	access->frames[TWR_FRAME_POLL].is_tx = true;
-	access->frames[TWR_FRAME_POLL].tx_frame_info.timestamp_dtu =
-		next_timestamp_dtu;
-	access->frames[TWR_FRAME_POLL].tx_frame_info.flags =
-		MCPS802154_TX_FRAME_TIMESTAMP_DTU |
-		MCPS802154_TX_FRAME_RANGING | MCPS802154_TX_FRAME_SP1;
-	access->frames[TWR_FRAME_POLL].tx_frame_info.rx_enable_after_tx_dtu = 0;
-	access->frames[TWR_FRAME_POLL]
-		.tx_frame_info.rx_enable_after_tx_timeout_dtu = 0;
+
+	access->frames[TWR_FRAME_POLL] = (struct mcps802154_access_frame){
+		.is_tx = true,
+		.tx_frame_info = {
+			.timestamp_dtu = next_timestamp_dtu,
+			.flags = MCPS802154_TX_FRAME_TIMESTAMP_DTU |
+				MCPS802154_TX_FRAME_RANGING |
+				MCPS802154_TX_FRAME_SP1,
+			.ant_id = local->tx_ant,
+		},
+	};
 	local->initiator.poll_tx_timestamp_rctu =
 		mcps802154_tx_timestamp_dtu_to_rmarker_rctu(
-			local->llhw, next_timestamp_dtu) +
-		local->llhw->tx_rmarker_offset_rctu;
-	access->frames[TWR_FRAME_POLL].tx_frame_info.ant_id = local->tx_ant;
+			local->llhw, next_timestamp_dtu, local->tx_ant);
 
-	access->frames[TWR_FRAME_RESP].is_tx = false;
-	access->frames[TWR_FRAME_RESP].rx.info.timestamp_dtu =
-		next_timestamp_dtu + local->slot_duration_dtu;
-	access->frames[TWR_FRAME_RESP].rx.info.timeout_dtu = 0;
-	access->frames[TWR_FRAME_RESP].rx.info.flags =
-		MCPS802154_RX_INFO_TIMESTAMP_DTU | MCPS802154_RX_INFO_RANGING |
-		MCPS802154_RX_INFO_SP1;
-	access->frames[TWR_FRAME_RESP].rx.info.ant_pair_id =
-		local->rx_ant_pair_azimuth;
-	access->frames[TWR_FRAME_RESP].rx.frame_info_flags_request =
-		MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
-		MCPS802154_RX_FRAME_INFO_RANGING_PDOA;
+	access->frames[TWR_FRAME_RESP] = (struct mcps802154_access_frame){
+		.is_tx = false,
+		.rx = {
+			.info = {
+				.timestamp_dtu = next_timestamp_dtu +
+					local->slot_duration_dtu,
+				.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU |
+					MCPS802154_RX_INFO_RANGING |
+					MCPS802154_RX_INFO_SP1,
+				.ant_pair_id = local->rx_ant_pair_azimuth,
+			},
+			.frame_info_flags_request =
+				MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+				MCPS802154_RX_FRAME_INFO_RANGING_PDOA,
+		},
+	};
 
-	access->frames[TWR_FRAME_FINAL].is_tx = true;
-	access->frames[TWR_FRAME_FINAL].tx_frame_info.timestamp_dtu =
-		next_timestamp_dtu + 2 * local->slot_duration_dtu;
-	access->frames[TWR_FRAME_FINAL].tx_frame_info.flags =
-		MCPS802154_TX_FRAME_TIMESTAMP_DTU |
-		MCPS802154_TX_FRAME_RANGING | MCPS802154_TX_FRAME_SP1;
-	access->frames[TWR_FRAME_FINAL].tx_frame_info.rx_enable_after_tx_dtu =
-		0;
-	access->frames[TWR_FRAME_FINAL]
-		.tx_frame_info.rx_enable_after_tx_timeout_dtu = 0;
-	access->frames[TWR_FRAME_FINAL].tx_frame_info.ant_id = local->tx_ant;
+	access->frames[TWR_FRAME_FINAL] = (struct mcps802154_access_frame){
+		.is_tx = true,
+		.tx_frame_info = {
+			.timestamp_dtu = next_timestamp_dtu +
+				2 * local->slot_duration_dtu,
+			.flags = MCPS802154_TX_FRAME_TIMESTAMP_DTU |
+				MCPS802154_TX_FRAME_RANGING |
+				MCPS802154_TX_FRAME_SP1,
+			.ant_id = local->tx_ant,
+		},
+	};
 	local->initiator.final_tx_timestamp_rctu =
 		mcps802154_tx_timestamp_dtu_to_rmarker_rctu(
 			local->llhw,
-			next_timestamp_dtu + 2 * local->slot_duration_dtu) +
-		local->llhw->tx_rmarker_offset_rctu;
+			next_timestamp_dtu + 2 * local->slot_duration_dtu,
+			local->tx_ant);
 
-	access->frames[TWR_FRAME_REPORT].is_tx = false;
-	access->frames[TWR_FRAME_REPORT].rx.info.timestamp_dtu =
-		next_timestamp_dtu + 3 * local->slot_duration_dtu;
-	access->frames[TWR_FRAME_REPORT].rx.info.timeout_dtu = 0;
-	access->frames[TWR_FRAME_REPORT].rx.info.flags =
-		MCPS802154_RX_INFO_TIMESTAMP_DTU | MCPS802154_RX_INFO_RANGING |
-		MCPS802154_RX_INFO_SP1;
-	access->frames[TWR_FRAME_REPORT].rx.frame_info_flags_request =
-		MCPS802154_RX_FRAME_INFO_RANGING_PDOA;
-	access->frames[TWR_FRAME_REPORT].rx.info.ant_pair_id =
-		local->rx_ant_pair_elevation;
+	access->frames[TWR_FRAME_REPORT] = (struct mcps802154_access_frame){
+		.is_tx = false,
+		.rx = {
+			.info = {
+				.timestamp_dtu = next_timestamp_dtu +
+					3 * local->slot_duration_dtu,
+				.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU |
+					MCPS802154_RX_INFO_RANGING |
+					MCPS802154_RX_INFO_SP1,
+				.ant_pair_id = local->rx_ant_pair_elevation,
+			},
+			.frame_info_flags_request =
+				MCPS802154_RX_FRAME_INFO_RANGING_PDOA,
+		},
+	};
+
 	return access;
 }
 
@@ -804,10 +817,7 @@ static int simple_ranging_scheduler_update_schedule(
 						   &local->region_init, 0,
 						   twr_slots * slot_dtu);
 	}
-	if (r)
-		return r;
-
-	return 0;
+	return r;
 }
 
 static int simple_ranging_scheduler_ranging_setup(

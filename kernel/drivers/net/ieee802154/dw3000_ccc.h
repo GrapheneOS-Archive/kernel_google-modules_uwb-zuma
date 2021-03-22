@@ -31,7 +31,7 @@
 #define DW3000_CCC_SCRATCH_NFCC_SIZE (63U)
 #define DW3000_CCC_MSGSIZE (DW3000_CCC_SCRATCH_AP_SIZE + 1) /* for tlv len */
 
-int dw3000_ccc_process_received_msg(struct dw3000 *dw, char *buffer);
+int dw3000_ccc_process_received_msg(struct dw3000 *dw, u8 *buffer);
 int dw3000_ccc_start(struct dw3000 *dw, u32 session_time0, u32 start, u32 end);
 
 #endif /* __DW3000_CCC_H */

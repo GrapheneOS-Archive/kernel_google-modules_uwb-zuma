@@ -27,8 +27,8 @@
 #include "dw3000_core_reg.h"
 #include "dw3000_ccc.h"
 
-int dw3000_scratch_ram_read_data(struct dw3000 *dw, u8 *buffer, u16 len,
-				 u16 offset)
+static int dw3000_scratch_ram_read_data(struct dw3000 *dw, u8 *buffer, u16 len,
+					u16 offset)
 {
 	if (unlikely(!dw->nfcc_mode))
 		return -EOPNOTSUPP;

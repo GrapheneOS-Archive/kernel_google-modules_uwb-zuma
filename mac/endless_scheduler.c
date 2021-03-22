@@ -77,10 +77,10 @@ mcps802154_endless_scheduler_close(struct mcps802154_scheduler *scheduler)
 	kfree(plocal);
 }
 
-static const char **mcps802154_endless_scheduler_list_region_ids(
+static const char *const *mcps802154_endless_scheduler_list_region_ids(
 	struct mcps802154_scheduler *scheduler)
 {
-	return (const char **)region_ids;
+	return region_ids;
 }
 
 static int mcps802154_endless_scheduler_set_region_parameters(

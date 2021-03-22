@@ -31,6 +31,7 @@
 #include <asm/unaligned.h>
 #include <linux/bitfield.h>
 #include <linux/ieee802154.h>
+#include <linux/math64.h>
 #include <net/af_ieee802154.h>
 #include <net/mcps802154_frame.h>
 
@@ -172,7 +173,8 @@ void fira_frame_measurement_report_payload_put(const struct fira_local *local,
 	u8 *p;
 	int hopping_mode = 0;
 	int round_index_present = 1;
-	int n_reply_time = 1;
+	int n_reply_time = local->n_ranging_valid;
+	int i;
 	u32 first_round_trip_time;
 	u32 reply_time;
 	u64 initiation_rctu, response_rctu, final_rctu;
@@ -200,37 +202,55 @@ void fira_frame_measurement_report_payload_put(const struct fira_local *local,
 	initiation_rctu =
 		ranging_info
 			->timestamps_rctu[FIRA_MESSAGE_ID_RANGING_INITIATION];
+	final_rctu =
+		ranging_info->timestamps_rctu[FIRA_MESSAGE_ID_RANGING_FINAL];
+
+	/* Retrieve first measurement. */
+	for (i = 0; i < local->n_ranging_info; i++) {
+		ranging_info = &local->ranging_info[i];
+		if (!ranging_info->failed)
+			break;
+	}
+	/* Add first round trip measurement. */
 	response_rctu =
 		ranging_info->timestamps_rctu[FIRA_MESSAGE_ID_RANGING_RESPONSE];
 	first_round_trip_time = mcps802154_difference_timestamp_rctu(
 		local->llhw, response_rctu, initiation_rctu);
 	put_unaligned_le32(first_round_trip_time, p);
 	p += sizeof(u32);
-
-	/* Only one measurement for the moment. */
-	final_rctu =
-		ranging_info->timestamps_rctu[FIRA_MESSAGE_ID_RANGING_FINAL];
-	put_unaligned_le16(session->params.controlees[0].short_addr, p);
-	p += sizeof(u16);
-	reply_time = mcps802154_difference_timestamp_rctu(
-		local->llhw, final_rctu, response_rctu);
-	put_unaligned_le32(reply_time, p);
-	p += sizeof(u32);
+	/* Retrieve reply measurement. */
+	for (; i < local->n_ranging_info; i++) {
+		ranging_info = &local->ranging_info[i];
+		if (ranging_info->failed)
+			continue;
+		put_unaligned_le16(session->params.controlees[i].short_addr, p);
+		p += sizeof(u16);
+		response_rctu = ranging_info->timestamps_rctu
+					[FIRA_MESSAGE_ID_RANGING_RESPONSE];
+		reply_time = mcps802154_difference_timestamp_rctu(
+			local->llhw, final_rctu, response_rctu);
+		put_unaligned_le32(reply_time, p);
+		p += sizeof(u32);
+	}
 }
 
 void fira_frame_result_report_payload_put(const struct fira_local *local,
 					  const struct fira_slot *slot,
 					  struct sk_buff *skb)
 {
+	const struct fira_session *session = local->current_session;
+	const struct fira_session_params *params = &session->params;
 	const struct fira_ranging_info *ranging_info =
 		&local->ranging_info[slot->ranging_index];
 	bool tof_present, aoa_azimuth_present, aoa_elevation_present,
 		aoa_fom_present;
 	u8 *p;
 
-	tof_present = ranging_info->tof_present;
-	aoa_azimuth_present = false;
-	aoa_elevation_present = false;
+	tof_present = ranging_info->tof_present && params->report_tof;
+	aoa_azimuth_present = ranging_info->local_aoa_azimuth.present &&
+			      params->report_aoa_azimuth;
+	aoa_elevation_present = ranging_info->local_aoa_elevation.present &&
+				params->report_aoa_elevation;
 	aoa_fom_present = false;
 
 	p = fira_frame_common_payload_put(
@@ -248,10 +268,18 @@ void fira_frame_result_report_payload_put(const struct fira_local *local,
 	       FIELD_PREP(FIRA_RESULT_REPORT_CONTROL_AOA_FOM_PRESENT,
 			  aoa_fom_present);
 
-	/* This is always true for the moment. */
 	if (tof_present) {
 		put_unaligned_le32(ranging_info->tof_rctu, p);
 		p += sizeof(u32);
+	}
+	if (aoa_azimuth_present) {
+		put_unaligned_le16(ranging_info->local_aoa_azimuth.aoa_2pi, p);
+		p += sizeof(u16);
+	}
+	if (aoa_elevation_present) {
+		put_unaligned_le16(ranging_info->local_aoa_elevation.aoa_2pi,
+				   p);
+		p += sizeof(u16);
 	}
 }
 
@@ -313,6 +341,7 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 	const struct fira_session *session = local->current_session;
 	struct fira_slot *slot, last;
 	int n_mngt, stride_len, i;
+	u16 msg_ids = 0;
 
 	n_mngt = *p++;
 	if (ie_len < FIRA_IE_PAYLOAD_CONTROL_LEN(n_mngt))
@@ -341,7 +370,7 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 		slot_index = FIELD_GET(FIRA_MNGT_SLOT_INDEX, mngt);
 		short_addr = FIELD_GET(FIRA_MNGT_SHORT_ADDR, mngt);
 		message_id = FIELD_GET(FIRA_MNGT_MESSAGE_ID, mngt);
-		stop_ranging = !!(mngt & FIRA_MNGT_MESSAGE_ID);
+		stop_ranging = !!(mngt & FIRA_MNGT_STOP);
 
 		if (slot_index <= last.index ||
 		    slot_index >= session->params.round_duration_slots)
@@ -350,19 +379,33 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 			return false;
 
 		last.index = slot_index;
-		if (short_addr == local->src_short_addr)
-			last.tx_controlee_index = 0;
-		else
-			last.tx_controlee_index = -1;
-		if (message_id == last.message_id)
-			return false;
-		last.ranging_index = 0;
-		last.message_id = message_id;
-
 		if (message_id <= FIRA_MESSAGE_ID_MAX &&
 		    (initiator || short_addr == local->src_short_addr)) {
-			if (slot == local->slots + FIRA_FRAMES_MAX)
+			u16 msg_id = 1 << message_id;
+			if (message_id == FIRA_MESSAGE_ID_CONTROL_UPDATE &&
+			    !initiator)
+				msg_id <<= 1;
+			if (msg_id < msg_ids || msg_id & msg_ids)
 				return false;
+			msg_ids |= msg_id;
+			if (slot == local->slots + FIRA_CONTROLEE_FRAMES_MAX)
+				return false;
+			if (!initiator)
+				last.tx_controlee_index = 0;
+			else
+				last.tx_controlee_index = -1;
+			last.ranging_index = 0;
+			last.message_id = message_id;
+			if (!initiator) {
+				last.tx_ant = session->tx_ant;
+			} else {
+				if (message_id >= FIRA_MESSAGE_ID_RANGING_FINAL)
+					last.rx_ant_pair =
+						session->rx_ant_pair[1];
+				else
+					last.rx_ant_pair =
+						session->rx_ant_pair[0];
+			}
 			*slot++ = last;
 		}
 	}
@@ -429,7 +472,7 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 	u32 remote_round_trip_rctu, remote_reply_rctu;
 	u64 rx_initiation_rctu, tx_response_rctu, rx_final_rctu;
 	u32 local_round_trip_rctu, local_reply_rctu;
-	int tof_rctu;
+	int tof_rctu, i;
 
 	control = *p++;
 	hopping_mode =
@@ -451,18 +494,27 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 			return false;
 	}
 
+	/* Remote_round_trip = first_round_trip + first_reply - my_reply. */
 	remote_round_trip_rctu = get_unaligned_le32(p);
 	p += sizeof(u32);
+	/* Add first_reply. */
+	remote_round_trip_rctu += get_unaligned_le32(p + sizeof(u16));
 
-	if (n_reply_time != 1)
-		/* Not implemented for the moment. */
+	for (i = 0; i < n_reply_time; i++) {
+		__le16 short_addr = get_unaligned_le16(p);
+		p += sizeof(u16);
+		if (local->src_short_addr == short_addr) {
+			remote_reply_rctu = get_unaligned_le32(p);
+			break;
+		}
+		p += sizeof(u32);
+	}
+	/* Reply time not found. */
+	if (i == n_reply_time)
 		return false;
-	p += sizeof(u16);
-	remote_reply_rctu = get_unaligned_le32(p);
-	p += sizeof(u32);
+	/* Substract my_reply. */
+	remote_round_trip_rctu -= remote_reply_rctu;
 
-	/* For the moment, use SDS-TWR formula, will need 64 bit arithmetic for
-	 * ADS-TWR. */
 	rx_initiation_rctu =
 		ranging_info
 			->timestamps_rctu[FIRA_MESSAGE_ID_RANGING_INITIATION];
@@ -474,9 +526,11 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 		local->llhw, tx_response_rctu, rx_initiation_rctu);
 	local_round_trip_rctu = mcps802154_difference_timestamp_rctu(
 		local->llhw, rx_final_rctu, tx_response_rctu);
-	tof_rctu = (remote_round_trip_rctu - local_reply_rctu +
-		    local_round_trip_rctu - remote_reply_rctu) /
-		   4;
+	tof_rctu =
+		div64_u64((u64)remote_round_trip_rctu * local_round_trip_rctu -
+				  (u64)remote_reply_rctu * local_reply_rctu,
+			  (u64)remote_round_trip_rctu + local_round_trip_rctu +
+				  remote_reply_rctu + local_reply_rctu);
 	ranging_info->tof_rctu = tof_rctu;
 	ranging_info->tof_present = true;
 
@@ -491,7 +545,6 @@ bool fira_frame_measurement_report_payload_check(
 	int r;
 	u8 *p;
 
-	;
 	for (r = ie_get->kind == MCPS802154_IE_GET_KIND_NONE; r == 0;
 	     r = mcps802154_ie_get(skb, ie_get)) {
 		p = skb->data;

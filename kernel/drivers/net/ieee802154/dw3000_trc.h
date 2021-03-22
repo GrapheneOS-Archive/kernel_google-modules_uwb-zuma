@@ -284,6 +284,26 @@ TRACE_EVENT(dw3000_power_stats,
 		  (unsigned)__entry->len_or_date)
 );
 
+TRACE_EVENT(dw3000_coex_gpio,
+	TP_PROTO(struct dw3000 *dw, bool state, int delay_us, u32 expire),
+	TP_ARGS(dw, state, delay_us, expire),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(bool, state)
+		__field(int, delay_us)
+		__field(u32, expire)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->state = state;
+		__entry->delay_us = delay_us;
+		__entry->expire = expire;
+	),
+	TP_printk(DW_PR_FMT ", state: %s, delay_us: %d, expire: %u",
+		DW_PR_ARG, __entry->state ? "ON" : "OFF", __entry->delay_us,
+		  (unsigned)__entry->expire)
+);
+
 /*************************************************************
  *		dw3000 optional functions traces	     *
  *************************************************************/

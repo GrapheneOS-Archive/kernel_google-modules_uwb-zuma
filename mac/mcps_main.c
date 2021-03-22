@@ -110,6 +110,7 @@ void mcps802154_free_llhw(struct mcps802154_llhw *llhw)
 	mcps802154_fproc_uninit(local);
 	mcps802154_ca_uninit(local);
 	mutex_unlock(&local->fsm_lock);
+	mutex_destroy(&local->fsm_lock);
 
 	WARN_ON(waitqueue_active(&local->wq));
 
@@ -209,11 +210,13 @@ u32 mcps802154_timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
 EXPORT_SYMBOL(mcps802154_timestamp_rctu_to_dtu);
 
 u64 mcps802154_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
-						u32 tx_timestamp_dtu)
+						u32 tx_timestamp_dtu,
+						int ant_id)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
 
-	return llhw_tx_timestamp_dtu_to_rmarker_rctu(local, tx_timestamp_dtu);
+	return llhw_tx_timestamp_dtu_to_rmarker_rctu(local, tx_timestamp_dtu,
+						     ant_id);
 }
 EXPORT_SYMBOL(mcps802154_tx_timestamp_dtu_to_rmarker_rctu);
 

@@ -239,14 +239,16 @@ struct dw3000_config {
 	u16 sfdTO;
 	/* STS mode (no STS, STS before PHR or STS after data) */
 	u8 stsMode;
-	/* STS length (see enum) */
-	enum dw3000_sts_lengths stsLength;
 	/* PDOA mode */
 	u8 pdoaMode;
-	/* Calibrated PDOA offset */
-	s16 pdoaOffset;
 	/* Antenna currently connected to RF1 & RF2 ports respectively. */
 	s8 ant[2];
+	/* Calibrated PDOA offset */
+	s16 pdoaOffset;
+	/* Calibrated rmarker offset */
+	u32 rmarkerOffset;
+	/* STS length (see enum) */
+	enum dw3000_sts_lengths stsLength;
 };
 
 /* TX configuration,  power & PG delay */
@@ -275,6 +277,21 @@ enum power_state {
 	DW3000_PWR_RX,
 	DW3000_PWR_TX,
 	DW3000_PWR_MAX,
+};
+
+enum operational_state {
+	DW3000_OP_STATE_OFF = 0,
+	DW3000_OP_STATE_WAKE_UP,
+	DW3000_OP_STATE_INIT_RC,
+	DW3000_OP_STATE_SLEEP,
+	DW3000_OP_STATE_DEEP_SLEEP,
+	DW3000_OP_STATE_IDLE_RC,
+	DW3000_OP_STATE_IDLE_PLL,
+	DW3000_OP_STATE_TX_WAIT,
+	DW3000_OP_STATE_TX,
+	DW3000_OP_STATE_RX_WAIT,
+	DW3000_OP_STATE_RX,
+	DW3000_OP_STATE_MAX,
 };
 
 /**
@@ -312,9 +329,10 @@ struct dw3000_power {
  * @reset_gpio: GPIO to use for hard reset
  * @chips_per_pac: chips per PAC unit
  * @pre_timeout_pac: preamble timeout in PAC unit
- * @autoack: auto-ack status, true if activated
+ * @coex_delay_us: WiFi coexistence GPIO delay in us
  * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
  * @lna_pa_mode: LNA/PA configuration to use
+ * @autoack: auto-ack status, true if activated
  * @nfcc_mode: NFCC mode enabled, true if activated
  * @pgf_cal_running: true if pgf calibration is running
  * @stm: High-priority thread state machine
@@ -335,6 +353,7 @@ struct dw3000_power {
  * @msg_read_dss_status: pre-computed SPI message
  * @msg_write_dss_status: pre-computed SPI message
  * @msg_write_spi_collision_status: pre-computed SPI message
+ * @current_operational_state: internal operational state of the chip
  */
 struct dw3000 {
 	/* SPI device */
@@ -367,12 +386,13 @@ struct dw3000 {
 	int chips_per_pac;
 	/* Preamble timeout in PAC unit. */
 	int pre_timeout_pac;
-	/* Is auto-ack activated? */
-	bool autoack;
-	/* WiFi coexistence GPIO */
+	/* WiFi coexistence GPIO and delay */
+	unsigned coex_delay_us;
 	s8 coex_gpio;
 	/* LNA/PA mode */
 	s8 lna_pa_mode;
+	/* Is auto-ack activated? */
+	bool autoack;
 	/* Is NFCC mode enabled */
 	bool nfcc_mode;
 	/* pgf calibration running */
@@ -397,6 +417,8 @@ struct dw3000 {
 	struct spi_message *msg_read_dss_status;
 	struct spi_message *msg_write_dss_status;
 	struct spi_message *msg_write_spi_collision_status;
+	/* Internal operational state of the chip */
+	enum operational_state current_operational_state;
 };
 
 #endif /* __DW3000_H */

@@ -49,8 +49,6 @@
  */
 #define TWR_FACTORY_TEST_T_REPLY2_RCTU (1086259200ull)
 
-/* These codes come from
-https://gitlab.com/qorvo/uwb-mobile/uwb-core/uwb-core/-/blob/D0/hw/drivers/uwb/include/uwb/uwb_ftypes.h#L60 */
 #define TWR_FACTORY_TEST_FUNCTION_CODE_POLL 0x0110
 #define TWR_FACTORY_TEST_FUNCTION_CODE_RESP 0x0111
 #define TWR_FACTORY_TEST_FUNCTION_CODE_FINAL 0x0112
@@ -173,25 +171,26 @@ static void ping_pong_resp_rx_frame(struct mcps802154_access *access,
 	u32 resp_tx_start_dtu;
 
 	if (!skb) {
-		/* In case of NULL skb, to avoid the next TX,
-		 * we adjust the frames count of region access */
+		/* In case of NULL skb, to avoid the next TX, we adjust
+		 * the frames count of region access. */
 		access->n_frames = frame_idx + 1;
 		return;
 	}
-	request->peer_extended_addr = get_unaligned_le64(
-		skb->data + PING_PONG_FRAME_HEADER_SIZE -
-		IEEE802154_SHORT_ADDR_LEN);
+	request->peer_extended_addr =
+		get_unaligned_le64(skb->data + PING_PONG_FRAME_HEADER_SIZE -
+				   IEEE802154_SHORT_ADDR_LEN);
 	resp_tx_start_dtu =
 		info->timestamp_dtu +
 		TWR_FACTORY_TEST_T_REPLY1_RCTU / local->llhw->dtu_rctu;
 	/* Set the timings for the next frames. */
-	access->frames[TWR_FACTORY_TEST_FRAME_RESP]
-		.tx_frame_info.timestamp_dtu = resp_tx_start_dtu;
-	access->frames[TWR_FACTORY_TEST_FRAME_FINAL]
-		.rx.info.timestamp_dtu =
+	access->frames[TWR_FACTORY_TEST_FRAME_RESP].tx_frame_info.timestamp_dtu =
+		resp_tx_start_dtu;
+	access->frames[TWR_FACTORY_TEST_FRAME_FINAL].rx.info.timestamp_dtu =
 		resp_tx_start_dtu +
 		TWR_FACTORY_TEST_T_REPLY2_RCTU / local->llhw->dtu_rctu;
+
 	kfree_skb(skb);
+	return;
 }
 
 static struct sk_buff *
@@ -207,12 +206,12 @@ ping_pong_resp_tx_get_frame(struct mcps802154_access *access, int frame_idx)
 	ping_pong_frame_header_put(skb, mcps802154_get_pan_id(local->llhw),
 				   request->peer_extended_addr,
 				   mcps802154_get_short_addr(local->llhw));
+
 	if (WARN_ON(frame_idx != TWR_FACTORY_TEST_FRAME_RESP))
 		return skb;
 
 	skb_put_u8(skb, (u8)TWR_FACTORY_TEST_FUNCTION_CODE_RESP);
 	skb_put_u8(skb, (u8)(TWR_FACTORY_TEST_FUNCTION_CODE_RESP >> 8));
-
 	return skb;
 }
 
@@ -334,13 +333,12 @@ ping_pong_init_active_rx_frame(struct mcps802154_access *access, int frame_idx,
 		access->n_frames = frame_idx + 1;
 		return;
 	}
-	final_timestamp_dtu = info->timestamp_dtu +
+	final_timestamp_dtu =
+		info->timestamp_dtu +
 		TWR_FACTORY_TEST_T_REPLY2_RCTU / local->llhw->dtu_rctu;
-	local->initiator_time.t_3 = info->timestamp_rctu -
-				    local->llhw->rx_rmarker_offset_rctu;
+	local->initiator_time.t_3 = info->timestamp_rctu;
 	local->initiator_time.t_4 = mcps802154_tx_timestamp_dtu_to_rmarker_rctu(
-				    local->llhw, final_timestamp_dtu) +
-				    local->llhw->tx_rmarker_offset_rctu;
+		local->llhw, final_timestamp_dtu, 0);
 	/* Set the timing for the final frame */
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL]
 		.tx_frame_info.timestamp_dtu = final_timestamp_dtu;
@@ -361,16 +359,16 @@ ping_pong_init_active_tx_get_frame(struct mcps802154_access *access,
 	ping_pong_frame_header_put(skb, mcps802154_get_pan_id(local->llhw),
 				   request->peer_extended_addr,
 				   mcps802154_get_short_addr(local->llhw));
-	if (frame_idx == TWR_FACTORY_TEST_FRAME_RESP) {
-		skb_put_u8(skb, (u8)TWR_FACTORY_TEST_FUNCTION_CODE_RESP);
-		skb_put_u8(skb, (u8)(TWR_FACTORY_TEST_FUNCTION_CODE_RESP >> 8));
+	if (frame_idx == TWR_FACTORY_TEST_FRAME_POLL) {
+		skb_put_u8(skb, (u8)TWR_FACTORY_TEST_FUNCTION_CODE_POLL);
+		skb_put_u8(skb, (u8)(TWR_FACTORY_TEST_FUNCTION_CODE_POLL >> 8));
 	} else {
-		WARN_ON(frame_idx != TWR_FACTORY_TEST_FRAME_RESP);
+		WARN_ON(frame_idx != TWR_FACTORY_TEST_FRAME_FINAL);
 		skb_put_u8(skb, (u8)TWR_FACTORY_TEST_FUNCTION_CODE_FINAL);
 		skb_put_u8(skb,
 			   (u8)(TWR_FACTORY_TEST_FUNCTION_CODE_FINAL >> 8));
 	}
-return skb;
+	return skb;
 }
 
 static void ping_pong_init_active_access_done(struct mcps802154_access *access)
@@ -418,8 +416,7 @@ ping_pong_init_active_get_access(struct mcps802154_region *region,
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL]
 		.tx_frame_info.rx_enable_after_tx_timeout_dtu = 0;
 	local->initiator_time.t_0 = mcps802154_tx_timestamp_dtu_to_rmarker_rctu(
-					    local->llhw, start_dtu) +
-				    local->llhw->tx_rmarker_offset_rctu;
+		local->llhw, start_dtu, 0);
 
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP].is_tx = false;
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP].rx.info.timestamp_dtu =

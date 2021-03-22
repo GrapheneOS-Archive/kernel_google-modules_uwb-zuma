@@ -81,8 +81,6 @@ static const struct nla_policy mcps802154_nl_policy[MCPS802154_ATTR_MAX + 1] = {
 	[MCPS802154_ATTR_SCHEDULER_CALL] = { .type = NLA_U32 },
 	[MCPS802154_ATTR_SCHEDULER_CALL_PARAMS] = { .type = NLA_NESTED },
 	[MCPS802154_ATTR_SCHEDULER_REGION_CALL] = { .type = NLA_NESTED },
-	[MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU] = { .type = NLA_S32 },
-	[MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU] = { .type = NLA_S32 },
 	[MCPS802154_ATTR_CALIBRATIONS] = { .type = NLA_NESTED },
 
 #ifdef CONFIG_MCPS802154_TESTMODE
@@ -308,7 +306,7 @@ static int mcps802154_nl_set_scheduler_info(struct sk_buff *skb,
 static int mcps802154_nl_send_region_ids(struct mcps802154_local *local,
 					 struct sk_buff *msg, u32 portid,
 					 u32 seq, int flags,
-					 const char **region_ids)
+					 const char *const *region_ids)
 {
 	void *hdr;
 	struct nlattr *regions;
@@ -359,7 +357,7 @@ static int mcps802154_nl_list_scheduler_region_ids(struct sk_buff *skb,
 {
 	struct sk_buff *msg;
 	struct mcps802154_local *local = info->user_ptr[0];
-	const char **region_ids;
+	const char *const *region_ids;
 
 	mutex_lock(&local->fsm_lock);
 	region_ids = mcps802154_ca_list_scheduler_region_ids(local);
@@ -952,7 +950,7 @@ static int mcps802154_nl_put_calibration(struct sk_buff *msg, const char *key,
 		r = nla_put_s32(msg, MCPS802154_CALIBRATIONS_ATTR_STATUS,
 				status);
 	else
-		// when positive, the status represent the data length.
+		/* when positive, the status represent the data length. */
 		r = nla_put(msg, MCPS802154_CALIBRATIONS_ATTR_VALUE, status,
 			    data);
 	if (r)
@@ -974,7 +972,6 @@ static int mcps802154_nl_set_calibration(struct sk_buff *skb,
 					 struct genl_info *info)
 {
 	struct mcps802154_local *local = info->user_ptr[0];
-	int rx_rmarker_offset_rctu, tx_rmarker_offset_rctu;
 	struct sk_buff *msg;
 	void *hdr;
 	int err;
@@ -993,26 +990,6 @@ static int mcps802154_nl_set_calibration(struct sk_buff *skb,
 		err = -ENOBUFS;
 		goto failure;
 	}
-
-	tx_rmarker_offset_rctu = local->llhw.tx_rmarker_offset_rctu;
-	rx_rmarker_offset_rctu = local->llhw.rx_rmarker_offset_rctu;
-
-	if (info->attrs[MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU]) {
-		tx_rmarker_offset_rctu = nla_get_s32(
-			info->attrs[MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU]);
-		if (tx_rmarker_offset_rctu < 0)
-			return -EINVAL;
-	}
-	if (info->attrs[MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU]) {
-		rx_rmarker_offset_rctu = nla_get_s32(
-			info->attrs[MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU]);
-		if (rx_rmarker_offset_rctu < 0)
-			return -EINVAL;
-	}
-
-	// Set rmarkers together.
-	local->llhw.tx_rmarker_offset_rctu = tx_rmarker_offset_rctu;
-	local->llhw.rx_rmarker_offset_rctu = rx_rmarker_offset_rctu;
 
 	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx)) {
 		err = -EMSGSIZE;
@@ -1051,7 +1028,7 @@ static int mcps802154_nl_set_calibration(struct sk_buff *skb,
 							 nla_data(value),
 							 nla_len(value));
 			}
-			// Put the result in the response message.
+			/* Put the result in the response message. */
 			err = mcps802154_nl_put_calibration(msg, key, r, NULL,
 							    false);
 			if (err)
@@ -1108,12 +1085,8 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 		goto failure;
 	}
 
-	// Build the confirm message in same time as request message.
-	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx) ||
-	    nla_put_s32(msg, MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU,
-			local->llhw.tx_rmarker_offset_rctu) ||
-	    nla_put_s32(msg, MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU,
-			local->llhw.rx_rmarker_offset_rctu)) {
+	/* Build the confirm message in same time as request message. */
+	if (nla_put_u32(msg, MCPS802154_ATTR_HW, local->hw_idx)) {
 		err = -EMSGSIZE;
 		goto nla_put_failure;
 	}
@@ -1135,7 +1108,7 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 			key = nla_data(attrs[MCPS802154_CALIBRATIONS_ATTR_KEY]);
 			r = llhw_get_calibration(local, key, &tmp, sizeof(tmp));
 
-			// Put the result in the response message.
+			/* Put the result in the response message. */
 			err = mcps802154_nl_put_calibration(msg, key, r, &tmp,
 							    false);
 			if (err)
@@ -1154,7 +1127,7 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 			r = llhw_get_calibration(local, *entry, &tmp,
 						 sizeof(tmp));
 
-			// Put the result in the response message.
+			/* Put the result in the response message. */
 			err = mcps802154_nl_put_calibration(msg, *entry, r,
 							    &tmp, false);
 			if (err)

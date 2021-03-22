@@ -332,6 +332,33 @@ TRACE_EVENT(llhw_set_hrp_uwb_params,
 		  __entry->sfd_selector, __entry->phr_rate, __entry->data_rate)
 	);
 
+TRACE_EVENT(llhw_set_sts_params,
+	TP_PROTO(const struct mcps802154_local *local, const struct
+		 mcps802154_sts_params *params),
+	TP_ARGS(local, params),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		__field(int, n_segs)
+		__field(int, seg_len)
+		__field(int, sp2_tx_gap_4chips)
+		__array(int, sp2_rx_gap_4chips, MCPS802154_STS_N_SEGS_MAX)
+		),
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		__entry->n_segs = params->n_segs;
+		__entry->seg_len = params->seg_len;
+		__entry->sp2_tx_gap_4chips = params->sp2_tx_gap_4chips;
+		memcpy(__entry->sp2_rx_gap_4chips, params->sp2_rx_gap_4chips,
+		       sizeof(params->sp2_rx_gap_4chips));
+		),
+	TP_printk(LOCAL_PR_FMT " n_segs=%d seg_len=%d sp2_tx_gap_4chips=%d"
+		  " sp2_rx_gap_4chips=%d,%d,%d,%d",
+		  LOCAL_PR_ARG, __entry->n_segs, __entry->seg_len,
+		  __entry->sp2_tx_gap_4chips, __entry->sp2_rx_gap_4chips[0],
+		  __entry->sp2_rx_gap_4chips[1], __entry->sp2_rx_gap_4chips[2],
+		  __entry->sp2_rx_gap_4chips[3])
+	);
+
 TRACE_EVENT(llhw_set_hw_addr_filt,
 	TP_PROTO(const struct mcps802154_local *local,
 		 const struct ieee802154_hw_addr_filt *filt,

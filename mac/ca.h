@@ -142,7 +142,7 @@ int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
  *
  * Return: NULL ended string array.
  */
-const char **
+const char *const *
 mcps802154_ca_list_scheduler_region_ids(struct mcps802154_local *local);
 
 /**

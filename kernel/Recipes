@@ -10,7 +10,7 @@ linux-uwb/dragon_CROSS := ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
 linux-uwb/dragon_INSTALLFLAGS := $(DESTS)
 
 KDIR = ../projects/linux-build/$*/deps/linux/linux
-KARGS = $($*_CROSS) CONFIG_MCPS_FAKE=m
+KARGS = $($*_CROSS) CONFIG_MCPS_FAKE=m CONFIG_QCOM_SPI_LOWLATENCY=m
 
 all: $(ALL:%=%.all)
 clean: $(ALL:%=%.clean)

@@ -308,7 +308,8 @@ struct mcps802154_scheduler_ops {
 	/**
 	 * @list_region_ids: List scheduler region identifiers.
 	 */
-	const char **(*list_region_ids)(struct mcps802154_scheduler *scheduler);
+	const char *const *(*list_region_ids)(
+		struct mcps802154_scheduler *scheduler);
 	/**
 	 * @set_parameters: Configure the scheduler.
 	 */

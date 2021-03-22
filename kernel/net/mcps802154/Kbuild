@@ -15,7 +15,7 @@ mcps802154-y := \
 	fproc_tx.o \
 	frame.o \
 	ie.o \
-	main.o \
+	mcps_main.o \
 	nl.o \
 	ops.o \
 	regions.o \
@@ -31,6 +31,7 @@ mcps802154_region_fira-y := \
 	fira_frame.o \
 	fira_region.o \
 	fira_region_call.o \
+	utils_fixed_point.o \
 	fira_session.o
 
 CFLAGS_trace.o := -I$(src) -I$(srctree)/$(src)

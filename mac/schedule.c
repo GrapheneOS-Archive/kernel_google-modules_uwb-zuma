@@ -208,8 +208,7 @@ void mcps802154_reschedule(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
 
-	if (likely(local->started))
-		mcps802154_ca_may_reschedule(local);
+	mcps802154_ca_may_reschedule(local);
 }
 EXPORT_SYMBOL(mcps802154_reschedule);
 

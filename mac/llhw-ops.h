@@ -139,10 +139,10 @@ static inline u32 llhw_timestamp_rctu_to_dtu(struct mcps802154_local *local,
 
 static inline u64
 llhw_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_local *local,
-				      u32 tx_timestamp_dtu)
+				      u32 tx_timestamp_dtu, int ant_id)
 {
-	return local->ops->tx_timestamp_dtu_to_rmarker_rctu(&local->llhw,
-							    tx_timestamp_dtu);
+	return local->ops->tx_timestamp_dtu_to_rmarker_rctu(
+		&local->llhw, tx_timestamp_dtu, ant_id);
 }
 
 static inline s64 llhw_difference_timestamp_rctu(struct mcps802154_local *local,
@@ -182,6 +182,18 @@ static inline int llhw_set_hrp_uwb_params(struct mcps802154_local *local,
 				      data_rate);
 	r = local->ops->set_hrp_uwb_params(&local->llhw, prf, psr, sfd_selector,
 					   phr_rate, data_rate);
+	trace_llhw_return_int(local, r);
+	return r;
+}
+
+static inline int
+llhw_set_sts_params(struct mcps802154_local *local,
+		    const struct mcps802154_sts_params *params)
+{
+	int r;
+
+	trace_llhw_set_sts_params(local, params);
+	r = local->ops->set_sts_params(&local->llhw, params);
 	trace_llhw_return_int(local, r);
 	return r;
 }

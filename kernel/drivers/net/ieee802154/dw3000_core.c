@@ -38,7 +38,7 @@
 #include "dw3000_ccc_mailbox.h"
 
 /* Table of supported chip version and associated chip operations */
-const struct dw3000_chip_version dw3000_chip_versions[] = {
+static const struct dw3000_chip_version dw3000_chip_versions[] = {
 	{ .id = DW3000_C0_DEV_ID, .ver = 0, .ops = &dw3000_chip_c0_ops },
 	{ .id = DW3000_C0_PDOA_DEV_ID, .ver = 0, .ops = &dw3000_chip_c0_ops },
 	{ .id = DW3000_D0_DEV_ID, .ver = 1, .ops = &dw3000_chip_d0_ops },
@@ -222,22 +222,19 @@ const struct dw3000_chip_version dw3000_chip_versions[] = {
 #define DW3000_FORCE_SYSCLK_FOSCDIV4 (1)
 #define DW3000_FORCE_SYSCLK_PLL (2)
 #define DW3000_FORCE_SYSCLK_FOSC (3)
-/* Defines for enable_clocks function */
+/* RX and TX CLK field */
+#define DW3000_FORCE_CLK_PLL (2)
+
+/* Defines for dw3000_force_clocks() function */
 #define DW3000_FORCE_CLK_SYS_TX (1)
 #define DW3000_FORCE_CLK_AUTO (5)
-/* RX and TX CLK */
-#define DW3000_FORCE_CLK_PLL (2)
 
 #define DW3000_BUF0_FINFO 0x180000 /* part of min set */
 #define DW3000_BUF0_LATEST_TOA0 \
 	0x180004 /* part of min set (RX time ~ RX_TIME_O) */
 #define DW3000_BUF0_LATEST_TOA1 0x180008 /* part of min set */
 
-/* DW3000 IDLE/INIT mode definitions */
-#define DW3000_DW_INIT 0x0
-#define DW3000_DW_IDLE 0x1
-#define DW3000_DW_IDLE_RC 0x2
-
+/* Bit fields to select information to retrieve from OTP memory */
 #define DW3000_READ_OTP_PID 0x10 /* read part ID from OTP */
 #define DW3000_READ_OTP_LID 0x20 /* read lot ID from OTP */
 #define DW3000_READ_OTP_BAT 0x40 /* read ref voltage from OTP */
@@ -500,6 +497,9 @@ static inline void dw3000_power_stats(struct dw3000 *dw, int state,
 	int nstate = min(state, DW3000_PWR_RUN);
 	u64 curtime = ktime_get_boottime_ns();
 	s64 duration;
+	s64 adjust;
+	u32 cur_time_dtu;
+
 	/* Trace call */
 	trace_dw3000_power_stats(dw, state, curtime, len_or_date);
 	/* Sanity checks first */
@@ -513,36 +513,42 @@ static inline void dw3000_power_stats(struct dw3000 *dw, int state,
 		pw->stats[nstate].count++;
 	/* Handle specific states */
 	cstate = pw->cur_state;
-	if (state == DW3000_PWR_IDLE) {
-		s64 adjust = 0;
+	switch (state) {
+	case DW3000_PWR_IDLE:
+		adjust = 0;
 		if (cstate == DW3000_PWR_TX) {
 			/* TX duration is just pw->tx_adjust */
 			adjust = pw->tx_adjust;
 		} else if (cstate == DW3000_PWR_RX) {
 			/* RX duration is just cur_time_dtu-pw->trx_adjust,
 			 * remain is IDLE time, so remove duration previously added */
-			u32 cur_time_dtu = (u32)len_or_date;
+			cur_time_dtu = (u32)len_or_date;
 			if (!cur_time_dtu) {
 				/* RX frame end time is not given, so get current
 				   time from chip. */
 				dw3000_read_sys_time(dw, &cur_time_dtu);
 			}
-			adjust = cur_time_dtu - pw->rx_start;
-			if (adjust < 0)
-				/* Handle chip time overflow */
-				adjust += 1ll << 32;
+			if (cur_time_dtu < pw->rx_start)
+				/* Handle chip time overflow.
+				 * Through 'll' type avoid computation problem. */
+				adjust = (1ll << 32) + cur_time_dtu -
+					 pw->rx_start;
+			else
+				adjust = cur_time_dtu - pw->rx_start;
 		}
 		pw->stats[cstate].dur += adjust;
 		if (state != cstate)
 			pw->stats[DW3000_PWR_IDLE].count++;
-	} else if (state == DW3000_PWR_TX) {
+		break;
+	case DW3000_PWR_TX:
 		/* TX time is calculated according frame len only */
 		pw->tx_adjust = (dw3000_payload_duration_dtu(dw, len_or_date) +
 				 dw->llhw->shr_dtu);
 		pw->stats[DW3000_PWR_TX].count++;
-	} else if (state == DW3000_PWR_RX) {
+		break;
+	case DW3000_PWR_RX:
 		/* RX time is calculated using start time and reception time */
-		u32 cur_time_dtu = (u32)len_or_date;
+		cur_time_dtu = (u32)len_or_date;
 		if (!cur_time_dtu) {
 			/* Start time is unknown for immediate RX but we need
 			   it, so get current time from chip. */
@@ -550,10 +556,14 @@ static inline void dw3000_power_stats(struct dw3000 *dw, int state,
 		}
 		pw->rx_start = cur_time_dtu;
 		pw->stats[DW3000_PWR_RX].count++;
-	} else if (state == DW3000_PWR_RUN) {
+		break;
+	case DW3000_PWR_RUN:
 		/* Entering RUN state also enter IDLE state */
 		if (state != cstate)
 			pw->stats[DW3000_PWR_IDLE].count++;
+		break;
+	default:
+		break;
 	}
 	/* Update current information */
 	pw->start_time = curtime;
@@ -1448,10 +1458,7 @@ inline int dw3000_rx_stats_enable(struct dw3000 *dw, const bool on)
 	 * Enable the CIA diagnostic to get diagnostic values as CIR power
 	 * and PACC count needed to calculate the RSSI in userspace.
 	 */
-	if (on)
-		return dw3000_configure_ciadiag(dw, true,
-						DW3000_CIA_DIAG_LOG_DBL_OFF);
-	return dw3000_configure_ciadiag(dw, false, DW3000_CIA_DIAG_LOG_DBL_OFF);
+	return dw3000_configure_ciadiag(dw, on, DW3000_CIA_DIAG_LOG_DBL_OFF);
 }
 
 /**
@@ -1518,7 +1525,7 @@ static int dw3000_rx_store_rssi(struct dw3000 *dw)
 
 /**
  * dw3000_rx_stats_inc() - Increment statistics
- * @dw:	the DW device
+ * @dw: the DW device
  * @item: statistics item
  *
  * Return: 0 on success, else a negative error code.
@@ -1526,17 +1533,15 @@ static int dw3000_rx_store_rssi(struct dw3000 *dw)
 static inline int dw3000_rx_stats_inc(struct dw3000 *dw,
 				      const enum dw3000_stats_items item)
 {
+	int rc = 0;
 	if (dw->stats.enabled &&
 	    dw->stats.count[item] < DW3000_RSSI_REPORTS_MAX) {
 		dw->stats.count[item]++;
 		if (item == DW3000_STATS_RX_GOOD) {
-			int rc = dw3000_rx_store_rssi(dw);
-
-			if (unlikely(rc))
-				return rc;
+			rc = dw3000_rx_store_rssi(dw);
 		}
 	}
-	return 0;
+	return rc;
 }
 
 /**
@@ -1671,7 +1676,7 @@ static inline int dw3000_setdelayedtrxtime(struct dw3000 *dw, u32 starttime)
  *
  * Return: 0 on success, else a negative error code.
  */
-int dw3000_rx_enable(struct dw3000 *dw, int rx_delayed, u32 date_dtu,
+int dw3000_rx_enable(struct dw3000 *dw, bool rx_delayed, u32 date_dtu,
 		     u32 timeout_pac)
 {
 	int rc;
@@ -1987,15 +1992,14 @@ static int dw3000_enable_rf_tx(struct dw3000 *dw, u32 chan, u8 switch_ctrl)
 			      DW3000_LDO_CTRL_LDO_VDDTX1_EN_BIT_MASK));
 	/* Enable RF blocks for TX (configure RF_ENABLE_ID register) */
 	rc = dw3000_rftx_blocks_enable(dw, chan);
-	if (likely(!rc)) {
-		if (switch_ctrl) {
-			/* Configure the TXRX switch for TX mode */
-			return dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID,
-						  0x0, DW3000_TXRXSWITCH_TX);
-		}
-		return 0;
+	if (rc)
+		return rc;
+	if (switch_ctrl) {
+		/* Configure the TXRX switch for TX mode */
+		return dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0x0,
+					  DW3000_TXRXSWITCH_TX);
 	}
-	return rc;
+	return 0;
 }
 
 /**
@@ -2010,6 +2014,7 @@ static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 	int rc;
 
 	if (clocks == DW3000_FORCE_CLK_SYS_TX) {
+		/* TX_BUF_CLK = ON & RX_BUF_CLK = ON */
 		u16 regvalue0 = DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK |
 				DW3000_CLK_CTRL_RX_BUF_CLK_ON_BIT_MASK;
 		/* SYS_CLK_SEL = PLL */
@@ -2018,9 +2023,6 @@ static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 		/* TX_CLK_SEL = ON */
 		regvalue0 |= (u16)DW3000_FORCE_CLK_PLL
 			     << DW3000_CLK_CTRL_TX_CLK_SEL_BIT_OFFSET;
-		/* TX_BUF_CLK = ON */
-		regvalue0 = regvalue0 | DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK;
-
 		rc = dw3000_reg_write16(dw, DW3000_CLK_CTRL_ID, 0x0, regvalue0);
 		if (rc)
 			return rc;
@@ -2243,7 +2245,7 @@ static int dw3000_starttx(struct dw3000 *dw, int mode)
  *
  * Return: zero on success, else a negative error code.
  */
-int dw3000_tx_frame(struct dw3000 *dw, struct sk_buff *skb, int tx_delayed,
+int dw3000_tx_frame(struct dw3000 *dw, struct sk_buff *skb, bool tx_delayed,
 		    u32 tx_date_dtu, int rx_delay_dly, u32 rx_timeout_pac)
 {
 	int rc, mode, len;
@@ -2386,9 +2388,8 @@ static int dw3000_rx_frame(struct dw3000 *dw,
 		dev_dbg(dw->dev, "frame info: len=%lu, rxflags=0x%.2x", len,
 			data->rx_flags);
 		if (skb)
-			print_hex_dump_bytes(
-				"dw3000: frame data: ", DUMP_PREFIX_NONE,
-				skb->data, len - IEEE802154_FCS_LEN);
+			print_hex_dump_bytes("dw3000: frame data: ",
+					     DUMP_PREFIX_NONE, skb->data, len);
 	}
 	/* Inform MCPS 802.15.4 that we received a frame */
 	mcps802154_rx_frame(dw->llhw);
@@ -2770,6 +2771,8 @@ static int dw3000_configmrxlut(struct dw3000 *dw)
 	int rc;
 
 	lut = dw->chip_ops->get_config_mrxlut_chan(dw, chan);
+	if (!lut)
+		return -EINVAL;
 	/* Update LUT registers */
 	rc = dw3000_reg_write32(dw, DW3000_DGC_LUT_0_CFG_ID, 0x0, lut[0]);
 	if (rc)
@@ -2789,7 +2792,13 @@ static int dw3000_configmrxlut(struct dw3000 *dw)
 	rc = dw3000_reg_write32(dw, DW3000_DGC_LUT_5_CFG_ID, 0x0, lut[5]);
 	if (rc)
 		return rc;
-	return dw3000_reg_write32(dw, DW3000_DGC_LUT_6_CFG_ID, 0x0, lut[6]);
+	rc = dw3000_reg_write32(dw, DW3000_DGC_LUT_6_CFG_ID, 0x0, lut[6]);
+	if (rc)
+		return rc;
+	rc = dw3000_reg_write32(dw, DW3000_DGC_CFG0_ID, 0x0, DW3000_DGC_CFG0);
+	if (rc)
+		return rc;
+	return dw3000_reg_write32(dw, DW3000_DGC_CFG1_ID, 0x0, DW3000_DGC_CFG1);
 }
 
 int dw3000_configure_dgc(struct dw3000 *dw)
@@ -2809,18 +2818,17 @@ int dw3000_configure_dgc(struct dw3000 *dw)
 			 * Else we manually program hard-coded values into the
 			 * DGC registers.
 			 */
-			rc = dw3000_reg_write32(dw, DW3000_DGC_CFG0_ID, 0x0,
-						DW3000_DGC_CFG0);
-			if (rc)
-				return rc;
-			rc = dw3000_reg_write32(dw, DW3000_DGC_CFG1_ID, 0x0,
-						DW3000_DGC_CFG1);
+			rc = dw3000_configmrxlut(dw);
 			if (rc)
 				return rc;
 			local->sleep_mode &= ~DW3000_LOADDGC;
 		} else {
-			rc = dw3000_reg_or16(dw, DW3000_NVM_CFG_ID, 0,
-					     DW3000_NVM_CFG_DGC_KICK_BIT_MASK);
+			u16 dgc_sel = (config->chan == 5 ? 0 : 1)
+				      << DW3000_NVM_CFG_DGC_SEL_BIT_OFFSET;
+			rc = dw3000_reg_modify16(
+				dw, DW3000_DGC_CFG_ID, 0,
+				(u16) ~(DW3000_NVM_CFG_DGC_SEL_BIT_MASK),
+				dgc_sel | DW3000_NVM_CFG_DGC_KICK_BIT_MASK);
 			if (rc)
 				return rc;
 			/* Configure kick bits for when waking up. */
@@ -2857,40 +2865,40 @@ int dw3000_configure_chan(struct dw3000 *dw)
 	rc = dw3000_configure_rf(dw);
 	if (rc)
 		return rc;
-	/* Load RX LUTs */
-	rc = dw3000_configmrxlut(dw);
-	if (rc)
-		return rc;
-	/* Configure DGC for D0 chip */
-	if (__dw3000_chip_version == 1)
-		return dw3000_configure_dgc(dw);
-	return 0;
+	/* Configure DGC. */
+	return dw3000_configure_dgc(dw);
 }
 
-static int dw3000_setdwstate(struct dw3000 *dw, int state)
+static int dw3000_setdwstate(struct dw3000 *dw, enum operational_state state)
 {
 	int rc;
-	/**
-	 * Set the auto INIT2IDLE bit so that DW3000 enters IDLE mode before
-	 * switching clocks to system_PLL.
-	 */
-	if (state == DW3000_DW_IDLE) {
+
+	switch (state) {
+	case DW3000_OP_STATE_IDLE_PLL:
 		/**
-		 * NOTE: PLL should be configured prior to this, and the device
-		 * should be in IDLE_RC (if the PLL does not lock device will
-		 * remain in IDLE_RC)
+		 * Set the auto INIT2IDLE bit so that DW3000 enters DW3000_OP_STATE_IDLE_PLL mode before
+		 * switching clocks to system_PLL.
 		 *
-		 * Switch clock to auto, if coming here from INIT_RC the clock
+		 * NOTE: PLL should be configured prior to this, and the device
+		 * should be in DW3000_OP_STATE_IDLE_RC (if the PLL does not lock device will
+		 * remain in DW3000_OP_STATE_IDLE_RC)
+		 *
+		 * Switch clock to auto, if coming here from DW3000_OP_STATE_IDLE_RC the clock
 		 * will be FOSC/4, need to switch to auto prior to setting auto
 		 * INIT2IDLE bit
 		 */
 		rc = dw3000_force_clocks(dw, DW3000_FORCE_CLK_AUTO);
 		if (rc)
 			return rc;
-		return dw3000_reg_or8(dw, DW3000_SEQ_CTRL_ID, 0x01,
-				      DW3000_SEQ_CTRL_AUTO_INIT2IDLE_BIT_MASK >>
-					      8);
-	} else if (state == DW3000_DW_IDLE_RC) {
+		rc = dw3000_reg_or8(dw, DW3000_SEQ_CTRL_ID, 0x01,
+				    DW3000_SEQ_CTRL_AUTO_INIT2IDLE_BIT_MASK >>
+					    8);
+		if (rc)
+			return rc;
+		dw->current_operational_state = DW3000_OP_STATE_IDLE_PLL;
+		break;
+
+	case DW3000_OP_STATE_IDLE_RC:
 		/**
 		 * Change state to IDLE_RC and clear auto INIT2IDLE bit
 		 * switch clock to FOSC
@@ -2913,8 +2921,13 @@ static int dw3000_setdwstate(struct dw3000 *dw, int state)
 		if (rc)
 			return rc;
 		/* Switch clock to auto */
-		return dw3000_force_clocks(dw, DW3000_FORCE_CLK_AUTO);
-	} else {
+		rc = dw3000_force_clocks(dw, DW3000_FORCE_CLK_AUTO);
+		if (rc)
+			return rc;
+		dw->current_operational_state = DW3000_OP_STATE_IDLE_RC;
+		break;
+
+	case DW3000_OP_STATE_INIT_RC:
 		/**
 		 * The SPI rate needs to be <= 7MHz as device is switching
 		 * to INIT_RC state
@@ -2930,10 +2943,23 @@ static int dw3000_setdwstate(struct dw3000 *dw, int state)
 			DW3000_SEQ_CTRL_FORCE2INIT_BIT_MASK);
 		if (rc)
 			return rc;
-		return dw3000_reg_and8(
+		rc = dw3000_reg_and8(
 			dw, DW3000_SEQ_CTRL_ID, 0x2,
 			(u8) ~(DW3000_SEQ_CTRL_FORCE2INIT_BIT_MASK >> 16));
+		if (rc)
+			return rc;
+		dw->current_operational_state = DW3000_OP_STATE_INIT_RC;
+		break;
+
+	default:
+		/* Invalid or unmanaged state */
+		dev_err(dw->dev,
+			"Invalid or unmanaged operational state %d, current state: %d\n",
+			state, dw->current_operational_state);
+		rc = -EINVAL;
+		break;
 	}
+	return rc;
 }
 
 /**
@@ -2954,7 +2980,7 @@ static inline int dw3000_lock_pll(struct dw3000 *dw)
 				   DW3000_SYS_STATUS_CLK_PLL_LOCK_BIT_MASK);
 	if (rc)
 		return rc;
-	rc = dw3000_setdwstate(dw, DW3000_DW_IDLE);
+	rc = dw3000_setdwstate(dw, DW3000_OP_STATE_IDLE_PLL);
 	if (rc)
 		return rc;
 	for (flag = 1, cnt = 0; cnt < DW3000_MAX_RETRIES_FOR_PLL; cnt++) {
@@ -3123,7 +3149,7 @@ static int dw3000_configure(struct dw3000 *dw)
 		return rc;
 	if (__dw3000_chip_version == 0) {
 		/* Auto calibrate the PLL and change to IDLE_PLL state */
-		rc = dw3000_setdwstate(dw, DW3000_DW_IDLE);
+		rc = dw3000_setdwstate(dw, DW3000_OP_STATE_IDLE_PLL);
 		if (rc)
 			return rc;
 	} else {
@@ -4113,9 +4139,10 @@ int dw3000_set_tx_antenna(struct dw3000 *dw, int antidx)
 	ant_calib = &dw->calib_data.ant[antidx];
 	if (ant_calib->port != 0) {
 		/* TX always use RF1 port */
-		dev_warn(dw->dev,
-			 "Bad antenna selected or bad configuration ant=%d, port=%d\n",
-			 antidx, ant_calib->port);
+		dev_warn(
+			dw->dev,
+			"Bad antenna selected or bad configuration ant=%d, port=%d\n",
+			antidx, ant_calib->port);
 		return -EINVAL;
 	}
 	/* Set GPIO state according config to select this antenna */
@@ -4159,9 +4186,10 @@ int dw3000_set_rx_antennas(struct dw3000 *dw, int ant_pair)
 	ant_calib = &dw->calib_data.ant[antidx2];
 	if (port == ant_calib->port) {
 		/* Specified RX antenna must be on different port */
-		dev_warn(dw->dev,
-			 "Bad antennas selected or bad configuration ant1=%d (port=%d), ant2=%d (port=%d)\n",
-			 antidx1, port, antidx2, ant_calib->port);
+		dev_warn(
+			dw->dev,
+			"Bad antennas selected or bad configuration ant1=%d (port=%d), ant2=%d (port=%d)\n",
+			antidx1, port, antidx2, ant_calib->port);
 		return -EINVAL;
 	}
 	port = ant_calib->port;
@@ -4214,14 +4242,6 @@ static int dw3000_initialise(struct dw3000 *dw, int mode)
 		return rc;
 	/* Read and init XTRIM */
 	rc = dw3000_prog_xtrim(dw);
-	if (unlikely(rc))
-		return rc;
-	/* Initialise LEDs */
-	rc = dw3000_set_leds(dw, DW3000_LEDS_DISABLE);
-	if (unlikely(rc))
-		return rc;
-	/* Initialise LNA/PA modes */
-	rc = dw3000_set_lna_pa_mode(dw, dw->lna_pa_mode);
 	if (unlikely(rc))
 		return rc;
 	/* Clear all register cache variables */
@@ -4380,17 +4400,28 @@ int dw3000_init(struct dw3000 *dw)
 		return -EINVAL;
 	}
 	/* Initialise device */
-	if (dw3000_initialise(dw, DW3000_DW_INIT | DW3000_READ_OTP_PID |
-					  DW3000_READ_OTP_LID)) {
+	if (dw3000_initialise(dw, DW3000_READ_OTP_PID | DW3000_READ_OTP_LID)) {
 		dev_err(dw->dev, "device initialization has failed\n");
 		return -EINVAL;
 	}
+	/* Do some device specific initialisation if any */
+	rc = dw->chip_ops->init(dw);
+	if (unlikely(rc))
+		return rc;
 	/* Configure radio frequency */
 	rc = dw3000_configure(dw);
 	if (unlikely(rc)) {
 		dev_err(dw->dev, "device configuration has failed (%d)\n", rc);
 		return rc;
 	}
+	/* Initialise LEDs */
+	rc = dw3000_set_leds(dw, DW3000_LEDS_DISABLE);
+	if (unlikely(rc))
+		return rc;
+	/* Initialise LNA/PA modes */
+	rc = dw3000_set_lna_pa_mode(dw, dw->lna_pa_mode);
+	if (unlikely(rc))
+		return rc;
 	/* Configure delays */
 	rc = dw3000_set_antenna_delay(dw, 0);
 	if (unlikely(rc))
@@ -4401,10 +4432,6 @@ int dw3000_init(struct dw3000 *dw)
 	if (unlikely(rc))
 		return rc;
 	rc = dw3000_disable_autoack(dw, true);
-	if (unlikely(rc))
-		return rc;
-	/* Do some device specific initialisation if any */
-	rc = dw->chip_ops->init(dw);
 	if (unlikely(rc))
 		return rc;
 	/* WiFi coexistence initialisation if enabled */
@@ -4530,32 +4557,18 @@ void dw3000_init_config(struct dw3000 *dw)
 
 static inline int dw3000_isr_handle_spi_ready(struct dw3000 *dw)
 {
-	int rc;
-	/* Clear the bit to clear the interrupt */
-	rc = dw3000_clear_sys_status(dw,
-				     DW3000_SYS_STATUS_RCINIT_BIT_MASK |
-					     DW3000_SYS_STATUS_SPIRDY_BIT_MASK);
-	if (unlikely(rc))
-		return rc;
 	dev_warn(dw->dev, "no support for callback %s", __func__);
 	return 0;
 }
 
 static inline int dw3000_isr_handle_timer_events(struct dw3000 *dw)
 {
-	/* Clear the bit to clear the interrupt */
-	return dw3000_clear_sys_status(
-		dw, DW3000_SYS_STATUS_TIMER0_BIT_MASK |
-			    DW3000_SYS_STATUS_TIMER1_BIT_MASK);
+	/* TODO: call chip specific method if special work is required */
+	return 0;
 }
 
 static inline int dw3000_isr_handle_spi_error(struct dw3000 *dw)
 {
-	int rc;
-	/* Clear SPI CRC error event bit */
-	rc = dw3000_clear_sys_status(dw, DW3000_SYS_STATUS_SPICRCERR_BIT_MASK);
-	if (unlikely(rc))
-		return rc;
 	dev_warn(dw->dev, "no support for callback %s", __func__);
 	return 0;
 }
@@ -4663,14 +4676,11 @@ static inline int dw3000_isr_handle_rx_call_handler(struct dw3000 *dw,
 static inline int dw3000_isr_handle_rxfcg_event(struct dw3000 *dw,
 						struct dw3000_isr_data *isr)
 {
-	u32 clear = DW3000_SYS_STATUS_ALL_RX_GOOD |
-		    DW3000_SYS_STATUS_CIAERR_BIT_MASK |
-		    DW3000_SYS_STATUS_CPERR_BIT_MASK;
+	const u32 clear = DW3000_SYS_STATUS_ALL_RX_GOOD |
+			  DW3000_SYS_STATUS_CIAERR_BIT_MASK |
+			  DW3000_SYS_STATUS_CPERR_BIT_MASK;
 	u16 finfo16;
-	/* Clear all receive status bits (and related errors) */
-	int rc = dw3000_clear_sys_status(dw, clear);
-	if (unlikely(rc))
-		return rc;
+	int rc;
 	/* Report statistics */
 	rc = dw3000_rx_stats_inc(dw, DW3000_STATS_RX_GOOD);
 	if (unlikely(rc))
@@ -4700,14 +4710,11 @@ static inline int dw3000_isr_handle_rxfcg_event(struct dw3000 *dw,
 static inline int dw3000_isr_handle_rxfr_sts_event(struct dw3000 *dw,
 						   struct dw3000_isr_data *isr)
 {
-	u32 clear = DW3000_SYS_STATUS_ALL_RX_GOOD |
-		    DW3000_SYS_STATUS_RXFCE_BIT_MASK |
-		    DW3000_SYS_STATUS_CIAERR_BIT_MASK |
-		    DW3000_SYS_STATUS_CPERR_BIT_MASK;
-	/* Clear all receive status bits with FCE (and related errors) */
-	int rc = dw3000_clear_sys_status(dw, clear);
-	if (unlikely(rc))
-		return rc;
+	const u32 clear = DW3000_SYS_STATUS_ALL_RX_GOOD |
+			  DW3000_SYS_STATUS_RXFCE_BIT_MASK |
+			  DW3000_SYS_STATUS_CIAERR_BIT_MASK |
+			  DW3000_SYS_STATUS_CPERR_BIT_MASK;
+	int rc;
 	isr->datalength = 0;
 	rc = dw3000_isr_handle_rx_call_handler(dw, isr);
 	/* Clear errors (as we do not want to go back into cbRxErr) */
@@ -4717,19 +4724,15 @@ static inline int dw3000_isr_handle_rxfr_sts_event(struct dw3000 *dw,
 
 static inline int dw3000_isr_handle_rxto_event(struct dw3000 *dw, u32 status)
 {
+	u32 end_dtu;
 	int rc;
-
 	/* Update power statistics */
-	dw3000_power_stats(dw, DW3000_PWR_IDLE,
-			   dw->power.rx_start + (dw->data.rx_timeout_pac + 1) *
-							dw->chips_per_pac *
-							DW3000_CHIP_PER_DTU);
+	end_dtu = dw->power.rx_start + (dw->data.rx_timeout_pac + 1) *
+					       dw->chips_per_pac *
+					       DW3000_CHIP_PER_DTU;
+	dw3000_power_stats(dw, DW3000_PWR_IDLE, end_dtu);
 	/* Release Wifi coexistance */
 	dw3000_coex_stop(dw);
-	/* Clear RX timeout event bits */
-	rc = dw3000_clear_sys_status(dw, DW3000_SYS_STATUS_ALL_RX_TO);
-	if (unlikely(rc))
-		return rc;
 	/* Report statistics */
 	rc = dw3000_rx_stats_inc(dw, DW3000_STATS_RX_TO);
 	if (unlikely(rc))
@@ -4753,10 +4756,6 @@ static inline int dw3000_isr_handle_rxerr_event(struct dw3000 *dw, u32 status)
 	dw3000_power_stats(dw, DW3000_PWR_IDLE, 0);
 	/* Release Wifi coexistance */
 	dw3000_coex_stop(dw);
-	/* Clear RX error event bits */
-	rc = dw3000_clear_sys_status(dw, DW3000_SYS_STATUS_ALL_RX_ERR);
-	if (unlikely(rc))
-		return rc;
 	/* Map error to mcps802154_rx_error enum */
 	if (status & DW3000_SYS_STATUS_RXSTO_BIT_MASK) {
 		dev_dbg(dw->dev, "rx sfd timeout\n");
@@ -4792,7 +4791,6 @@ static inline int dw3000_isr_handle_rxerr_event(struct dw3000 *dw, u32 status)
 static inline int dw3000_isr_handle_tx_event(struct dw3000 *dw,
 					     struct dw3000_isr_data *isr)
 {
-	int rc;
 	/* Update power statistics */
 	dw3000_power_stats(dw, DW3000_PWR_IDLE, 0);
 	if (dw->data.w4r_time) {
@@ -4808,10 +4806,6 @@ static inline int dw3000_isr_handle_tx_event(struct dw3000 *dw,
 	}
 	/* Release Wifi coexistence */
 	dw3000_coex_stop(dw);
-	/* Clear TX event bits */
-	rc = dw3000_clear_sys_status(dw, DW3000_SYS_STATUS_ALL_TX);
-	if (unlikely(rc))
-		return rc;
 	/* Report completion to MCPS 802.15.4 stack */
 	mcps802154_tx_done(dw->llhw);
 	/* Clear TXFRS status to not handle it a second time. */
@@ -4847,14 +4841,16 @@ void dw3000_isr(struct dw3000 *dw)
 	if (dw3000_read_sys_status(dw, &isr.status))
 		goto spi_err;
 	/* Read status register hi 16bits only if pgf calibration is running */
-	if (unlikely(dw->pgf_cal_running))
+	if (dw->pgf_cal_running)
 		if (dw3000_read_sys_status_hi(dw, &isr.status_hi))
 			goto spi_err;
-	if (dw->nfcc_mode) {
+	if (dw->nfcc_mode)
 		if (dw3000_read_dss_status(dw, &isr.dss_stat))
 			goto spi_err;
-	}
 	trace_dw3000_isr(dw, isr.status);
+	/* Early clear all status bits since saved locally */
+	if (dw3000_clear_sys_status(dw, isr.status))
+		goto spi_err;
 	/* RX double-buffering enabled */
 	if (local->dblbuffon) {
 		u8 status_db;
@@ -5091,18 +5087,18 @@ static ssize_t dw3000_sysfs_show(struct kobject *kobj,
 		(DW3000_DTU_FREQ / 100000);
 	idle_dur = dw->power.stats[DW3000_PWR_RUN].dur - tx_ns - rx_ns;
 	ret = scnprintf(buf, PAGE_SIZE,
-		      "Off state:\n\tcount:\t%llu\n\tdur:\t%llu\n"
-		      "Run state:\n\tcount:\t%llu\n\tdur:\t%llu\n"
-		      "Idle state:\n\tcount:\t%llu\n\tdur:\t%llu\n"
-		      "Tx state:\n\tcount:\t%llu\n\tdur:\t%llu\n"
-		      "Rx state:\n\tcount:\t%llu\n\tdur:\t%llu\n",
-		      dw->power.stats[DW3000_PWR_OFF].count,
-		      dw->power.stats[DW3000_PWR_OFF].dur,
-		      dw->power.stats[DW3000_PWR_RUN].count,
-		      dw->power.stats[DW3000_PWR_RUN].dur,
-		      dw->power.stats[DW3000_PWR_IDLE].count, idle_dur,
-		      dw->power.stats[DW3000_PWR_TX].count, tx_ns,
-		      dw->power.stats[DW3000_PWR_RX].count, rx_ns);
+			"Off state:\n\tcount:\t%llu\n\tdur ns:\t%llu\n"
+			"Run state:\n\tcount:\t%llu\n\tdur ns:\t%llu\n"
+			"Idle state:\n\tcount:\t%llu\n\tdur ns:\t%llu\n"
+			"Tx state:\n\tcount:\t%llu\n\tdur ns:\t%llu\n"
+			"Rx state:\n\tcount:\t%llu\n\tdur ns:\t%llu\n",
+			dw->power.stats[DW3000_PWR_OFF].count,
+			dw->power.stats[DW3000_PWR_OFF].dur,
+			dw->power.stats[DW3000_PWR_RUN].count,
+			dw->power.stats[DW3000_PWR_RUN].dur,
+			dw->power.stats[DW3000_PWR_IDLE].count, idle_dur,
+			dw->power.stats[DW3000_PWR_TX].count, tx_ns,
+			dw->power.stats[DW3000_PWR_RX].count, rx_ns);
 	return ret;
 }
 

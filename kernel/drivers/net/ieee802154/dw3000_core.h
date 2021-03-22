@@ -308,7 +308,7 @@ int dw3000_read_sys_time(struct dw3000 *dw, u32 *sys_time);
 int dw3000_poweron(struct dw3000 *dw);
 int dw3000_poweroff(struct dw3000 *dw);
 
-int dw3000_rx_enable(struct dw3000 *dw, int rx_delayed, u32 date_dtu,
+int dw3000_rx_enable(struct dw3000 *dw, bool rx_delayed, u32 date_dtu,
 		     u32 timeout_pac);
 int dw3000_rx_disable(struct dw3000 *dw);
 int dw3000_rx_stats_enable(struct dw3000 *dw, bool on);
@@ -317,7 +317,7 @@ void dw3000_rx_stats_clear(struct dw3000 *dw);
 int dw3000_enable_autoack(struct dw3000 *dw, bool force);
 int dw3000_disable_autoack(struct dw3000 *dw, bool force);
 
-int dw3000_tx_frame(struct dw3000 *dw, struct sk_buff *skb, int tx_delayed,
+int dw3000_tx_frame(struct dw3000 *dw, struct sk_buff *skb, bool tx_delayed,
 		    u32 tx_date_dtu, int rx_delay_dly, u32 rx_timeout_pac);
 int dw3000_tx_setcwtone(struct dw3000 *dw, bool on);
 

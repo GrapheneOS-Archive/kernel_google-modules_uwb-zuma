@@ -135,9 +135,10 @@ static const struct nla_policy fira_session_param_nla_policy[FIRA_SESSION_PARAM_
 		.max = FIRA_BOOLEAN_MAX
 	},
 	[FIRA_SESSION_PARAM_ATTR_RX_ANTENNA_SELECTION] = { .type = NLA_U8 },
-	[FIRA_SESSION_PARAM_ATTR_RX_ANTENNA_AZIMUTH] = { .type = NLA_U8 },
-	[FIRA_SESSION_PARAM_ATTR_RX_ANTENNA_ELEVATION] = { .type = NLA_U8 },
-	[FIRA_SESSION_PARAM_ATTR_TX_ANTENNA_SELECTION] = { .type = NLA_U8 },
+	[FIRA_SESSION_PARAM_ATTR_RX_ANTENNA_PAIR_AZIMUTH] = { .type = NLA_U8 },
+	[FIRA_SESSION_PARAM_ATTR_RX_ANTENNA_PAIR_ELEVATION] = { .type = NLA_U8 },
+	[FIRA_SESSION_PARAM_ATTR_TX_ANTENNA_SELECTION] = { .type = NLA_U8,
+		.validation_type = NLA_VALIDATE_MIN, .min = 1 },
 	[FIRA_SESSION_PARAM_ATTR_RX_ANTENNA_SWITCH] = {
 		.type = NLA_U8, .validation_type = NLA_VALIDATE_MAX,
 		.max = FIRA_RX_ANTENNA_SWITCH_TWO_RANGING
@@ -147,7 +148,8 @@ static const struct nla_policy fira_session_param_nla_policy[FIRA_SESSION_PARAM_
 		.max = FIRA_STS_CONFIG_DYNAMIC_INDIVIDUAL_KEY
 	},
 	[FIRA_SESSION_PARAM_ATTR_SUB_SESSION_ID] = { .type = NLA_U32 },
-	[FIRA_SESSION_PARAM_ATTR_VUPPER64] = { .type = NLA_U64 },
+	[FIRA_SESSION_PARAM_ATTR_VUPPER64] = {
+		.type = NLA_BINARY, .len = FIRA_VUPPER64_SIZE },
 	[FIRA_SESSION_PARAM_ATTR_SESSION_KEY] = {
 		.type = NLA_BINARY, .len = FIRA_KEY_SIZE_MAX },
 	[FIRA_SESSION_PARAM_ATTR_SUB_SESSION_KEY] = {
@@ -241,6 +243,12 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 		session->sts_index = 0;
 		session->round_index = 0;
 		session->next_round_index = 0;
+		/* With invalid index value the fira_update_antennas_id function will start
+		 * by the first antenna on first session.
+		 * It's the case only when antenna_switch value is 'BETWEEN_ROUND'. */
+		session->tx_ant = -1;
+		session->rx_ant_pair[0] = -1;
+		session->rx_ant_pair[1] = -1;
 		list_move(&session->entry, &local->active_sessions);
 
 		mcps802154_reschedule(local->llhw);
@@ -316,6 +324,7 @@ static int fira_session_set_parameters(struct fira_local *local, u32 session_id,
 	struct nlattr *attrs[FIRA_SESSION_PARAM_ATTR_MAX + 1];
 	bool active;
 	struct fira_session *session;
+	struct fira_session_params *p;
 	int r;
 
 	session = fira_session_get(local, session_id, &active);
@@ -350,8 +359,42 @@ static int fira_session_set_parameters(struct fira_local *local, u32 session_id,
 	  x * (local->llhw->dtu_freq_hz / 1000));
 	P(ROUND_DURATION_SLOTS, round_duration_slots, u32, x);
 	P(PRIORITY, priority, u8, x);
+	P(MULTI_NODE_MODE, multi_node_mode, u8, x);
+	/* Antenna parameters. */
+	P(RX_ANTENNA_SELECTION, rx_antenna_selection, u8, x);
+	P(RX_ANTENNA_PAIR_AZIMUTH, rx_antenna_pair_azimuth, u8, x);
+	P(RX_ANTENNA_PAIR_ELEVATION, rx_antenna_pair_elevation, u8, x);
+	P(TX_ANTENNA_SELECTION, tx_antenna_selection, u8, x);
+	P(RX_ANTENNA_SWITCH, rx_antenna_switch, u8, x);
+	/* Report parameters. */
+	P(AOA_RESULT_REQ, aoa_result_req, u8, !!x);
+	P(REPORT_TOF, report_tof, u8, !!x);
+	P(REPORT_AOA_AZIMUTH, report_aoa_azimuth, u8, !!x);
+	P(REPORT_AOA_ELEVATION, report_aoa_elevation, u8, !!x);
+	P(REPORT_AOA_FOM, report_aoa_fom, u8, !!x);
 	/* TODO: set all fira session parameters. */
 #undef P
+
+	p = &session->params;
+	switch (p->rx_antenna_switch) {
+	case FIRA_RX_ANTENNA_SWITCH_BETWEEN_ROUND:
+		if (p->rx_antenna_pair_azimuth != FIRA_RX_ANTENNA_PAIR_INVALID)
+			p->rx_antenna_selection |=
+				1 << p->rx_antenna_pair_azimuth;
+		if (p->rx_antenna_pair_elevation !=
+		    FIRA_RX_ANTENNA_PAIR_INVALID)
+			p->rx_antenna_selection |=
+				1 << p->rx_antenna_pair_elevation;
+		break;
+	case FIRA_RX_ANTENNA_SWITCH_DURING_ROUND:
+	case FIRA_RX_ANTENNA_SWITCH_TWO_RANGING:
+		if (p->rx_antenna_pair_azimuth ==
+			    FIRA_RX_ANTENNA_PAIR_INVALID ||
+		    p->rx_antenna_pair_elevation ==
+			    FIRA_RX_ANTENNA_PAIR_INVALID)
+			return -EINVAL;
+		break;
+	}
 
 	return 0;
 }

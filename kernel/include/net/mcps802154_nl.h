@@ -122,10 +122,6 @@ enum mcps802154_commands {
  * @MCPS802154_ATTR_TESTDATA:
  *	Testmode's data blob, passed through to the driver. It contains
  *	driver-specific attributes.
- * @MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU:
- *	Tx rmarker used by calibration tools.
- * @MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU:
- *	Rx rmarker used by calibration tools.
  * @MCPS802154_ATTR_CALIBRATIONS:
  *	Nested array of calibrations.
  * @MCPS802154_ATTR_RANGING_REQUESTS:
@@ -158,8 +154,6 @@ enum mcps802154_attrs {
 
 	MCPS802154_ATTR_TESTDATA,
 
-	MCPS802154_ATTR_TX_RMARKER_OFFSET_RCTU,
-	MCPS802154_ATTR_RX_RMARKER_OFFSET_RCTU,
 	MCPS802154_ATTR_CALIBRATIONS,
 
 	/* Temporary ranging interface. */

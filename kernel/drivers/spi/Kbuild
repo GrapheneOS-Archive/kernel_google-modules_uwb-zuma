@@ -9,7 +9,7 @@ test $$((($(VERSION) << 16) + ($(PATCHLEVEL) << 8) + $(if $(SUBLEVEL);$(SUBLEVEL
 ifdef CONFIG_SPI_MASTER
 ifdef CONFIG_ARCH_QCOM
 ifeq ($(call kernel_version_ge,4,20,0),1)
-obj-m += spi-geni-qcom-lowlatency.o
+obj-$(CONFIG_QCOM_SPI_LOWLATENCY) += spi-geni-qcom-lowlatency.o
 endif
 endif
 endif

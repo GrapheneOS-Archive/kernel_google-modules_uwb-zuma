@@ -71,7 +71,7 @@ int mcps802154_scheduler_set_parameters(struct mcps802154_scheduler *scheduler,
  *
  * Return: NULL ended string array.
  */
-const char **
+const char *const *
 mcps802154_scheduler_list_region_ids(struct mcps802154_scheduler *scheduler);
 
 /**

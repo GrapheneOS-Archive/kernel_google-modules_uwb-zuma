@@ -25,12 +25,13 @@ add_library(mac
 	fproc_tx.c
 	frame.c
 	ie.c
-	main.c
+	mcps_main.c
 	ops.c
 	schedule.c
 	schedulers.c
 	simple_ranging_region.c
-	regions.c)
+	regions.c
+	utils_fixed_point.c)
 target_include_directories(mac PUBLIC include)
 target_compile_options(mac PRIVATE
 	-Wall

@@ -33,6 +33,7 @@
 struct fira_session_params {
 	/* Main parameters. */
 	enum fira_device_type device_type;
+	enum fira_multi_node_mode multi_node_mode;
 	__le16 controller_short_addr;
 	/* Timings parameters. */
 	int initiation_time_ms;
@@ -44,6 +45,17 @@ struct fira_session_params {
 	/* List of controlees. */
 	struct fira_controlee controlees[FIRA_CONTROLEES_MAX];
 	size_t n_controlees;
+	size_t n_controlees_max;
+	bool aoa_result_req;
+	bool report_tof;
+	bool report_aoa_azimuth;
+	bool report_aoa_elevation;
+	bool report_aoa_fom;
+	u8 rx_antenna_selection;
+	u8 rx_antenna_pair_azimuth;
+	u8 rx_antenna_pair_elevation;
+	u8 tx_antenna_selection;
+	u8 rx_antenna_switch;
 };
 
 /**
@@ -88,6 +100,14 @@ struct fira_session {
 	 * @event_portid: port identifier to use for notifications.
 	 */
 	u32 event_portid;
+	/**
+	 * @tx_ant: antenna index to use for transmit.
+	 */
+	int tx_ant;
+	/**
+	 * @rx_ant_pair: Antenna pair indexes to use for reception.
+	 */
+	int rx_ant_pair[2];
 };
 
 /**

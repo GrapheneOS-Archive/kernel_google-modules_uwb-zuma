@@ -30,6 +30,7 @@
 
 #include <net/mcps802154_schedule.h>
 
+#define FIRA_VUPPER64_SIZE 8
 #define FIRA_KEY_SIZE_MAX 32
 #define FIRA_KEY_SIZE_MIN 16
 #define FIRA_SLOT_DURATION_RSTU_DEFAULT 2400
@@ -42,6 +43,8 @@
 #define FIRA_BOOLEAN_MAX 1
 #define FIRA_CONTROLEES_MAX 16
 #define FIRA_FRAMES_MAX (3 + 3 * FIRA_CONTROLEES_MAX)
+#define FIRA_CONTROLEE_FRAMES_MAX (3 + 3 + 1)
+#define FIRA_RX_ANTENNA_PAIR_INVALID 0xff
 
 enum fira_device_type {
 	FIRA_DEVICE_TYPE_CONTROLEE,
@@ -193,6 +196,36 @@ struct fira_slot {
 	 * @message_id: Identifier of the message exchanged in this slot.
 	 */
 	enum fira_message_id message_id;
+	/**
+	 * @tx_ant: Tx antenna selection.
+	 */
+	int tx_ant;
+	/**
+	 * @rx_ant_pair: Rx antenna selection.
+	 */
+	int rx_ant_pair;
+};
+
+/**
+ * struct fira_aoa_info - Ranging AoA information.
+ */
+struct fira_local_aoa_info {
+	/**
+	 * @pdoa_2pi: Phase Difference of Arrival.
+	 */
+	s16 pdoa_2pi;
+	/**
+	 * @aoa_2pi: Angle of Arrival.
+	 */
+	s16 aoa_2pi;
+	/**
+	 * @rx_ant_pair: Antenna pair index.
+	 */
+	u8 rx_ant_pair;
+	/**
+	 * @present: true if AoA information is present.
+	 */
+	bool present;
 };
 
 /**
@@ -207,6 +240,18 @@ struct fira_ranging_info {
 	 * @tof_rctu: Computed Time of Flight.
 	 */
 	int tof_rctu;
+	/**
+	 * @local_aoa: Local ranging AoA information
+	 */
+	struct fira_local_aoa_info local_aoa;
+	/**
+	 * @local_aoa_azimuth: Azimuth ranging AoA information
+	 */
+	struct fira_local_aoa_info local_aoa_azimuth;
+	/**
+	 * @local_aoa_elevation: Elevation ranging AoA information
+	 */
+	struct fira_local_aoa_info local_aoa_elevation;
 	/**
 	 * @remote_aoa_azimuth_2pi: Remote azimuth AoA.
 	 */
@@ -293,6 +338,11 @@ struct fira_local {
 	 * @n_ranging_info: Number of element in the ranging information table.
 	 */
 	int n_ranging_info;
+	/**
+	 * @n_ranging_valid: Number of valid ranging in the current ranging
+	 * information table.
+	 */
+	int n_ranging_valid;
 	/**
 	 * @src_short_addr: Source address for the current session (actually
 	 * never put as a source address in a frame, but used for control

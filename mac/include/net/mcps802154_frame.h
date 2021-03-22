@@ -280,11 +280,13 @@ u32 mcps802154_timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
  * device time unit (RDEV only).
  * @llhw: Low-level device pointer.
  * @tx_timestamp_dtu: TX timestamp in device time unit.
+ * @ant_id: Antenna used to transmit.
  *
  * Return: RMARKER timestamp in ranging count time unit.
  */
 u64 mcps802154_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
-						u32 tx_timestamp_dtu);
+						u32 tx_timestamp_dtu,
+						int ant_id);
 
 /**
  * mcps802154_difference_timestamp_rctu() - Compute the difference between two
