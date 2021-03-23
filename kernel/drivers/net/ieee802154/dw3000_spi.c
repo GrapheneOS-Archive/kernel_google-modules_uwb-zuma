@@ -85,11 +85,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	if (rc != 0)
 		goto err_setup_gpios;
 
-	/* Request and setup the irq GPIO pin */
-	rc = dw3000_setup_irq(dw);
-	if (rc != 0)
-		goto err_setup_gpios;
-
 	/* Allocate pre-computed SPI messages for fast access some registers */
 	rc = dw3000_transfers_init(dw);
 	if (rc != 0)
@@ -109,6 +104,11 @@ static int dw3000_spi_probe(struct spi_device *spi)
 		dev_err(dw->dev, "device power on failed: %d\n", rc);
 		goto err_power;
 	}
+
+	/* Request and setup the irq GPIO pin */
+	rc = dw3000_setup_irq(dw);
+	if (rc != 0)
+		goto err_setup_gpios;
 
 	/* Soft reset */
 	rc = dw3000_softreset(dw);
