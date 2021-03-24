@@ -88,23 +88,31 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	if (rc != 0)
 		goto err_spi_setup;
 
-	/* Request and setup the reset GPIO pin */
-	rc = dw3000_setup_reset_gpio(dw);
-	if (rc != 0)
-		goto err_setup_gpios;
-
 	/* Allocate pre-computed SPI messages for fast access some registers */
 	rc = dw3000_transfers_init(dw);
 	if (rc != 0)
 		goto err_transfers_init;
 
 	/* Initialise state descriptor */
+	/* This ensure wait queue exist before IRQ handler is setup in case
+	   of spurious IRQ (mainly because hw problem with reset GPIO). */
 	rc = dw3000_state_init(dw, dw3000_thread_cpu);
 	if (rc != 0) {
 		dev_err(dw->dev, "state machine initialisation failed: %d\n",
 			rc);
 		goto err_state_init;
 	}
+	/* Request and setup the reset GPIO pin */
+	/* This leave the DW3000 in reset state until dw3000_hardreset() put
+	   the GPIO back in input mode. */
+	rc = dw3000_setup_reset_gpio(dw);
+	if (rc != 0)
+		goto err_setup_gpios;
+
+	/* Request and setup the irq GPIO pin */
+	rc = dw3000_setup_irq(dw);
+	if (rc != 0)
+		goto err_setup_gpios;
 
 	/* Turn on power (with RST GPIO) */
 	rc = dw3000_hardreset(dw);
@@ -112,11 +120,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 		dev_err(dw->dev, "device power on failed: %d\n", rc);
 		goto err_power;
 	}
-
-	/* Request and setup the irq GPIO pin */
-	rc = dw3000_setup_irq(dw);
-	if (rc != 0)
-		goto err_setup_gpios;
 
 	/* Soft reset */
 	rc = dw3000_softreset(dw);
@@ -131,7 +134,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 		dev_err(&spi->dev, "could not register: %d\n", rc);
 		goto err_register_hw;
 	}
-
 	/* Start state machine & initialise device */
 	rc = dw3000_state_start(dw);
 	if (rc != 0)
@@ -146,9 +148,9 @@ err_state_start:
 err_register_hw:
 err_reset:
 err_power:
+err_setup_gpios:
 err_state_init:
 err_transfers_init:
-err_setup_gpios:
 err_spi_setup:
 	dw3000_sysfs_remove(dw);
 	dw3000_mcps_free(dw);
