@@ -1555,11 +1555,21 @@ static inline int dw3000_rx_stats_inc(struct dw3000 *dw,
  */
 int dw3000_poweron(struct dw3000 *dw)
 {
+	int rc;
+
+	if (dw->regulator) {
+		rc = regulator_enable(dw->regulator);
+		if (rc) {
+			dev_err(dw->dev, "Could not enable regulator\n");
+			return rc;
+		}
+	}
+
 	/* Release RESET GPIO */
 	if (gpio_is_valid(dw->reset_gpio)) {
 		/* Reset should be open drain, or switched to input
 		 * whenever not driven low. It should not be driven high. */
-		int rc = gpio_direction_input(dw->reset_gpio);
+		rc = gpio_direction_input(dw->reset_gpio);
 
 		if (rc) {
 			dev_err(dw->dev, "Could not set reset gpio as input\n");
@@ -1582,9 +1592,19 @@ int dw3000_poweron(struct dw3000 *dw)
  */
 int dw3000_poweroff(struct dw3000 *dw)
 {
+	int rc;
+
+	if (dw->regulator) {
+		rc = regulator_disable(dw->regulator);
+		if (rc) {
+			dev_err(dw->dev, "Could not disable regulator\n");
+			return rc;
+		}
+	}
+
 	/* Assert RESET GPIO */
 	if (gpio_is_valid(dw->reset_gpio)) {
-		int rc = gpio_direction_output(dw->reset_gpio, 0);
+		rc = gpio_direction_output(dw->reset_gpio, 0);
 
 		if (rc) {
 			dev_err(dw->dev,
@@ -1747,6 +1767,27 @@ static irqreturn_t dw3000_irq_handler(int irq, void *context)
 	dw3000_enqueue_irq(dw);
 
 	return IRQ_HANDLED;
+}
+
+/**
+ * dw3000_setup_regulators() - request regulator
+ * @dw: the DW device to put back in IDLE state
+ *
+ * Return: 0 on success, else a negative error code.
+ */
+
+int dw3000_setup_regulators(struct dw3000 *dw)
+{
+	struct regulator *regulator_vdd;
+
+	regulator_vdd = devm_regulator_get_optional(dw->dev, "power_reg");
+	if (IS_ERR(regulator_vdd) || regulator_vdd == NULL) {
+		dev_dbg(dw->dev, "No regulator found in DT\n");
+		return -EINVAL;
+	}
+
+	dw->regulator = regulator_vdd;
+	return 0;
 }
 
 int dw3000_setup_reset_gpio(struct dw3000 *dw)

@@ -109,6 +109,11 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	if (rc != 0)
 		goto err_setup_gpios;
 
+	/* Request and setup regulators if availables*/
+	rc = dw3000_setup_regulators(dw);
+	if (rc)
+		dev_info(dw->dev, "no regulator. Assuming always on");
+
 	/* Request and setup the irq GPIO pin */
 	rc = dw3000_setup_irq(dw);
 	if (rc != 0)

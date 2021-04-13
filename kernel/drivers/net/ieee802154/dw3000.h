@@ -28,6 +28,7 @@
 #include <linux/spi/spi.h>
 #include <linux/skbuff.h>
 #include <net/mcps802154.h>
+#include <linux/regulator/consumer.h>
 #include "dw3000_chip.h"
 #include "dw3000_stm.h"
 #include "dw3000_calib.h"
@@ -327,6 +328,7 @@ struct dw3000_power {
  * @chip_dev_id: identified chip device ID
  * @has_lock_pm: power management locked status
  * @reset_gpio: GPIO to use for hard reset
+ * @regulator: Power supply
  * @chips_per_pac: chips per PAC unit
  * @pre_timeout_pac: preamble timeout in PAC unit
  * @coex_delay_us: WiFi coexistence GPIO delay in us
@@ -382,6 +384,8 @@ struct dw3000 {
 	int has_lock_pm;
 	/* Control GPIOs */
 	int reset_gpio;
+	/* Power supply */
+	struct regulator *regulator;
 	/* Chips per PAC unit. */
 	int chips_per_pac;
 	/* Preamble timeout in PAC unit. */
