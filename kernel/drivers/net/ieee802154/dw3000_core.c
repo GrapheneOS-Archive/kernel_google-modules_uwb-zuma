@@ -4998,17 +4998,17 @@ spi_err:
 	return;
 }
 
-static int dw3000_test_mode;
-module_param_named(testmode, dw3000_test_mode, int, 0644);
-MODULE_PARM_DESC(testmode, "Activate SPI & GPIO test mode loop in RT thread");
+static int dw3000_spi_tests;
+module_param_named(spitests, dw3000_spi_tests, int, 0644);
+MODULE_PARM_DESC(spitests, "Activate SPI & GPIO test mode loop in RT thread");
 
-void dw3000_testmode(struct dw3000 *dw)
+void dw3000_spitests(struct dw3000 *dw)
 {
 	const int count = 16384;
 	u32 mode_mask, dir_mask;
 	int test = 0;
 
-	if (!dw3000_test_mode)
+	if (!dw3000_spi_tests)
 		return;
 
 	perf_event_create_all(dw);
@@ -5024,13 +5024,13 @@ void dw3000_testmode(struct dw3000 *dw)
 	dw3000_set_gpio_dir(dw, dir_mask, 0);
 
 	/* Loop until SPI test mode is disabled */
-	while (dw3000_test_mode) {
+	while (dw3000_spi_tests) {
 		u64 perfval[PERF_EVT_COUNT];
 		u64 start, duration;
 		u32 status = 0;
 		int i;
 		/* Bypass current test if not selected */
-		if (!(dw3000_test_mode & (1 << test))) {
+		if (!(dw3000_spi_tests & (1 << test))) {
 			test = (test + 1) % 3;
 			continue;
 		}

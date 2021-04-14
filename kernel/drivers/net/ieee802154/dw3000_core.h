@@ -239,8 +239,7 @@ void dw3000_remove(struct dw3000 *dw);
 int dw3000_transfers_init(struct dw3000 *dw);
 void dw3000_transfers_free(struct dw3000 *dw);
 
-void dw3000_testmode(struct dw3000 *dw);
-int dw3000_configure_chan(struct dw3000 *dw);
+void dw3000_spitests(struct dw3000 *dw);
 
 int dw3000_hardreset(struct dw3000 *dw);
 int dw3000_softreset(struct dw3000 *dw);
@@ -288,6 +287,8 @@ int dw3000_xfer(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset, u16 length,
 
 int dw3000_enable(struct dw3000 *dw);
 int dw3000_disable(struct dw3000 *dw);
+
+int dw3000_configure_chan(struct dw3000 *dw);
 
 int dw3000_seteui64(struct dw3000 *dw, __le64 val);
 int dw3000_setpanid(struct dw3000 *dw, __le16 val);

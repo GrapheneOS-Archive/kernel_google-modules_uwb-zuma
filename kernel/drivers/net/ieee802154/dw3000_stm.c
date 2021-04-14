@@ -191,8 +191,8 @@ int dw3000_event_thread(void *data)
 			cmd->ret = cmd->cmd(dw, cmd->in, cmd->out);
 			dw3000_dequeue(dw, DW3000_COMMAND_WORK);
 			if (unlikely(is_init_work)) {
-				/* Run testmode if enabled after dw3000_init_work. */
-				dw3000_testmode(dw);
+				/* Run SPI tests if enabled after dw3000_init_work. */
+				dw3000_spitests(dw);
 			}
 		}
 
