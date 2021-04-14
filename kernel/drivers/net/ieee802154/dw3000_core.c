@@ -5005,20 +5005,25 @@ MODULE_PARM_DESC(testmode, "Activate SPI & GPIO test mode loop in RT thread");
 void dw3000_testmode(struct dw3000 *dw)
 {
 	const int count = 16384;
+	u32 mode_mask, dir_mask;
 	int test = 0;
 
+	if (!dw3000_test_mode)
+		return;
+
 	perf_event_create_all(dw);
-	if (dw3000_test_mode) {
-		/* Setup DW3000 GPIO 4-6 in GPIO mode in output direction */
-		u32 mode_mask = (DW3000_GPIO_MODE_MSGP4_MODE_BIT_MASK |
-				 DW3000_GPIO_MODE_MSGP5_MODE_BIT_MASK |
-				 DW3000_GPIO_MODE_MSGP6_MODE_BIT_MASK);
-		u16 dir_mask = (DW3000_GPIO_DIR_GDP6_BIT_MASK |
-				DW3000_GPIO_DIR_GDP5_BIT_MASK |
-				DW3000_GPIO_DIR_GDP4_BIT_MASK);
-		dw3000_set_gpio_mode(dw, mode_mask, 0);
-		dw3000_set_gpio_dir(dw, dir_mask, 0);
-	}
+
+	/* Setup DW3000 GPIO 4-6 in GPIO mode in output direction */
+	mode_mask = (DW3000_GPIO_MODE_MSGP4_MODE_BIT_MASK |
+		     DW3000_GPIO_MODE_MSGP5_MODE_BIT_MASK |
+		     DW3000_GPIO_MODE_MSGP6_MODE_BIT_MASK);
+	dir_mask =
+		(DW3000_GPIO_DIR_GDP6_BIT_MASK | DW3000_GPIO_DIR_GDP5_BIT_MASK |
+		 DW3000_GPIO_DIR_GDP4_BIT_MASK);
+	dw3000_set_gpio_mode(dw, mode_mask, 0);
+	dw3000_set_gpio_dir(dw, dir_mask, 0);
+
+	/* Loop until SPI test mode is disabled */
 	while (dw3000_test_mode) {
 		u64 perfval[PERF_EVT_COUNT];
 		u64 start, duration;
