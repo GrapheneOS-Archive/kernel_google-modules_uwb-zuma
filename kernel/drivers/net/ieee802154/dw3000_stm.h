@@ -44,8 +44,6 @@ struct dw3000_stm_command {
 
 /* DW3000 state machine */
 struct dw3000_state {
-	/* DW3000 Status */
-	__le32 sys_status;
 	/* Pending work bitmap */
 	unsigned long pending_work;
 	/* Error recovery count */

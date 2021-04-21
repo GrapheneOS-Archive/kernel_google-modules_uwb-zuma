@@ -242,7 +242,7 @@ struct dw3000_config {
 	u8 stsMode;
 	/* PDOA mode */
 	u8 pdoaMode;
-	/* Antenna currently connected to RF1 & RF2 ports respectively. */
+	/* Antenna currently connected to RF1 & RF2 ports respectively */
 	s8 ant[2];
 	/* Calibrated PDOA offset */
 	s16 pdoaOffset;
@@ -250,6 +250,10 @@ struct dw3000_config {
 	u32 rmarkerOffset;
 	/* STS length (see enum) */
 	enum dw3000_sts_lengths stsLength;
+	/* Promisicuous mode enabled? */
+	bool promisc;
+	/* HW filter configuration */
+	struct ieee802154_hw_addr_filt hw_addr_filt;
 };
 
 /* TX configuration,  power & PG delay */
@@ -326,6 +330,7 @@ struct dw3000_power {
  * @stats: statistics
  * @power: power related statistics and states
  * @chip_dev_id: identified chip device ID
+ * @started: interface status
  * @has_lock_pm: power management locked status
  * @reset_gpio: GPIO to use for hard reset
  * @regulator: Power supply
@@ -380,8 +385,10 @@ struct dw3000 {
 	struct dw3000_power power;
 	/* Detected chip device ID */
 	u32 chip_dev_id;
+	/* True when MCPS start() operation had been called */
+	bool started;
 	/* SPI controller power-management */
-	int has_lock_pm;
+	bool has_lock_pm;
 	/* Control GPIOs */
 	int reset_gpio;
 	/* Power supply */

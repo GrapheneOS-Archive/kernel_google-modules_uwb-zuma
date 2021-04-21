@@ -88,6 +88,10 @@ static inline u32 tx_rmarker_offset(struct dw3000 *dw, int ant_id)
 	return ant_calib_prf->ant_delay;
 }
 
+static int do_set_hw_addr_filt(struct dw3000 *dw, void *in, void *out);
+static int do_set_promiscuous_mode(struct dw3000 *dw, void *in,
+				   void *out);
+
 static int do_start(struct dw3000 *dw, void *in, void *out)
 {
 #if (KERNEL_VERSION(4, 13, 0) <= LINUX_VERSION_CODE)
@@ -95,19 +99,54 @@ static int do_start(struct dw3000 *dw, void *in, void *out)
 #else
 	struct spi_master *ctlr = dw->spi->master;
 #endif
-	/* Lock power management of SPI controller */
-	int ret = pm_runtime_get_sync(ctlr->dev.parent);
+	unsigned long changed = (unsigned long)-1;
+	int rc;
 
-	if (ret < 0) {
+	/* Lock power management of SPI controller */
+	rc = pm_runtime_get_sync(ctlr->dev.parent);
+	if (rc < 0) {
 		pm_runtime_put_noidle(ctlr->dev.parent);
-		dev_err(&ctlr->dev, "Failed to power device: %d\n", ret);
+		dev_err(&ctlr->dev, "Failed to power device: %d\n", rc);
 	}
-	dw->has_lock_pm = !ret;
+	dw->has_lock_pm = !rc;
+
+	/* Since device is power-off when interface is down, we need to redo hard
+	 * and soft resets to ensure good state of the device */
+
+	/* Turn on power (with RST GPIO) */
+	rc = dw3000_hardreset(dw);
+	if (rc) {
+		dev_err(dw->dev, "device power on failed: %d\n", rc);
+		return rc;
+	}
+
+	/* Soft reset */
+	rc = dw3000_softreset(dw);
+	if (rc) {
+		dev_err(dw->dev, "device reset failed: %d\n", rc);
+		return rc;
+	}
+
+	/* Initialize & configure the device */
+	rc = dw3000_init(dw);
+	if (rc) {
+		dev_err(dw->dev, "device init failed: %d\n", rc);
+		return rc;
+	}
 
 	/* Configure antenna selection GPIO if any */
-	ret = dw3000_config_antenna_gpios(dw);
-	if (unlikely(ret))
-		return ret;
+	rc = dw3000_config_antenna_gpios(dw);
+	if (rc)
+		return rc;
+
+	/* Apply other configuration not done by dw3000_init() */
+	rc = do_set_hw_addr_filt(dw, &changed, NULL);
+	if (rc)
+		return rc;
+
+	rc = do_set_promiscuous_mode(dw, NULL, NULL);
+	if (rc)
+		return rc;
 
 	/* Enable the device */
 	return dw3000_enable(dw);
@@ -127,8 +166,18 @@ static int start(struct mcps802154_llhw *llhw)
 
 static int do_stop(struct dw3000 *dw, void *in, void *out)
 {
+	int rc;
+
 	/* Disable the device */
-	dw3000_disable(dw);
+	rc = dw3000_disable(dw);
+	if (rc)
+		dev_warn(dw->dev, "device disable failed: %d\n", rc);
+
+	/* Power-off */
+	rc = dw3000_poweroff(dw);
+	if (rc)
+		dev_err(dw->dev, "device power-off failed: %d\n", rc);
+
 	/* Unlock power management of SPI controller */
 	if (dw->has_lock_pm) {
 #if (KERNEL_VERSION(4, 13, 0) <= LINUX_VERSION_CODE)
@@ -458,7 +507,8 @@ static int get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
 	int ret;
 
 	trace_dw3000_mcps_get_timestamp(dw);
-	ret = dw3000_enqueue_generic(dw, &cmd);
+	/* Must be called after start() */
+	ret = dw->started ? dw3000_enqueue_generic(dw, &cmd) : -EBUSY;
 	trace_dw3000_return_int_u32(dw, ret, *timestamp_dtu);
 	return ret;
 }
@@ -509,20 +559,8 @@ static int compute_frame_duration_dtu(struct mcps802154_llhw *llhw,
 	return dw3000_payload_duration_dtu(dw, payload_bytes) + llhw->shr_dtu;
 }
 
-struct do_set_channel_params {
-	u8 channel;
-	u8 preamble_code;
-};
-
 static int do_set_channel(struct dw3000 *dw, void *in, void *out)
 {
-	struct dw3000_config *config = &dw->config;
-	struct do_set_channel_params *params = in;
-	/* Update configuration structure */
-	config->chan = params->channel;
-	config->txCode = params->preamble_code;
-	config->rxCode = params->preamble_code;
-	/* Reconfigure the chip with it */
 	return dw3000_configure_chan(dw);
 }
 
@@ -530,10 +568,8 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 		       u8 preamble_code)
 {
 	struct dw3000 *dw = llhw->priv;
-	struct do_set_channel_params params = {
-		.channel = channel, .preamble_code = preamble_code
-	};
-	struct dw3000_stm_command cmd = { do_set_channel, &params, NULL };
+	struct dw3000_config *config = &dw->config;
+	struct dw3000_stm_command cmd = { do_set_channel, NULL, NULL };
 	int ret;
 
 	trace_dw3000_mcps_set_channel(dw, page, channel, preamble_code);
@@ -545,7 +581,7 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 	switch (preamble_code) {
 	case 0:
 		/* Set default value if MCPS don't give one to driver */
-		params.preamble_code = 9;
+		preamble_code = 9;
 		break;
 	/* DW3000_PRF_16M */
 	case 3:
@@ -560,7 +596,12 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 		ret = -EINVAL;
 		goto error;
 	}
-	ret = dw3000_enqueue_generic(dw, &cmd);
+	/* Update configuration structure */
+	config->chan = channel;
+	config->txCode = preamble_code;
+	config->rxCode = preamble_code;
+	/* Reconfigure the chip with it if needed */
+	ret = dw->started ? dw3000_enqueue_generic(dw, &cmd) : 0;
 error:
 	trace_dw3000_return_int(dw, ret);
 	return ret;
@@ -582,9 +623,8 @@ struct do_set_hw_addr_filt_params {
 
 static int do_set_hw_addr_filt(struct dw3000 *dw, void *in, void *out)
 {
-	struct do_set_hw_addr_filt_params *params = in;
-	struct ieee802154_hw_addr_filt *filt = params->filt;
-	unsigned long changed = params->changed;
+	struct ieee802154_hw_addr_filt *filt = &dw->config.hw_addr_filt;
+	unsigned long changed = *(unsigned long *)in;
 	int rc;
 
 	if (changed & IEEE802154_AFILT_SADDR_CHANGED) {
@@ -618,13 +658,22 @@ static int set_hw_addr_filt(struct mcps802154_llhw *llhw,
 			    unsigned long changed)
 {
 	struct dw3000 *dw = llhw->priv;
-	struct do_set_hw_addr_filt_params params = { .filt = filt,
-						     .changed = changed };
-	struct dw3000_stm_command cmd = { do_set_hw_addr_filt, &params, NULL };
+	struct dw3000_config *config = &dw->config;
+	struct ieee802154_hw_addr_filt *cfilt = &config->hw_addr_filt;
+	struct dw3000_stm_command cmd = { do_set_hw_addr_filt, &changed, NULL };
 	int ret;
 
+	if (changed & IEEE802154_AFILT_SADDR_CHANGED)
+		cfilt->short_addr = filt->short_addr;
+	if (changed & IEEE802154_AFILT_IEEEADDR_CHANGED)
+		cfilt->ieee_addr = filt->ieee_addr;
+	if (changed & IEEE802154_AFILT_PANID_CHANGED)
+		cfilt->pan_id = filt->pan_id;
+	if (changed & IEEE802154_AFILT_PANC_CHANGED)
+		cfilt->pan_coord = filt->pan_coord;
+
 	trace_dw3000_mcps_set_hw_addr_filt(dw, (u8)changed);
-	ret = dw3000_enqueue_generic(dw, &cmd);
+	ret = dw->started ? dw3000_enqueue_generic(dw, &cmd) : 0;
 	trace_dw3000_return_int(dw, ret);
 	return ret;
 }
@@ -656,19 +705,18 @@ static int set_cca_ed_level(struct mcps802154_llhw *llhw, s32 mbm)
 
 static int do_set_promiscuous_mode(struct dw3000 *dw, void *in, void *out)
 {
-	bool on = *(bool *)in;
-
-	return dw3000_setpromiscuous(dw, on);
+	return dw3000_setpromiscuous(dw, dw->config.promisc);
 }
 
 static int set_promiscuous_mode(struct mcps802154_llhw *llhw, bool on)
 {
 	struct dw3000 *dw = llhw->priv;
-	struct dw3000_stm_command cmd = { do_set_promiscuous_mode, &on, NULL };
+	struct dw3000_stm_command cmd = { do_set_promiscuous_mode, NULL, NULL };
 
 	dev_dbg(dw->dev, "%s called, (mode: %sabled)\n", __func__,
 		(on) ? "en" : "dis");
-	return dw3000_enqueue_generic(dw, &cmd);
+	dw->config.promisc = on;
+	return dw->started ? dw3000_enqueue_generic(dw, &cmd) : 0;
 }
 
 static int set_calibration(struct mcps802154_llhw *llhw, const char *key,

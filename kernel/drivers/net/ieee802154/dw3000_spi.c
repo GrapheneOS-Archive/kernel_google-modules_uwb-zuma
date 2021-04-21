@@ -117,21 +117,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	/* Request and setup the irq GPIO pin */
 	rc = dw3000_setup_irq(dw);
 	if (rc != 0)
-		goto err_setup_gpios;
-
-	/* Turn on power (with RST GPIO) */
-	rc = dw3000_hardreset(dw);
-	if (rc != 0) {
-		dev_err(dw->dev, "device power on failed: %d\n", rc);
-		goto err_power;
-	}
-
-	/* Soft reset */
-	rc = dw3000_softreset(dw);
-	if (rc != 0) {
-		dev_err(dw->dev, "device reset failed: %d\n", rc);
-		goto err_reset;
-	}
+		goto err_setup_irq;
 
 	/* Register MCPS 802.15.4 device */
 	rc = dw3000_mcps_register(dw);
@@ -139,7 +125,8 @@ static int dw3000_spi_probe(struct spi_device *spi)
 		dev_err(&spi->dev, "could not register: %d\n", rc);
 		goto err_register_hw;
 	}
-	/* Start state machine & initialise device */
+
+	/* Start state machine & initialise device using high-prio thread */
 	rc = dw3000_state_start(dw);
 	if (rc != 0)
 		goto err_state_start;
@@ -151,11 +138,11 @@ err_state_start:
 	dw3000_mcps_unregister(dw);
 	dw3000_state_stop(dw);
 err_register_hw:
-err_reset:
-err_power:
-err_setup_gpios:
+err_setup_irq:
+	dw3000_state_stop(dw);
 err_state_init:
 err_transfers_init:
+err_setup_gpios:
 err_spi_setup:
 	dw3000_sysfs_remove(dw);
 	dw3000_mcps_free(dw);

@@ -144,16 +144,28 @@ unsigned long dw3000_get_pending_work(struct dw3000 *dw)
 	return work;
 }
 
-/* Init work run inside the thread below */
+/* Init work that run inside the high-priority thread below */
 int dw3000_init_work(struct dw3000 *dw, void *in, void *out)
 {
 	int rc;
-	/* Initialize & configure the device */
-	if ((rc = dw3000_init(dw)) != 0) {
-		dev_err(dw->dev, "device init failed: %d\n", rc);
+	/* Turn on power (with RST GPIO) */
+	rc = dw3000_hardreset(dw);
+	if (rc != 0) {
+		dev_err(dw->dev, "device power on failed: %d\n", rc);
 		return rc;
 	}
-	return 0;
+
+	/* Soft reset */
+	rc = dw3000_softreset(dw);
+	if (rc != 0) {
+		dev_err(dw->dev, "device reset failed: %d\n", rc);
+		return rc;
+	}
+
+	/* Now, we just power-off the device waiting for it to be used by the
+	 * MAC to avoid power consumption. We may put it in deep-sleep instead. */
+	rc = dw3000_poweroff(dw);
+	return rc;
 }
 
 /* Event handling thread function */

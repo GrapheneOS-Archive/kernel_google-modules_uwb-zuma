@@ -46,8 +46,11 @@ static const struct dw3000_chip_version dw3000_chip_versions[] = {
 	{ .id = DW3000_E0_PDOA_DEV_ID, .ver = 2, .ops = &dw3000_chip_e0_ops },
 };
 
-/* DW3000 hard reset delay (ms) */
-#define DW3000_HARD_RESET_DELAY 10
+/* DW3000 hard reset delay (us) */
+#define DW3000_HARD_RESET_DELAY_US 10000
+
+/* DW3000 soft reset delay (us) */
+#define DW3000_SOFT_RESET_DELAY_US 1000
 
 /* The pin operates as the EXTTXE output (C0, output TX state) */
 #define DW3000_GPIO_PIN0_EXTTXE \
@@ -1563,23 +1566,29 @@ int dw3000_poweron(struct dw3000 *dw)
 			dev_err(dw->dev, "Could not enable regulator\n");
 			return rc;
 		}
+		/* Add some delay to wait regulator stable */
+		usleep_range(DW3000_SOFT_RESET_DELAY_US,
+			     DW3000_SOFT_RESET_DELAY_US + 100);
 	}
 
-	/* Release RESET GPIO */
-	if (gpio_is_valid(dw->reset_gpio)) {
-		/* Reset should be open drain, or switched to input
-		 * whenever not driven low. It should not be driven high. */
-		rc = gpio_direction_input(dw->reset_gpio);
+	/* HW may rely only on regulator, so exit without error if no GPIO */
+	if (!gpio_is_valid(dw->reset_gpio))
+		goto stats;
 
-		if (rc) {
-			dev_err(dw->dev, "Could not set reset gpio as input\n");
-			return rc;
-		}
-		msleep(DW3000_HARD_RESET_DELAY);
-		dw3000_power_stats(dw, DW3000_PWR_RUN, 0);
-		return 0;
+	/* Release RESET GPIO.
+	 * Reset should be open drain, or switched to input whenever not driven
+	 * low. It should not be driven high. */
+	rc = gpio_direction_input(dw->reset_gpio);
+	if (rc) {
+		dev_err(dw->dev, "Could not set reset gpio as input\n");
+		return rc;
 	}
-	return -1;
+	usleep_range(DW3000_HARD_RESET_DELAY_US,
+		     DW3000_HARD_RESET_DELAY_US + 100);
+
+stats:
+	dw3000_power_stats(dw, DW3000_PWR_RUN, 0);
+	return 0;
 }
 
 /**
@@ -1602,20 +1611,22 @@ int dw3000_poweroff(struct dw3000 *dw)
 		}
 	}
 
-	/* Assert RESET GPIO */
-	if (gpio_is_valid(dw->reset_gpio)) {
-		rc = gpio_direction_output(dw->reset_gpio, 0);
+	/* HW may rely only on regulator, so exit without error if no GPIO */
+	if (!gpio_is_valid(dw->reset_gpio))
+		goto stats;
 
-		if (rc) {
-			dev_err(dw->dev,
-				"Could not set reset gpio as output\n");
-			return rc;
-		}
-		msleep(DW3000_HARD_RESET_DELAY);
-		dw3000_power_stats(dw, DW3000_PWR_OFF, 0);
-		return 0;
+	/* Assert RESET GPIO */
+	rc = gpio_direction_output(dw->reset_gpio, 0);
+	if (rc) {
+		dev_err(dw->dev, "Could not set reset gpio as output\n");
+		return rc;
 	}
-	return -1;
+	usleep_range(DW3000_HARD_RESET_DELAY_US,
+		     DW3000_HARD_RESET_DELAY_US + 100);
+
+stats:
+	dw3000_power_stats(dw, DW3000_PWR_OFF, 0);
+	return 0;
 }
 
 /**
@@ -4517,6 +4528,7 @@ int dw3000_enable(struct dw3000 *dw)
 		return rc;
 	/* Enable interrupt that will call the worker */
 	enable_irq(dw->spi->irq);
+	dw->started = true;
 	return 0;
 }
 
@@ -4533,6 +4545,7 @@ int dw3000_enable(struct dw3000 *dw)
 int dw3000_disable(struct dw3000 *dw)
 {
 	int rc;
+	dw->started = false;
 	/* No IRQs after this point */
 	disable_irq(dw->spi->irq);
 	/* Disable further interrupt generation */

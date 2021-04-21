@@ -99,13 +99,7 @@ int dw3000_d0_coex_init(struct dw3000 *dw)
 	dirmask = DW3000_GPIO_DIR_GDP0_BIT_MASK
 		  << (DW3000_GPIO_DIR_GDP0_BIT_LEN * dw->coex_gpio);
 	rc = dw3000_set_gpio_dir(dw, dirmask, 0);
-	if (rc)
-		return rc;
-	/* Test GPIO */
-	dw->chip_ops->coex_gpio(dw, true, 0);
-	udelay(10);
-	dw->chip_ops->coex_gpio(dw, false, 0);
-	return 0;
+	return rc;
 }
 
 /**
