@@ -33,7 +33,7 @@
 #include "dw3000_testmode.h"
 #include "dw3000_trc.h"
 
-#define sts_to_pdoa(s) ((s) ? DW3000_PDOA_M3 : DW3000_PDOA_M0)
+#define sts_to_pdoa(s) ((s) ? DW3000_PDOA_M1 : DW3000_PDOA_M0)
 
 static inline u64 timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
 					u32 timestamp_dtu);
@@ -88,18 +88,18 @@ static inline u32 tx_rmarker_offset(struct dw3000 *dw, int ant_id)
 	return ant_calib_prf->ant_delay;
 }
 
-static int do_set_hw_addr_filt(struct dw3000 *dw, void *in, void *out);
-static int do_set_promiscuous_mode(struct dw3000 *dw, void *in,
+static int do_set_hw_addr_filt(struct dw3000 *dw, const void *in, void *out);
+static int do_set_promiscuous_mode(struct dw3000 *dw, const void *in,
 				   void *out);
 
-static int do_start(struct dw3000 *dw, void *in, void *out)
+static int do_start(struct dw3000 *dw, const void *in, void *out)
 {
 #if (KERNEL_VERSION(4, 13, 0) <= LINUX_VERSION_CODE)
 	struct spi_controller *ctlr = dw->spi->controller;
 #else
 	struct spi_master *ctlr = dw->spi->master;
 #endif
-	unsigned long changed = (unsigned long)-1;
+	const unsigned long changed = (unsigned long)-1;
 	int rc;
 
 	/* Lock power management of SPI controller */
@@ -134,7 +134,7 @@ static int do_start(struct dw3000 *dw, void *in, void *out)
 	}
 
 	/* Initialize & configure the device */
-	rc = dw3000_init(dw);
+	rc = dw3000_init(dw, true);
 	if (rc) {
 		dev_err(dw->dev, "device init failed: %d\n", rc);
 		return rc;
@@ -170,7 +170,7 @@ static int start(struct mcps802154_llhw *llhw)
 	return ret;
 }
 
-static int do_stop(struct dw3000 *dw, void *in, void *out)
+static int do_stop(struct dw3000 *dw, const void *in, void *out)
 {
 	int rc;
 
@@ -212,7 +212,7 @@ struct do_tx_frame_params {
 	const struct mcps802154_tx_frame_info *info;
 };
 
-static int do_tx_frame(struct dw3000 *dw, void *in, void *out)
+static int do_tx_frame(struct dw3000 *dw, const void *in, void *out)
 {
 	struct do_tx_frame_params *params = (struct do_tx_frame_params *)in;
 	const struct mcps802154_tx_frame_info *info = params->info;
@@ -231,10 +231,10 @@ static int do_tx_frame(struct dw3000 *dw, void *in, void *out)
 
 	/* Enable STS */
 	sts_mode = FIELD_GET(MCPS802154_TX_FRAME_STS_MODE_MASK, info->flags);
-	rc = dw3000_setsts(dw, sts_mode, DW3000_STS_LEN_256);
+	rc = dw3000_set_sts(dw, sts_mode);
 	if (unlikely(rc))
 		return rc;
-	rc = dw3000_setpdoa(dw, sts_to_pdoa(sts_mode));
+	rc = dw3000_set_pdoa(dw, sts_to_pdoa(sts_mode));
 	if (unlikely(rc))
 		return rc;
 	/* Ensure correct TX antenna is selected. */
@@ -287,7 +287,7 @@ static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 	return ret;
 }
 
-static int do_rx_enable(struct dw3000 *dw, void *in, void *out)
+static int do_rx_enable(struct dw3000 *dw, const void *in, void *out)
 {
 	struct mcps802154_rx_info *info = (struct mcps802154_rx_info *)(in);
 	struct mcps802154_llhw *llhw = dw->llhw;
@@ -299,10 +299,10 @@ static int do_rx_enable(struct dw3000 *dw, void *in, void *out)
 
 	/* Enable STS */
 	sts_mode = FIELD_GET(MCPS802154_RX_INFO_STS_MODE_MASK, info->flags);
-	rc = dw3000_setsts(dw, sts_mode, DW3000_STS_LEN_256);
+	rc = dw3000_set_sts(dw, sts_mode);
 	if (unlikely(rc))
 		return rc;
-	rc = dw3000_setpdoa(dw, sts_to_pdoa(sts_mode));
+	rc = dw3000_set_pdoa(dw, sts_to_pdoa(sts_mode));
 	if (unlikely(rc))
 		return rc;
 	/* Ensure correct RX antenna are selected. */
@@ -335,7 +335,7 @@ static int do_rx_enable(struct dw3000 *dw, void *in, void *out)
 	return dw3000_rx_enable(dw, rx_delayed, date_dtu, timeout_pac);
 }
 
-static int do_rx_disable(struct dw3000 *dw, void *in, void *out)
+static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
 {
 	return dw3000_rx_disable(dw);
 }
@@ -363,6 +363,43 @@ static int rx_disable(struct mcps802154_llhw *llhw)
 	ret = dw3000_enqueue_generic(dw, &cmd);
 	trace_dw3000_return_int(dw, ret);
 	return ret;
+}
+
+/**
+ * get_ranging_pdoa_fom() - compute the figure of merit of the PDoA.
+ * @sts_fom: STS FoM on a received frame.
+ *
+ * If the STS FoM is less than sts_fom_threshold, PDoA FoM is 1, the worst.
+ * If the STS FoM is greater or equal than sts_fom_threshold,
+ * sts_fom_threshold to 255 values are mapped to 2 to 255.
+ *
+ * Return: the PDoA FoM value.
+ */
+static u8 get_ranging_pdoa_fom(u8 sts_fom)
+{
+	/* For a normalized STS FoM in 0 to 255, the STS is not reliable if
+	 * the STS FoM is less than 60 percents of its maximum value.
+	 */
+	static const int sts_fom_threshold = 153;
+	/* sts_fom_threshold .. sts_fom_max values are mapped to pdoa_fom_min .. pdoa_fom_max.
+	 * The relation is pdoa_fom = a * sts_fom + b, with
+	 * pdoa_fom_min =  sts_fom_threshold * a + b
+	 * pdoa_fom_max = sts_fom_max * a + b
+	 * So:
+	 * a = (pdoa_fom_max - pdoa_fom_min) / (sts_fom_max - sts_fom_threshold)
+	 * b = pdoa_fom_min - sts_fom_threshold * a
+	 */
+	static const int sts_fom_max = 255;
+	static const int pdoa_fom_min = 2;
+	static const int pdoa_fom_max = 255;
+	static const int a_numerator = pdoa_fom_max - pdoa_fom_min;
+	static const int a_denominator = sts_fom_max - sts_fom_threshold;
+	static const int b = pdoa_fom_min - ((sts_fom_threshold * a_numerator) /
+					     a_denominator);
+
+	if (sts_fom < sts_fom_threshold)
+		return 1;
+	return ((a_numerator * sts_fom) / a_denominator) + b;
 }
 
 static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
@@ -403,9 +440,10 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	if (info->flags & (MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
 			   MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU)) {
 		if (!(rx_flags & DW3000_RX_FLAG_TS))
-			info->flags &=
-				~(MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
-				  MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU);
+			info->flags &= ~(
+				MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+				MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
+				MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU);
 		else {
 			info->timestamp_rctu =
 				timestamp_rctu - config->rmarkerOffset;
@@ -420,12 +458,57 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	/* In case of PDoA. */
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA)
 		info->ranging_pdoa_rad_q11 =
-			dw3000_readpdoa(dw) - config->pdoaOffset;
+			dw3000_read_pdoa(dw) - config->pdoaOffset;
+	/* In case of STS */
+	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU) {
+		u64 sts_ts_rctu;
+
+		ret = dw3000_read_sts_timestamp(dw, &sts_ts_rctu);
+		if (ret)
+			goto error;
+		/* DW3000 only support one STS segment. */
+		info->ranging_sts_timestamp_diffs_rctu[0] = 0;
+		info->ranging_sts_timestamp_diffs_rctu[1] =
+			sts_ts_rctu - timestamp_rctu;
+		if ((config->stsMode & DW3000_STS_BASIC_MODES_MASK) ==
+		    DW3000_STS_MODE_2) {
+			/* TODO: calc SRMARKER0 */
+		}
+	}
+	info->ranging_sts_fom[0] = 0;
+	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM) {
+		/* Max sts_acc_qual value depend on STS length */
+		int sts_acc_max =
+			DW3000_GET_STS_LEN_UNIT_VALUE(config->stsLength) * 8;
+		s16 sts_acc_qual;
+
+		/* TODO: Reading TOAST disabled. According to hardware team,
+		 * this needs more tuning. They suggest to use quality only for
+		 * now. See UWB-940 and commit "disable TOAST quality checking
+		 * for STS". */
+
+		ret = dw3000_read_sts_quality(dw, &sts_acc_qual);
+		if (ret)
+			goto error;
+		/* DW3000 only support one STS segment. */
+		info->ranging_sts_fom[0] =
+			clamp(1 + sts_acc_qual * 254 / sts_acc_max, 1, 255);
+	}
+	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM) {
+		if (info->ranging_sts_fom[0])
+			info->ranging_pdoa_fom =
+				get_ranging_pdoa_fom(info->ranging_sts_fom[0]);
+		else
+			info->ranging_pdoa_fom = 0;
+	}
 	/* Keep only implemented. */
 	info->flags &= (MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
 			MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
 			MCPS802154_RX_FRAME_INFO_AACK |
-			MCPS802154_RX_FRAME_INFO_RANGING_PDOA);
+			MCPS802154_RX_FRAME_INFO_RANGING_PDOA |
+			MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM |
+			MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM |
+			MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU);
 	trace_dw3000_return_int_u32(dw, info->flags, *skb ? (*skb)->len : 0);
 	return 0;
 
@@ -458,7 +541,7 @@ error:
 	return ret;
 }
 
-static int do_reset(struct dw3000 *dw, void *in, void *out)
+static int do_reset(struct dw3000 *dw, const void *in, void *out)
 {
 	int rc;
 	/* Disable the device before resetting it */
@@ -474,7 +557,7 @@ static int do_reset(struct dw3000 *dw, void *in, void *out)
 		return rc;
 	}
 	/* Initialize & configure the device */
-	rc = dw3000_init(dw);
+	rc = dw3000_init(dw, true);
 	if (rc != 0) {
 		dev_err(dw->dev, "device reset failed: %d\n", rc);
 		return rc;
@@ -500,7 +583,7 @@ static int reset(struct mcps802154_llhw *llhw)
 	return ret;
 }
 
-static int do_get_dtu(struct dw3000 *dw, void *in, void *out)
+static int do_get_dtu(struct dw3000 *dw, const void *in, void *out)
 {
 	return dw3000_read_sys_time(dw, (u32 *)out);
 }
@@ -562,10 +645,10 @@ static int compute_frame_duration_dtu(struct mcps802154_llhw *llhw,
 				      int payload_bytes)
 {
 	struct dw3000 *dw = llhw->priv;
-	return dw3000_payload_duration_dtu(dw, payload_bytes) + llhw->shr_dtu;
+	return dw3000_frame_duration_dtu(dw, payload_bytes, true);
 }
 
-static int do_set_channel(struct dw3000 *dw, void *in, void *out)
+static int do_set_channel(struct dw3000 *dw, const void *in, void *out)
 {
 	return dw3000_configure_chan(dw);
 }
@@ -622,34 +705,74 @@ static int set_hrp_uwb_params(struct mcps802154_llhw *llhw, int prf, int psr,
 	return 0;
 }
 
+static int do_set_sts_params(struct dw3000 *dw, const void *in, void *out)
+{
+	const struct mcps802154_sts_params *params =
+		(const struct mcps802154_sts_params *)in;
+	enum dw3000_sts_lengths len;
+	int rc;
+	/* Set STS segment(s) length */
+	/* ffs(x) return 1 for bit0, 2 for bit1... */
+	len = (enum dw3000_sts_lengths)(ffs(params->seg_len) - 4);
+	rc = dw3000_set_sts_length(dw, len);
+	if (rc)
+		return rc;
+	/* Send KEY & IV */
+	rc = dw3000_configure_sts_key(dw, params->key);
+	if (rc)
+		return rc;
+	rc = dw3000_configure_sts_iv(dw, params->v);
+	if (rc)
+		return rc;
+	return dw3000_load_sts_iv(dw);
+}
+
+static int set_sts_params(struct mcps802154_llhw *llhw,
+			  const struct mcps802154_sts_params *params)
+{
+	struct dw3000 *dw = llhw->priv;
+	struct dw3000_stm_command cmd = { do_set_sts_params, params, NULL };
+	int ret;
+	/* Must be called after start() */
+	if (!dw->started)
+		return -EBUSY;
+	/* Check parameters */
+	if (params->n_segs > 1)
+		return -EINVAL;
+	trace_dw3000_mcps_set_sts_params(dw, params);
+	ret = dw3000_enqueue_generic(dw, &cmd);
+	trace_dw3000_return_int(dw, ret);
+	return ret;
+}
+
 struct do_set_hw_addr_filt_params {
 	struct ieee802154_hw_addr_filt *filt;
 	unsigned long changed;
 };
 
-static int do_set_hw_addr_filt(struct dw3000 *dw, void *in, void *out)
+static int do_set_hw_addr_filt(struct dw3000 *dw, const void *in, void *out)
 {
 	struct ieee802154_hw_addr_filt *filt = &dw->config.hw_addr_filt;
 	unsigned long changed = *(unsigned long *)in;
 	int rc;
 
 	if (changed & IEEE802154_AFILT_SADDR_CHANGED) {
-		rc = dw3000_setshortaddr(dw, filt->short_addr);
+		rc = dw3000_set_shortaddr(dw, filt->short_addr);
 		if (rc)
 			goto spi_err;
 	}
 	if (changed & IEEE802154_AFILT_IEEEADDR_CHANGED) {
-		rc = dw3000_seteui64(dw, filt->ieee_addr);
+		rc = dw3000_set_eui64(dw, filt->ieee_addr);
 		if (rc)
 			return rc;
 	}
 	if (changed & IEEE802154_AFILT_PANID_CHANGED) {
-		rc = dw3000_setpanid(dw, filt->pan_id);
+		rc = dw3000_set_panid(dw, filt->pan_id);
 		if (rc)
 			goto spi_err;
 	}
 	if (changed & IEEE802154_AFILT_PANC_CHANGED) {
-		rc = dw3000_setpancoord(dw, filt->pan_coord);
+		rc = dw3000_set_pancoord(dw, filt->pan_coord);
 		if (rc)
 			goto spi_err;
 	}
@@ -709,9 +832,9 @@ static int set_cca_ed_level(struct mcps802154_llhw *llhw, s32 mbm)
 	return 0;
 }
 
-static int do_set_promiscuous_mode(struct dw3000 *dw, void *in, void *out)
+static int do_set_promiscuous_mode(struct dw3000 *dw, const void *in, void *out)
 {
-	return dw3000_setpromiscuous(dw, dw->config.promisc);
+	return dw3000_set_promiscuous(dw, dw->config.promisc);
 }
 
 static int set_promiscuous_mode(struct mcps802154_llhw *llhw, bool on)
@@ -792,6 +915,7 @@ static const struct mcps802154_ops dw3000_mcps_ops = {
 	.compute_frame_duration_dtu = compute_frame_duration_dtu,
 	.set_channel = set_channel,
 	.set_hrp_uwb_params = set_hrp_uwb_params,
+	.set_sts_params = set_sts_params,
 	.set_hw_addr_filt = set_hw_addr_filt,
 	.set_txpower = set_txpower,
 	.set_cca_mode = set_cca_mode,

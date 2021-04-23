@@ -31,6 +31,15 @@ enum dw3000_timer { DW3000_TIMER0 = 0, DW3000_TIMER1 };
 
 enum dw3000_timer_mode { DW3000_SINGLE_MODE = 0, DW3000_REPEAT_MODE };
 
+/* Delay to wait after RX enable to calibrate the ADC on E0 chip */
+#define DW3000_E0_ADC_CALIBRATION_DELAY_US (200)
+
+/* Loops to compute the ADC threshold average on E0 chip */
+#define DW3000_E0_ADC_THRESHOLD_AVERAGE_LOOPS (4)
+/* Time to wait before reading the calibration status register
+ * when a calibration from scratch is executed */
+#define DW3000_E0_PLL_CALIBRATION_FROM_SCRATCH_DELAY_US (400)
+
 #define DW3000_TIMER_FREQ 38400000
 
 enum dw3000_timer_period {

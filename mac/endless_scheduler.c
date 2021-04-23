@@ -34,11 +34,6 @@
 #include "endless_scheduler.h"
 #include "warn_return.h"
 
-static const char *const region_ids[] = {
-	"default",
-	NULL,
-};
-
 struct mcps802154_private_local {
 	struct mcps802154_scheduler scheduler;
 	struct mcps802154_llhw *llhw;
@@ -77,43 +72,33 @@ mcps802154_endless_scheduler_close(struct mcps802154_scheduler *scheduler)
 	kfree(plocal);
 }
 
-static const char *const *mcps802154_endless_scheduler_list_region_ids(
-	struct mcps802154_scheduler *scheduler)
-{
-	return region_ids;
-}
-
 static int mcps802154_endless_scheduler_set_region_parameters(
-	struct mcps802154_scheduler *scheduler, const char *region_id,
+	struct mcps802154_scheduler *scheduler, u32 region_id,
 	const char *region_name, const struct nlattr *attrs,
 	struct netlink_ext_ack *extack)
 {
 	struct mcps802154_private_local *plocal =
 		scheduler_to_plocal(scheduler);
-	int i;
+
+	if (region_id != 0)
+		return -ENOENT;
 
 	/* Close current region. */
 	if (plocal->region)
 		mcps802154_region_close(plocal->llhw, plocal->region);
 
-	/* Look for new region to instantiate. */
-	for (i = 0; i < ARRAY_SIZE(region_ids) - 1; i++) {
-		if (!region_id || strcmp(region_id, region_ids[i]) == 0) {
-			/* Open region, and set its parameters. */
-			plocal->region = mcps802154_region_open(
-				plocal->llhw, region_name, attrs, extack);
+	/* Open region, and set its parameters. */
+	plocal->region = mcps802154_region_open(plocal->llhw, region_name,
+						attrs, extack);
 
-			if (!plocal->region)
-				return -EINVAL;
+	if (!plocal->region)
+		return -EINVAL;
 
-			return 0;
-		}
-	}
-	return -ENOENT;
+	return 0;
 }
 
 static int mcps802154_endless_scheduler_call_region(
-	struct mcps802154_scheduler *scheduler, const char *region_id,
+	struct mcps802154_scheduler *scheduler, u32 region_id,
 	const char *region_name, u32 call_id, const struct nlattr *attrs,
 	const struct genl_info *info)
 {
@@ -123,8 +108,7 @@ static int mcps802154_endless_scheduler_call_region(
 	if (!plocal->region)
 		return -ENOENT;
 
-	if ((region_id && strcmp(region_id, region_ids[0])) ||
-	    strcmp(region_name, plocal->region->ops->name))
+	if (region_id != 0 || strcmp(region_name, plocal->region->ops->name))
 		return -EINVAL;
 
 	return mcps802154_region_call(plocal->llhw, plocal->region, call_id,
@@ -164,7 +148,6 @@ static struct mcps802154_scheduler_ops mcps802154_endless_scheduler_scheduler = 
 	.name = "endless",
 	.open = mcps802154_endless_scheduler_open,
 	.close = mcps802154_endless_scheduler_close,
-	.list_region_ids = mcps802154_endless_scheduler_list_region_ids,
 	.set_region_parameters =
 		mcps802154_endless_scheduler_set_region_parameters,
 	.call_region = mcps802154_endless_scheduler_call_region,

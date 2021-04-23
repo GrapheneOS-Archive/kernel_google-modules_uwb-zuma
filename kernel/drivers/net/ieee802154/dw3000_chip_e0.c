@@ -91,6 +91,7 @@ static int dw3000_e0_coex_init(struct dw3000 *dw)
 					.gpio_stop = 0,
 					.coex_out = 1 };
 	int rc;
+	u8 tmp;
 
 	if (dw->coex_gpio < 0)
 		return 0;
@@ -111,11 +112,15 @@ static int dw3000_e0_coex_init(struct dw3000 *dw)
 		return rc;
 	/* Swap COEX GPIO if need to use GPIO 4 as COEX_OUT */
 	if (dw->coex_gpio == 4) {
-		const u8 val = DW3000_GPIO_MODE_COEX_IO_SWAP_BIT_MASK >> 24;
-		rc = dw3000_reg_or8(dw, DW3000_GPIO_MODE_ID, 3, val);
-		if (rc)
-			return rc;
+		tmp = DW3000_GPIO_MODE_COEX_IO_SWAP_BIT_MASK >> 24;
+		rc = dw3000_reg_or8(dw, DW3000_GPIO_MODE_ID, 3, tmp);
+	} else {
+		tmp = (u8)(~DW3000_GPIO_MODE_COEX_IO_SWAP_BIT_MASK >> 24);
+		rc = dw3000_reg_and8(dw, DW3000_GPIO_MODE_ID, 3, tmp);
 	}
+	if (rc)
+		return rc;
+
 	/* Configure E0 timer0 for use */
 	rc = dw3000_timers_enable(dw);
 	if (rc)
@@ -350,6 +355,184 @@ int dw3000_timer_start(struct dw3000 *dw, enum dw3000_timer timer)
 	return dw3000_reg_or8(dw, DW3000_TIMER_CTRL_ID, 0, val);
 }
 
+/**
+ * dw3000_e0_adc_offset_calibration() - Calibrate ADC
+ * @dw: the DW device
+ *
+ * TODO: This function comes from directly from Qorvo/Decawave.
+ * Hard coded values come with no documentation and should be converted into
+ * define when the documentation will be available.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+int dw3000_e0_adc_offset_calibration(struct dw3000 *dw)
+{
+	int rc, i;
+	u32 switch_control_reg_backup;
+	u32 agc_reg_backup;
+	u32 dgc_reg_backup;
+	u32 dgc_lut0_reg_backup;
+	u32 dgc_lutn_reg_backup;
+	u8 pgf_idx = 5;
+	u32 thresholds = 0;
+	u16 threshold_arr[4] = { 0, 0, 0, 0 };
+
+	/* Step 1: Get the current registers value used or modified by the calibration */
+	rc = dw3000_reg_read32(dw, DW3000_RF_SWITCH_CTRL_ID, 0,
+			       &switch_control_reg_backup);
+	if (rc)
+		return rc;
+	rc = dw3000_reg_read32(dw, DW3000_AGC_CFG_ID, 0, &agc_reg_backup);
+	if (rc)
+		return rc;
+	rc = dw3000_reg_read32(dw, DW3000_DGC_CFG_ID, 0, &dgc_reg_backup);
+	if (rc)
+		return rc;
+	rc = dw3000_reg_read32(dw, DW3000_DGC_LUT_0_CFG_ID, 0,
+			       &dgc_lut0_reg_backup);
+	if (rc)
+		return rc;
+	if (dw->config.chan == 5) {
+		rc = dw3000_reg_read32(dw, DW3000_DGC_LUT_6_CFG_ID, 0,
+				       &dgc_lutn_reg_backup);
+		if (rc)
+			return rc;
+	} else if (dw->config.chan == 9) {
+		rc = dw3000_reg_read32(dw, DW3000_DGC_LUT_3_CFG_ID, 0,
+				       &dgc_lutn_reg_backup);
+		if (rc)
+			return rc;
+	} else {
+		dev_err(dw->dev,
+			"Unsupported channel for ADC offset calibration: %u\n",
+			dw->config.chan);
+		return -EOPNOTSUPP;
+	}
+	/* Step 2a: De-sensitise RX path by shunting the TXRX switch */
+	rc = dw3000_reg_modify32(
+		dw, DW3000_RF_SWITCH_CTRL_ID, 0,
+		~DW3000_RF_SWITCH_CTRL_TXRX_SW_OVR_CTRL_BIT_MASK,
+		(0x38 << DW3000_RF_SWITCH_CTRL_TXRX_SW_OVR_CTRL_BIT_OFFSET) |
+			DW3000_RF_SWITCH_CTRL_TXRX_SW_OVR_EN_BIT_MASK);
+	if (rc)
+		return rc;
+	/* Further de-sensitise the RX path by selecting a higher DGC setting */
+	rc = dw3000_reg_write32(dw, DW3000_DGC_LUT_0_CFG_ID, 0,
+				dgc_lutn_reg_backup);
+	if (rc)
+		return rc;
+	/* Step 2b: Disable AGC and set PGF gain manually */
+	pgf_idx = dgc_lut0_reg_backup & 0x7;
+	rc = dw3000_reg_modify8(dw, DW3000_AGC_CFG_ID, 0, ~(0x40 | 0x38 | 0x1),
+				(0x40 | (pgf_idx << 3)));
+	if (rc)
+		return rc;
+	/* Step 2c: ADC independent thresholds */
+	rc = dw3000_reg_write8(dw, DW3000_AGC_CFG_ID, 3, 0);
+	if (rc)
+		return rc;
+	/* Step 2d: Disable DGC */
+	dw3000_reg_and8(dw, DW3000_DGC_CFG_ID, 0x0,
+			(u8)~DW3000_DGC_CFG_RX_TUNE_EN_BIT_MASK);
+	if (rc)
+		return rc;
+	/* Step 3a: Enable RX (may need further work) */
+	{
+		/* Ensure coex is disable to have immediate RX */
+		s8 gpio = dw->coex_gpio;
+		dw->coex_gpio = -1;
+		barrier();
+		rc = dw3000_rx_enable(dw, 0, 0, 0);
+		dw->coex_gpio = gpio;
+		if (rc)
+			return rc;
+	}
+	usleep_range(DW3000_E0_ADC_CALIBRATION_DELAY_US,
+		     DW3000_E0_ADC_CALIBRATION_DELAY_US + 10);
+	/* Step 3b: monitor thresholds */
+	for (i = 0; i < DW3000_E0_ADC_THRESHOLD_AVERAGE_LOOPS; i++) {
+		/* Unfreeze */
+		rc = dw3000_reg_modify8(dw, DW3000_MRX_CFG_ID, 0, 0xFE, 0);
+		if (rc)
+			return rc;
+		/* Freeze */
+		rc = dw3000_reg_modify8(dw, DW3000_MRX_CFG_ID, 0, 0xFE, 1);
+		if (rc)
+			return rc;
+		rc = dw3000_reg_read32(dw, DW3000_ADC_THRESH_DBG_ID, 0,
+				       &thresholds);
+		if (rc)
+			return rc;
+		threshold_arr[0] += (thresholds & 0xFF);
+		threshold_arr[1] += ((thresholds >> 8) & 0xFF);
+		threshold_arr[2] += ((thresholds >> 16) & 0xFF);
+		threshold_arr[3] += ((thresholds >> 24) & 0xFF);
+	}
+	threshold_arr[0] =
+		(u8)(threshold_arr[0] / DW3000_E0_ADC_THRESHOLD_AVERAGE_LOOPS);
+	threshold_arr[1] =
+		(u8)(threshold_arr[1] / DW3000_E0_ADC_THRESHOLD_AVERAGE_LOOPS);
+	threshold_arr[2] =
+		(u8)(threshold_arr[2] / DW3000_E0_ADC_THRESHOLD_AVERAGE_LOOPS);
+	threshold_arr[3] =
+		(u8)(threshold_arr[3] / DW3000_E0_ADC_THRESHOLD_AVERAGE_LOOPS);
+	thresholds = (threshold_arr[3] << 24) + (threshold_arr[2] << 16) +
+		     (threshold_arr[1] << 8) + threshold_arr[0];
+	/* Step 3c: disable receiver */
+	{
+		/* Ensure coex is disable  */
+		s8 gpio = dw->coex_gpio;
+		dw->coex_gpio = -1;
+		barrier();
+		rc = dw3000_forcetrxoff(dw);
+		dw->coex_gpio = gpio;
+		if (rc)
+			return rc;
+	}
+	/* Step 3d: Set initial DAC indices to settled RMS values */
+	rc = dw3000_reg_write32(dw, DW3000_ADC_THRESH_CFG_ID, 0, thresholds);
+	if (rc)
+		return rc;
+	/* Step 4: restore initial register values */
+	rc = dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0,
+				switch_control_reg_backup);
+	if (rc)
+		return rc;
+	rc = dw3000_reg_write32(dw, DW3000_AGC_CFG_ID, 0, agc_reg_backup);
+	if (rc)
+		return rc;
+	rc = dw3000_reg_write32(dw, DW3000_DGC_CFG_ID, 0, dgc_reg_backup);
+	if (rc)
+		return rc;
+	return dw3000_reg_write32(dw, DW3000_DGC_LUT_0_CFG_ID, 0,
+				  dgc_lut0_reg_backup);
+}
+
+/**
+ * dw3000_e0_pll_calibration_from_scratch() - Calibrate the PLL from scratch
+ * @dw: the DW device
+ *
+ * Return: zero on success, else a negative error code.
+ */
+int dw3000_e0_pll_calibration_from_scratch(struct dw3000 *dw)
+{
+	int rc = 0;
+
+	/* Run the PLL calibration from scratch.
+	 * The USE_OLD_BIT_MASK tells the chip to use the an old PLL_CAL_ID to start
+	 * its calculation. This is just in order to faster the process.
+	 */
+	rc = dw3000_reg_or32(dw, DW3000_PLL_CAL_ID, 0,
+			     DW3000_PLL_CAL_PLL_CAL_EN_BIT_MASK |
+				     DW3000_PLL_CAL_PLL_USE_OLD_BIT_MASK);
+	if (rc)
+		return rc;
+	/* Wait for the PLL calibration (needed before read the calibration status register) */
+	usleep_range(DW3000_E0_PLL_CALIBRATION_FROM_SCRATCH_DELAY_US,
+		     DW3000_E0_PLL_CALIBRATION_FROM_SCRATCH_DELAY_US + 10);
+	return rc;
+}
+
 const struct dw3000_chip_ops dw3000_chip_e0_ops = {
 	.softreset = dw3000_d0_softreset,
 	.init = dw3000_e0_init,
@@ -357,4 +540,6 @@ const struct dw3000_chip_ops dw3000_chip_e0_ops = {
 	.coex_gpio = dw3000_e0_coex_gpio,
 	.prog_ldo_and_bias_tune = dw3000_e0_prog_ldo_and_bias_tune,
 	.get_config_mrxlut_chan = dw3000_e0_get_config_mrxlut_chan,
+	.adc_offset_calibration = dw3000_e0_adc_offset_calibration,
+	.pll_calibration_from_scratch = dw3000_e0_pll_calibration_from_scratch,
 };

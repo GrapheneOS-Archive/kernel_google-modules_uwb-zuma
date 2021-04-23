@@ -29,6 +29,7 @@
 
 #include <linux/errno.h>
 #include <linux/ieee802154.h>
+#include <linux/string.h>
 
 /**
  * fira_session_controlees_max() - Calculate the maximum number of controlees
@@ -42,19 +43,19 @@ static size_t fira_session_controlees_max(struct fira_session_params *params)
 	/* TODO: use parameters (embedded mode, ranging mode, device type...)
 	   to calculate the size of frames, number of messages...
 	   Currently using default parameters configuration. */
-	const u8 mrm_size_without_delays = 40;
-	const u8 delay_size_per_controlee = 6;
-	const u8 rcm_size_without_slots = 36;
-	const u8 slots_size = 4;
-	const u8 controller_messages = 4;
-	const u8 controlee_messages = 2;
-	const u8 frame_size_max = 125;
+	static const u8 mrm_size_without_delays = 49;
+	static const u8 delay_size_per_controlee = 6;
+	static const u8 rcm_size_without_slots = 45;
+	static const u8 slots_size = 4;
+	static const u8 controller_messages = 4;
+	static const u8 controlee_messages = 2;
+	static const u8 frame_size_max = 125;
 
-	const size_t mrm_max_controlees =
+	static const size_t mrm_max_controlees =
 		(frame_size_max - mrm_size_without_delays) /
 		delay_size_per_controlee;
 
-	const size_t rcm_max_controlees =
+	static const size_t rcm_max_controlees =
 		(frame_size_max - rcm_size_without_slots -
 		 slots_size * controller_messages) /
 		(slots_size * controlee_messages);
@@ -74,6 +75,7 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 		return NULL;
 
 	session->id = session_id;
+	session->params.ranging_round_usage = FIRA_RANGING_ROUND_USAGE_DSTWR;
 	session->params.controller_short_addr = IEEE802154_ADDR_SHORT_BROADCAST;
 	session->params.initiation_time_ms =
 		local->llhw->anticip_dtu / (local->llhw->dtu_freq_hz / 1000);
@@ -84,6 +86,9 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	session->params.round_duration_slots =
 		FIRA_ROUND_DURATION_SLOTS_DEFAULT;
 	session->params.priority = FIRA_PRIORITY_DEFAULT;
+	session->params.rframe_config = FIRA_RFRAME_CONFIG_SP3;
+	session->params.preamble_duration = FIRA_PREAMBULE_DURATION_64;
+	session->params.sfd_id = FIRA_SFD_ID_2;
 
 	/* Antenna parameters which have a default value not equal to zero. */
 	session->params.rx_antenna_pair_azimuth = FIRA_RX_ANTENNA_PAIR_INVALID;
@@ -93,6 +98,7 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	/* Report parameters. */
 	session->params.aoa_result_req = true;
 	session->params.report_tof = true;
+	session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
 
 	list_add(&session->entry, &local->inactive_sessions);
 
@@ -102,7 +108,10 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 void fira_session_free(struct fira_local *local, struct fira_session *session)
 {
 	list_del(&session->entry);
-	kfree(session);
+	fira_aead_destroy(&session->crypto.aead);
+	/* The session structure contains the Crypto context. This needs to be
+	 * cleared. */
+	kfree_sensitive(session);
 }
 
 struct fira_session *fira_session_get(struct fira_local *local, u32 session_id,
@@ -127,28 +136,38 @@ struct fira_session *fira_session_get(struct fira_local *local, u32 session_id,
 	return NULL;
 }
 
+void fira_session_copy_controlees(struct fira_controlees_array *to,
+				  const struct fira_controlees_array *from)
+{
+	/* Copy only valid entries. */
+	memcpy(to->data, from->data, from->size * sizeof(from->data[0]));
+	to->size = from->size;
+}
+
 int fira_session_new_controlees(struct fira_local *local,
 				struct fira_session *session,
+				struct fira_controlees_array *controlees_array,
 				const struct fira_controlee *controlees,
 				size_t n_controlees)
 {
 	int i, j;
 
-	/* TODO: If active, use session->params.n_controlees_max instead
-	   of FIRA_CONTROLEES_MAX */
-	if (session->params.n_controlees + n_controlees > FIRA_CONTROLEES_MAX)
+	/* On inactive session, the max is the size of the array.
+	 * And on active session, the size depend to the config. */
+	if (controlees_array->size + n_controlees >
+	    session->params.n_controlees_max)
 		return -EINVAL;
 
 	for (i = 0; i < n_controlees; i++) {
-		for (j = 0; j < session->params.n_controlees; j++) {
+		for (j = 0; j < controlees_array->size; j++) {
 			if (controlees[i].short_addr ==
-			    session->params.controlees[j].short_addr)
+			    controlees_array->data[j].short_addr)
 				return -EINVAL;
 		}
 	}
 
 	for (i = 0; i < n_controlees; i++)
-		session->params.controlees[session->params.n_controlees++] =
+		controlees_array->data[controlees_array->size++] =
 			controlees[i];
 
 	return 0;
@@ -156,14 +175,15 @@ int fira_session_new_controlees(struct fira_local *local,
 
 int fira_session_del_controlees(struct fira_local *local,
 				struct fira_session *session,
+				struct fira_controlees_array *controlees_array,
 				const struct fira_controlee *controlees,
 				size_t n_controlees)
 {
 	size_t ii, io, j;
 
-	for (ii = 0, io = 0; ii < session->params.n_controlees; ii++) {
+	for (ii = 0, io = 0; ii < controlees_array->size; ii++) {
 		bool remove = false;
-		struct fira_controlee *c = &session->params.controlees[ii];
+		struct fira_controlee *c = &controlees_array->data[ii];
 
 		for (j = 0; j < n_controlees && !remove; j++) {
 			if (c->short_addr == controlees[j].short_addr)
@@ -172,11 +192,11 @@ int fira_session_del_controlees(struct fira_local *local,
 
 		if (!remove) {
 			if (io != ii)
-				session->params.controlees[io] = *c;
+				controlees_array->data[io] = *c;
 			io++;
 		}
 	}
-	session->params.n_controlees = io;
+	controlees_array->size = io;
 
 	return 0;
 }
@@ -188,15 +208,15 @@ bool fira_session_is_ready(struct fira_local *local,
 	struct fira_session_params *params = &session->params;
 
 	if (params->multi_node_mode == FIRA_MULTI_NODE_MODE_UNICAST) {
-		if (params->n_controlees > 1)
+		if (params->current_controlees.size > 1)
 			return false;
 	} else {
 		params->n_controlees_max = fira_session_controlees_max(params);
-		if (params->n_controlees > params->n_controlees_max)
+		if (params->current_controlees.size > params->n_controlees_max)
 			return false;
 	}
 	/* RFRAME (INITIATION and FINAL) reception on different antenna is
-	   not implemented on CONTROLLER. */
+	 * not implemented on CONTROLLER. */
 	if (params->rx_antenna_switch == FIRA_RX_ANTENNA_SWITCH_DURING_ROUND &&
 	    params->device_type == FIRA_DEVICE_TYPE_CONTROLLER)
 		return false;

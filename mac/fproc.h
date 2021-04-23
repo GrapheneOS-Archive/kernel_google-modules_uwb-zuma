@@ -49,7 +49,7 @@ struct mcps802154_fproc_state {
 	void (*rx_timeout)(struct mcps802154_local *local);
 	/** @rx_error: Handle reception error. */
 	void (*rx_error)(struct mcps802154_local *local,
-			 enum mcps802154_rx_error error);
+			 enum mcps802154_rx_error_type error);
 	/** @tx_done: Handle end of transmission. */
 	void (*tx_done)(struct mcps802154_local *local);
 	/** @broken: Handle unrecoverable error. */
@@ -174,5 +174,15 @@ int mcps802154_fproc_tx_handle(struct mcps802154_local *local,
  */
 int mcps802154_fproc_multi_handle(struct mcps802154_local *local,
 				  struct mcps802154_access *access);
+
+/**
+ * mcps802154_fproc_vendor_handle() - Handle a multiple frames access manage by vendor.
+ * @local: MCPS private data.
+ * @access: Current access to handle.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_fproc_vendor_handle(struct mcps802154_local *local,
+				   struct mcps802154_access *access);
 
 #endif /* NET_MCPS802154_FPROC_H */

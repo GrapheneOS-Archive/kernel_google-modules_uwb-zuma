@@ -29,10 +29,18 @@
 #define NET_MCPS802154_FIRA_SESSION_H
 
 #include "fira_region.h"
+#include "fira_crypto.h"
+
+struct fira_controlees_array {
+	struct fira_controlee data[FIRA_CONTROLEES_MAX];
+	/* Number of data valid. */
+	size_t size;
+};
 
 struct fira_session_params {
 	/* Main parameters. */
 	enum fira_device_type device_type;
+	enum fira_ranging_round_usage ranging_round_usage;
 	enum fira_multi_node_mode multi_node_mode;
 	__le16 controller_short_addr;
 	/* Timings parameters. */
@@ -42,10 +50,23 @@ struct fira_session_params {
 	int round_duration_slots;
 	/* Behaviour parameters. */
 	int priority;
-	/* List of controlees. */
-	struct fira_controlee controlees[FIRA_CONTROLEES_MAX];
-	size_t n_controlees;
+	/* Radio. */
+	int channel_number;
+	int preamble_code_index;
+	enum fira_rframe_config rframe_config;
+	enum fira_preambule_duration preamble_duration;
+	enum fira_sfd_id sfd_id;
+	enum fira_psdu_data_rate psdu_data_rate;
+	enum fira_mac_fcs_type mac_fcs_type;
+	/* STS and crypto. */
+	enum fira_sts_config sts_config;
+	u8 vupper64[FIRA_VUPPER64_SIZE];
+	/* List of controlees to applies on next ca. */
+	struct fira_controlees_array new_controlees;
+	/* List of controlees currently applied. */
+	struct fira_controlees_array current_controlees;
 	size_t n_controlees_max;
+	bool update_controlees;
 	bool aoa_result_req;
 	bool report_tof;
 	bool report_aoa_azimuth;
@@ -108,6 +129,10 @@ struct fira_session {
 	 * @rx_ant_pair: Antenna pair indexes to use for reception.
 	 */
 	int rx_ant_pair[2];
+	/**
+	 * @crypto: Crypto context.
+	 */
+	struct fira_crypto crypto;
 };
 
 /**
@@ -138,9 +163,18 @@ struct fira_session *fira_session_get(struct fira_local *local, u32 session_id,
 				      bool *active);
 
 /**
+ * fira_session_copy_controlees() - copy controlees array between two array.
+ * @to: FiRa controlees array to write.
+ * @from: FiRa controlees array to read.
+ */
+void fira_session_copy_controlees(struct fira_controlees_array *to,
+				  const struct fira_controlees_array *from);
+
+/**
  * fira_session_new_controlees() - Add new controlees.
  * @local: FiRa context.
  * @session: Session.
+ * @controlees_array: Destination array where store new controlees list.
  * @controlees: Controlees information.
  * @n_controlees: Number of controlees.
  *
@@ -148,6 +182,7 @@ struct fira_session *fira_session_get(struct fira_local *local, u32 session_id,
  */
 int fira_session_new_controlees(struct fira_local *local,
 				struct fira_session *session,
+				struct fira_controlees_array *controlees_array,
 				const struct fira_controlee *controlees,
 				size_t n_controlees);
 
@@ -155,6 +190,7 @@ int fira_session_new_controlees(struct fira_local *local,
  * fira_session_new_controlees() - Remove controlees.
  * @local: FiRa context.
  * @session: Session.
+ * @controlees_array: Destination array where store new controlees list.
  * @controlees: Controlees information.
  * @n_controlees: Number of controlees.
  *
@@ -162,6 +198,7 @@ int fira_session_new_controlees(struct fira_local *local,
  */
 int fira_session_del_controlees(struct fira_local *local,
 				struct fira_session *session,
+				struct fira_controlees_array *controlees_array,
 				const struct fira_controlee *controlees,
 				size_t n_controlees);
 

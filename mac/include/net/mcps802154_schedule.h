@@ -52,12 +52,15 @@ struct mcps802154_nl_ranging_request;
  *	TX as soon as possible. Could be with or without ack request (AR).
  * @MCPS802154_ACCESS_METHOD_MULTI:
  *	Multiple frames described in frames table.
+ * @MCPS802154_ACCESS_METHOD_VENDOR:
+ *      Route all signals to access callbacks for vendor specific handling.
  */
 enum mcps802154_access_method {
 	MCPS802154_ACCESS_METHOD_NOTHING,
 	MCPS802154_ACCESS_METHOD_IMMEDIATE_RX,
 	MCPS802154_ACCESS_METHOD_IMMEDIATE_TX,
 	MCPS802154_ACCESS_METHOD_MULTI,
+	MCPS802154_ACCESS_METHOD_VENDOR,
 };
 
 /**
@@ -96,17 +99,26 @@ struct mcps802154_access_frame {
 		 */
 		struct {
 			/**
-			 * @info: Information for enabling the receiver.
+			 * @rx.info: Information for enabling the receiver.
 			 */
 			struct mcps802154_rx_info info;
 			/**
-			 * @frame_info_flags_request: Information to request
+			 * @rx.frame_info_flags_request: Information to request
 			 * when a frame is received, see
 			 * &enum mcps802154_rx_frame_info_flags.
 			 */
 			u16 frame_info_flags_request;
 		} rx;
 	};
+	/**
+	 * @sts_params: Pointer to STS parameters for this frame and all
+	 * following frames. STS is still only used if requested in flags. For
+	 * TX, this is read after mcps802154_access::tx_get_frame() is called,
+	 * so it can be changed by the callback. For RX, this is read earlier,
+	 * so it needs to be valid after mcps802154_access_ops::get_access(), or
+	 * after the previous callback.
+	 */
+	const struct mcps802154_sts_params *sts_params;
 };
 
 /**
@@ -120,10 +132,17 @@ struct mcps802154_access {
 	 * @method: Method of access, see &enum mcps802154_access_method.
 	 */
 	enum mcps802154_access_method method;
-	/**
-	 * @ops: Callbacks to implement the access.
-	 */
-	struct mcps802154_access_ops *ops;
+	union {
+		/**
+		 * @ops: Callbacks to implement the access.
+		 */
+		struct mcps802154_access_ops *ops;
+		/**
+		 * @vendor_ops: Callbacks to implement the vendor specific
+		 * access.
+		 */
+		struct mcps802154_access_vendor_ops *vendor_ops;
+	};
 	/**
 	 * @timestamp_dtu: Start of the access, only valid when the access has
 	 * a duration. Invalid for immediate accesses.
@@ -153,6 +172,17 @@ struct mcps802154_access {
  * struct mcps802154_access_ops - Callbacks to implement an access.
  */
 struct mcps802154_access_ops {
+	/*
+	 * Anonymous structure which must be declared at the beginning of all
+	 * access ops.
+	 */
+	struct {
+		/**
+		 * @access_done: Called when the access is done, successfully or
+		 * not.
+		 */
+		void (*access_done)(struct mcps802154_access *access);
+	};
 	/**
 	 * @rx_frame: Once a frame is received, it is given to this function.
 	 * Buffer ownership is transferred to the callee.
@@ -175,10 +205,65 @@ struct mcps802154_access_ops {
 	void (*tx_return)(struct mcps802154_access *access, int frame_idx,
 			  struct sk_buff *skb,
 			  enum mcps802154_access_tx_return_reason reason);
-	/**
-	 * @access_done: Called when the access is done, successfully or not.
+};
+
+/**
+ * struct mcps802154_access_vendor_ops - Callbacks to implement a vendor
+ * specific access.
+ *
+ * Each callback can return 0 to continue the access, 1 to stop it or an error.
+ *
+ * If access is stopped, the &mcps802154_access.timestamp_dtu and
+ * &mcps802154_access.duration_dtu are used to compute the next access, unless
+ * duration is 0, in this case the current date is requested from the driver.
+ *
+ * In case of error, the devices transition to the broken state.
+ *
+ * If the callback is missing this is treated like an error, except for
+ * &mcps802154_access_vendor_ops.handle and
+ * &mcps802154_access_vendor_ops.schedule_change which are ignored.
+ */
+struct mcps802154_access_vendor_ops {
+	/*
+	 * Anonymous structure which must be declared at the beginning of all
+	 * access ops.
 	 */
-	void (*access_done)(struct mcps802154_access *access);
+	struct {
+		/**
+		 * @access_done: Called when the access is done, successfully or
+		 * not.
+		 */
+		void (*access_done)(struct mcps802154_access *access);
+	};
+	/**
+	 * @handle: Called once to start the access, ignored if NULL.
+	 */
+	int (*handle)(struct mcps802154_access *access);
+	/**
+	 * @rx_frame: Called when a frame reception is signaled.
+	 */
+	int (*rx_frame)(struct mcps802154_access *access);
+	/**
+	 * @rx_timeout: Called when a reception timeout is signaled.
+	 */
+	int (*rx_timeout)(struct mcps802154_access *access);
+	/**
+	 * @rx_error: Called when a reception error is signaled.
+	 */
+	int (*rx_error)(struct mcps802154_access *access,
+			enum mcps802154_rx_error_type error);
+	/**
+	 * @tx_done: Called when end of transmission is signaled.
+	 */
+	int (*tx_done)(struct mcps802154_access *access);
+	/**
+	 * @broken: Called when a unrecoverable error is signaled.
+	 */
+	int (*broken)(struct mcps802154_access *access);
+	/**
+	 * @schedule_change: Called to handle schedule change, ignored if NULL.
+	 */
+	int (*schedule_change)(struct mcps802154_access *access);
 };
 
 /**
@@ -306,11 +391,6 @@ struct mcps802154_scheduler_ops {
 	 */
 	void (*close)(struct mcps802154_scheduler *scheduler);
 	/**
-	 * @list_region_ids: List scheduler region identifiers.
-	 */
-	const char *const *(*list_region_ids)(
-		struct mcps802154_scheduler *scheduler);
-	/**
 	 * @set_parameters: Configure the scheduler.
 	 */
 	int (*set_parameters)(struct mcps802154_scheduler *scheduler,
@@ -320,8 +400,7 @@ struct mcps802154_scheduler_ops {
 	 * @set_region_parameters: Configure the region inside the scheduler.
 	 */
 	int (*set_region_parameters)(struct mcps802154_scheduler *scheduler,
-				     const char *region_id,
-				     const char *region_name,
+				     u32 region_id, const char *region_name,
 				     const struct nlattr *attrs,
 				     struct netlink_ext_ack *extack);
 	/**
@@ -333,8 +412,8 @@ struct mcps802154_scheduler_ops {
 	 * @call_region: Call region specific procedure.
 	 */
 	int (*call_region)(struct mcps802154_scheduler *scheduler,
-			   const char *region_id, const char *region_name,
-			   u32 call_id, const struct nlattr *attrs,
+			   u32 region_id, const char *region_name, u32 call_id,
+			   const struct nlattr *attrs,
 			   const struct genl_info *info);
 	/**
 	 * @update_schedule: Called to initialize and update the schedule.

@@ -91,8 +91,8 @@ enum fira_prf_mode {
 };
 
 enum fira_preambule_duration {
-	FIRA_PREAMBULE_DURATION_64,
 	FIRA_PREAMBULE_DURATION_32,
+	FIRA_PREAMBULE_DURATION_64,
 };
 
 enum fira_sfd_id {
@@ -219,6 +219,10 @@ struct fira_local_aoa_info {
 	 */
 	s16 aoa_2pi;
 	/**
+	 * @aoa_fom: Figure of merit of the AoA.
+	 */
+	u8 aoa_fom;
+	/**
 	 * @rx_ant_pair: Antenna pair index.
 	 */
 	u8 rx_ant_pair;
@@ -290,7 +294,7 @@ struct fira_ranging_info {
 	 */
 	bool remote_aoa_elevation_present;
 	/**
-	 * @remote_aoa_fom_present: true if FoM for AoA is present.
+	 * @remote_aoa_fom_present: true if FoM AoA is present.
 	 */
 	bool remote_aoa_fom_present;
 };
@@ -315,6 +319,10 @@ struct fira_local {
 	 * @frames: Access frames referenced from access.
 	 */
 	struct mcps802154_access_frame frames[FIRA_FRAMES_MAX];
+	/**
+	 * @sts_params: STS parameters for access frames.
+	 */
+	struct mcps802154_sts_params sts_params[FIRA_FRAMES_MAX];
 	/**
 	 * @current_session: Pointer to the current session.
 	 */

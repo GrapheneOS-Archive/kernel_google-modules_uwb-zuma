@@ -39,6 +39,8 @@
 #include "fira_access.h"
 #include "fira_session.h"
 
+#include "warn_return.h"
+
 static struct mcps802154_region_ops fira_region_ops;
 
 static struct mcps802154_region *fira_open(struct mcps802154_llhw *llhw)
@@ -59,7 +61,7 @@ static void fira_close(struct mcps802154_region *region)
 {
 	struct fira_local *local = region_to_local(region);
 
-	kfree(local);
+	kfree_sensitive(local);
 }
 
 static int fira_call(struct mcps802154_region *region, u32 call_id,
@@ -92,6 +94,8 @@ static int fira_report_local_aoa(struct fira_local *local, struct sk_buff *msg,
 	if (nla_put_s16(msg, A(AOA_2PI), info->aoa_2pi))
 		goto nla_put_failure;
 	if (nla_put_s16(msg, A(PDOA_2PI), info->pdoa_2pi))
+		goto nla_put_failure;
+	if (nla_put_u8(msg, A(AOA_FOM), info->aoa_fom))
 		goto nla_put_failure;
 #undef A
 	return 0;
@@ -152,11 +156,21 @@ static int fira_report_measurement(struct fira_local *local,
 		if (nla_put_s16(msg, A(REMOTE_AOA_AZIMUTH_2PI),
 				ranging_info->remote_aoa_azimuth_2pi))
 			goto nla_put_failure;
+		if (ranging_info->remote_aoa_fom_present) {
+			if (nla_put_u8(msg, A(REMOTE_AOA_AZIMUTH_FOM),
+				       ranging_info->remote_aoa_azimuth_fom))
+				goto nla_put_failure;
+		}
 	}
 	if (ranging_info->remote_aoa_elevation_present) {
 		if (nla_put_s16(msg, A(REMOTE_AOA_ELEVATION_PI),
 				ranging_info->remote_aoa_elevation_pi))
 			goto nla_put_failure;
+		if (ranging_info->remote_aoa_fom_present) {
+			if (nla_put_u8(msg, A(REMOTE_AOA_ELEVATION_FOM),
+				       ranging_info->remote_aoa_elevation_fom))
+				goto nla_put_failure;
+		}
 	}
 
 #undef A
@@ -174,8 +188,8 @@ void fira_report(struct fira_local *local)
 
 	msg = mcps802154_region_event_alloc_skb(local->llhw, &local->region,
 						FIRA_CALL_SESSION_NOTIFICATION,
-						session->event_portid, 100,
-						GFP_KERNEL);
+						session->event_portid,
+						NLMSG_DEFAULT_SIZE, GFP_KERNEL);
 	if (!msg)
 		return;
 
@@ -211,7 +225,7 @@ void fira_report(struct fira_local *local)
 
 	r = mcps802154_region_event(local->llhw, msg);
 	if (r == -ECONNREFUSED)
-		// TODO stop.
+		/* TODO stop. */
 		;
 	return;
 nla_put_failure:
@@ -229,6 +243,11 @@ static struct mcps802154_region_ops fira_region_ops = {
 
 int __init fira_region_init(void)
 {
+	int r;
+
+	r = fira_crypto_test();
+	WARN_RETURN(r);
+
 	return mcps802154_region_register(&fira_region_ops);
 }
 

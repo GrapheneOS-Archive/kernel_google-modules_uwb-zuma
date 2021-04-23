@@ -28,6 +28,8 @@
 #ifndef LLHW_OPS_H
 #define LLHW_OPS_H
 
+#include <linux/errno.h>
+
 #include "mcps802154_i.h"
 #include "trace.h"
 
@@ -193,7 +195,10 @@ llhw_set_sts_params(struct mcps802154_local *local,
 	int r;
 
 	trace_llhw_set_sts_params(local, params);
-	r = local->ops->set_sts_params(&local->llhw, params);
+	if (local->ops->set_sts_params)
+		r = local->ops->set_sts_params(&local->llhw, params);
+	else
+		r = -EOPNOTSUPP;
 	trace_llhw_return_int(local, r);
 	return r;
 }
@@ -295,6 +300,21 @@ llhw_list_calibration(struct mcps802154_local *local)
 	trace_llhw_list_calibration(local);
 	r = local->ops->list_calibration(&local->llhw);
 	trace_llhw_return_void(local);
+	return r;
+}
+
+static inline int llhw_vendor_cmd(struct mcps802154_local *local, u32 vendor_id,
+				  u32 subcmd, void *data, size_t data_len)
+{
+	int r;
+
+	trace_llhw_vendor_cmd(local, vendor_id, subcmd);
+	if (local->ops->vendor_cmd)
+		r = local->ops->vendor_cmd(&local->llhw, vendor_id, subcmd,
+					   data, data_len);
+	else
+		r = -EOPNOTSUPP;
+	trace_llhw_return_int(local, r);
 	return r;
 }
 

@@ -34,10 +34,10 @@
 			return (r); \
 	} while (0)
 
-#define WARN_RETURN_NULL(r)          \
-	do {                         \
-		if (WARN_ON(r))      \
-			return NULL; \
+#define WARN_RETURN_ON(r, ret)        \
+	do {                          \
+		if (WARN_ON(r))       \
+			return (ret); \
 	} while (0)
 
 #define WARN_UNREACHABLE_DEFAULT() WARN(1, "unreachable case")

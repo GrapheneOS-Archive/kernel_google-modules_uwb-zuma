@@ -70,6 +70,8 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	dw->coex_delay_us = dw3000_wifi_coex_delay_us;
 	dw->lna_pa_mode = (s8)dw3000_lna_pa_mode;
 	dw->current_operational_state = DW3000_OP_STATE_OFF;
+	/* Initialization of the deep sleep timer */
+	timer_setup(&dw->deep_sleep_timer, dw3000_wakeup_timer, 0);
 
 	dev_info(dw->dev, "Loading driver...");
 	dw3000_sysfs_init(dw);
@@ -102,6 +104,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 			rc);
 		goto err_state_init;
 	}
+
 	/* Request and setup the reset GPIO pin */
 	/* This leave the DW3000 in reset state until dw3000_hardreset() put
 	   the GPIO back in input mode. */
@@ -134,7 +137,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 
 err_state_start:
 	dw3000_mcps_unregister(dw);
-	dw3000_state_stop(dw);
 err_register_hw:
 err_setup_irq:
 	dw3000_state_stop(dw);

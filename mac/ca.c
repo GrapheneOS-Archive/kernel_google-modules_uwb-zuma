@@ -103,17 +103,6 @@ int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
 	return 0;
 }
 
-const char *const *
-mcps802154_ca_list_scheduler_region_ids(struct mcps802154_local *local)
-{
-	struct mcps802154_scheduler *scheduler;
-
-	scheduler = local->ca.scheduler;
-	if (!scheduler)
-		return NULL;
-	return mcps802154_scheduler_list_region_ids(scheduler);
-}
-
 int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
 					   const char *name,
 					   const struct nlattr *params_attr,
@@ -135,7 +124,7 @@ int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
 
 int mcps802154_ca_scheduler_set_region_parameters(
 	struct mcps802154_local *local, const char *scheduler_name,
-	const char *region_id, const char *region_name,
+	u32 region_id, const char *region_name,
 	const struct nlattr *params_attr, struct netlink_ext_ack *extack)
 {
 	struct mcps802154_scheduler *scheduler;
@@ -170,8 +159,8 @@ int mcps802154_ca_scheduler_call(struct mcps802154_local *local,
 
 int mcps802154_ca_scheduler_call_region(struct mcps802154_local *local,
 					const char *scheduler_name,
-					const char *region_id,
-					const char *region_name, u32 call_id,
+					u32 region_id, const char *region_name,
+					u32 call_id,
 					const struct nlattr *params_attr,
 					const struct genl_info *info)
 {

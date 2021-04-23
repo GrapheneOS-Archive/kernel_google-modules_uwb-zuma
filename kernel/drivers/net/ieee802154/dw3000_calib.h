@@ -158,11 +158,13 @@ static inline void dw3000_calib_antpair_to_ant(int ant_pair, u8 *antidx1,
  * @ant: table of antenna dependent calibration values
  * @antpair: table of antenna pair dependent calibration values
  * @ch: table of channel dependent calibration values
+ * @smart_tx_power: when true, enables power adjustment based on frame length
  */
 struct dw3000_calibration_data {
 	struct dw3000_antenna_calib ant[ANTMAX];
 	struct dw3000_antenna_pair_calib antpair[ANTPAIR_MAX];
 	struct dw3000_channel_calib ch[DW3000_CALIBRATION_CHANNEL_MAX];
+	bool smart_tx_power;
 };
 
 struct dw3000;

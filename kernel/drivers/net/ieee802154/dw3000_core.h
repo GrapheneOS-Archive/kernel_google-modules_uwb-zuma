@@ -44,6 +44,14 @@
 #define DW3000_STS_MODE_SDC 0x8 /* Enable Super Deterministic Codes */
 #define DW3000_STS_CONFIG_MASK 0xB
 
+/**
+ * DW3000_GET_STS_LEN_UNIT_VALUE() - Convert STS length enum into unit value
+ * @x: value from enum dw3000_sts_lengths
+ *
+ * Return: the STS length in unit of 8-symbols block.
+ */
+#define DW3000_GET_STS_LEN_UNIT_VALUE(x) ((u16)(1 << (x)))
+
 /* Constants for specifying TX Preamble length in symbols */
 #define DW3000_PLEN_4096 0x03 /* Standard preamble length 4096 symbols */
 #define DW3000_PLEN_2048 0x0A /* Non-standard preamble length 2048 symbols */
@@ -233,7 +241,7 @@ enum spi_modes {
 
 void dw3000_init_config(struct dw3000 *dw);
 
-int dw3000_init(struct dw3000 *dw);
+int dw3000_init(struct dw3000 *dw, bool check_idlerc);
 void dw3000_remove(struct dw3000 *dw);
 
 int dw3000_transfers_init(struct dw3000 *dw);
@@ -291,13 +299,17 @@ int dw3000_disable(struct dw3000 *dw);
 
 int dw3000_configure_chan(struct dw3000 *dw);
 
-int dw3000_seteui64(struct dw3000 *dw, __le64 val);
-int dw3000_setpanid(struct dw3000 *dw, __le16 val);
-int dw3000_setshortaddr(struct dw3000 *dw, __le16 val);
-int dw3000_setpancoord(struct dw3000 *dw, bool active);
-int dw3000_setpdoa(struct dw3000 *dw, u8 mode);
-int dw3000_setsts(struct dw3000 *dw, u8 mode, enum dw3000_sts_lengths len);
-int dw3000_setpromiscuous(struct dw3000 *dw, bool on);
+int dw3000_set_eui64(struct dw3000 *dw, __le64 val);
+int dw3000_set_panid(struct dw3000 *dw, __le16 val);
+int dw3000_set_shortaddr(struct dw3000 *dw, __le16 val);
+int dw3000_set_pancoord(struct dw3000 *dw, bool active);
+int dw3000_set_promiscuous(struct dw3000 *dw, bool on);
+int dw3000_set_pdoa(struct dw3000 *dw, u8 mode);
+int dw3000_set_sts(struct dw3000 *dw, u8 mode);
+int dw3000_set_sts_length(struct dw3000 *dw, enum dw3000_sts_lengths len);
+int dw3000_configure_sts_key(struct dw3000 *dw, const u8 *key);
+int dw3000_configure_sts_iv(struct dw3000 *dw, const u8 *iv);
+int dw3000_load_sts_iv(struct dw3000 *dw);
 
 int dw3000_clear_sys_status(struct dw3000 *dw, u32 clear_bits);
 int dw3000_clear_dss_status(struct dw3000 *dw, u8 clear_bits);
@@ -309,6 +321,8 @@ int dw3000_read_sys_time(struct dw3000 *dw, u32 *sys_time);
 
 int dw3000_poweron(struct dw3000 *dw);
 int dw3000_poweroff(struct dw3000 *dw);
+
+int dw3000_forcetrxoff(struct dw3000 *dw);
 
 int dw3000_rx_enable(struct dw3000 *dw, bool rx_delayed, u32 date_dtu,
 		     u32 timeout_pac);
@@ -327,7 +341,9 @@ int dw3000_config_antenna_gpios(struct dw3000 *dw);
 int dw3000_set_tx_antenna(struct dw3000 *dw, int antidx);
 int dw3000_set_rx_antennas(struct dw3000 *dw, int antpairidx);
 
-s16 dw3000_readpdoa(struct dw3000 *dw);
+s16 dw3000_read_pdoa(struct dw3000 *dw);
+int dw3000_read_sts_timestamp(struct dw3000 *dw, u64 *sts_ts);
+int dw3000_read_sts_quality(struct dw3000 *dw, s16 *acc_qual);
 
 int dw3000_set_gpio_mode(struct dw3000 *dw, u32 mask, u32 mode);
 int dw3000_set_gpio_dir(struct dw3000 *dw, u16 mask, u16 dir);
@@ -340,7 +356,10 @@ void dw3000_sysfs_init(struct dw3000 *dw);
 void dw3000_sysfs_remove(struct dw3000 *dw);
 
 void dw3000_isr(struct dw3000 *dw);
-
+void dw3000_wakeup_timer(struct timer_list *timer);
+int dw3000_go_to_deep_sleep_and_wakeup_after_ms(struct dw3000 *dw,
+						int delay_ms);
+int dw3000_SPIxMAVAIL_interrupts_enable(struct dw3000 *dw);
 /* Preamble length related information. */
 struct dw3000_plen_info {
 	/* Preamble length in symbols. */
@@ -422,8 +441,8 @@ static inline int dw3000_compute_pre_timeout_pac(struct dw3000 *dw)
 	       symb / pac_symb + 2;
 }
 
-static inline int dw3000_payload_duration_dtu(struct dw3000 *dw,
-					      int payload_bytes)
+static inline int dw3000_frame_duration_dtu(struct dw3000 *dw,
+					    int payload_bytes, bool with_shr)
 {
 	const struct dw3000_prf_info *prf_info =
 		&_prf_info[dw->config.txCode >= 9 ? DW3000_PRF_64M :
@@ -440,12 +459,14 @@ static inline int dw3000_payload_duration_dtu(struct dw3000 *dw,
 	const int phr_chips = phr_tail_bits /* 1 bit/symbol */
 			      * bitrate_info->phr_chip_per_symb;
 	/* Data part, 48 Reed-Solomon bits per 330 bits. */
-	const int data_bits = payload_bytes * 8;
+	const int data_bits = (payload_bytes + IEEE802154_FCS_LEN) * 8;
+
 	const int data_rs_bits = data_bits + (data_bits + 329) / 330 * 48;
 	const int data_chips = data_rs_bits /* 1 bit/symbol */
 			       * bitrate_info->data_chip_per_symb;
 	/* Done, convert to dtu. */
-	return (sts_chips + phr_chips + data_chips) / DW3000_CHIP_PER_DTU;
+	return ((sts_chips + phr_chips + data_chips) / DW3000_CHIP_PER_DTU) +
+	       (with_shr ? dw->llhw->shr_dtu : 0);
 }
 
 static inline void dw3000_update_timings(struct dw3000 *dw)

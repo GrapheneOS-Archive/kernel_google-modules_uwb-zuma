@@ -81,12 +81,8 @@ void fira_frame_result_report_payload_put(const struct fira_local *local,
  * fira_frame_header_check() - Check and consume FiRa header.
  * @local: FiRa context.
  * @skb: Frame buffer.
- * @ie_get: Context used to read IE, must be zero initialized. When this
- * function returns, it contain the last decoded IE which can be the first
- * payload element.
+ * @ie_get: Context used to read IE, must be zero initialized.
  * @sts_index: STS index read from header.
- *
- * If this function returns true, caller needs to check the last decoded IE.
  *
  * Return: true if header is correct.
  */
@@ -100,8 +96,7 @@ bool fira_frame_header_check(const struct fira_local *local,
  * message.
  * @local: FiRa context.
  * @skb: Frame buffer.
- * @ie_get: Context used to read IE, must have been used to read header first,
- * should contain the first non header IE or nothing.
+ * @ie_get: Context used to read IE, must have been used to read header first.
  * @n_slots: Pointer where to store number of used slots.
  *
  * Return: true if message is correct. Extra payload is accepted.
@@ -117,8 +112,7 @@ bool fira_frame_control_payload_check(struct fira_local *local,
  * @local: FiRa context.
  * @slot: Slot information.
  * @skb: Frame buffer.
- * @ie_get: Context used to read IE, must have been used to read header first,
- * should contain the first non header IE or nothing.
+ * @ie_get: Context used to read IE, must have been used to read header first.
  *
  * Return: true if message is correct. Extra payload is accepted.
  */
@@ -132,13 +126,53 @@ bool fira_frame_measurement_report_payload_check(
  * @local: FiRa context.
  * @slot: Slot information.
  * @skb: Frame buffer.
- * @ie_get: Context used to read IE, must have been used to read header first,
- * should contain the first non header IE or nothing.
+ * @ie_get: Context used to read IE, must have been used to read header first.
  *
  * Return: true if message is correct. Extra payload is accepted.
  */
 bool fira_frame_result_report_payload_check(
 	struct fira_local *local, const struct fira_slot *slot,
 	struct sk_buff *skb, struct mcps802154_ie_get_context *ie_get);
+
+/**
+ * fira_frame_encrypt() - Terminate a frame and encrypt.
+ * @local: FiRa context.
+ * @slot: Corresponding slot.
+ * @skb: Frame buffer.
+ *
+ * Return: 0 or error.
+ */
+int fira_frame_encrypt(struct fira_local *local, const struct fira_slot *slot,
+		       struct sk_buff *skb);
+
+/**
+ * fira_frame_decrypt() - Decrypt payload.
+ * @local: FiRa context.
+ * @slot: Corresponding slot.
+ * @skb: Frame buffer, with header in front of data.
+ * @header_len: Length of the MAC header, used for authentication.
+ *
+ * Return: 0 or error, -EBADMSG if not authenticated.
+ */
+int fira_frame_decrypt(struct fira_local *local, const struct fira_slot *slot,
+		       struct sk_buff *skb, unsigned int header_len);
+
+/**
+ * fira_frame_header_check_decrypt() - Check and consume header, and decrypt
+ * payload.
+ * @local: FiRa context.
+ * @slot: Corresponding slot.
+ * @skb: Frame buffer.
+ * @ie_get: Context used to read IE, must be zero initialized.
+ * @allow_resync_sts_index: If not NULL, allow STS index resynchronisation and
+ * store received STS index at given address, if NULL, forbid resynchronisation.
+ *
+ * Return: 0 or error.
+ */
+int fira_frame_header_check_decrypt(struct fira_local *local,
+				    const struct fira_slot *slot,
+				    struct sk_buff *skb,
+				    struct mcps802154_ie_get_context *ie_get,
+				    u32 *allow_resync_sts_index);
 
 #endif /* FIRA_FRAME_H */

@@ -107,8 +107,9 @@ static void mcps802154_fproc_tx_wack_rx_timeout(struct mcps802154_local *local)
 	mcps802154_fproc_access_now(local);
 }
 
-static void mcps802154_fproc_tx_wack_rx_error(struct mcps802154_local *local,
-					      enum mcps802154_rx_error error)
+static void
+mcps802154_fproc_tx_wack_rx_error(struct mcps802154_local *local,
+				  enum mcps802154_rx_error_type error)
 {
 	mcps802154_fproc_tx_wack_rx_timeout(local);
 }

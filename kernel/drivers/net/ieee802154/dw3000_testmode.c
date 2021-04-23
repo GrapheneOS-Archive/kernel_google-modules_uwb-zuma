@@ -45,6 +45,11 @@ static const struct nla_policy dw3000_tm_policy[DW3000_TM_ATTR_MAX + 1] = {
 	[DW3000_TM_ATTR_CCC_CHANNEL] = { .type = NLA_U8 },
 	[DW3000_TM_ATTR_CCC_TSTART] = { .type = NLA_U32 },
 	[DW3000_TM_ATTR_CCC_TEND] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_CCC_MARGIN_MS] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_CCC_RR_COUNT] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_CCC_OFFSET_MS] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_CCC_CONFLICT_SLOT_IDX] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_DEEP_SLEEP_DELAY_MS] = { .type = NLA_U32 },
 };
 
 struct do_tm_cmd_params {
@@ -52,7 +57,7 @@ struct do_tm_cmd_params {
 	struct nlattr **nl_attr;
 };
 
-static int do_tm_cmd_start_rx_diag(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_start_rx_diag(struct dw3000 *dw, const void *in, void *out)
 {
 	int rc;
 	/**
@@ -70,30 +75,30 @@ static int do_tm_cmd_start_rx_diag(struct dw3000 *dw, void *in, void *out)
 	rc = dw3000_rx_enable(dw, 0, 0, 0);
 	if (rc)
 		return rc;
-	rc = dw3000_setpromiscuous(dw, true);
+	rc = dw3000_set_promiscuous(dw, true);
 	if (rc)
 		return rc;
 	/* Enable statistics */
 	return dw3000_rx_stats_enable(dw, true);
 }
 
-static int do_tm_cmd_stop_rx_diag(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_stop_rx_diag(struct dw3000 *dw, const void *in, void *out)
 {
 	int rc;
 	/* Disable receiver and promiscuous mode */
 	rc = dw3000_rx_disable(dw);
 	if (rc)
 		return rc;
-	rc = dw3000_setpromiscuous(dw, false);
+	rc = dw3000_set_promiscuous(dw, false);
 	if (rc)
 		return rc;
 	/* Disable statistics */
 	return dw3000_rx_stats_enable(dw, false);
 }
 
-static int do_tm_cmd_get_rx_diag(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_get_rx_diag(struct dw3000 *dw, const void *in, void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	struct dw3000_stats *stats = &dw->stats;
 	size_t rssi_len =
 		stats->count[DW3000_STATS_RX_GOOD] * sizeof(struct dw3000_rssi);
@@ -137,14 +142,15 @@ nla_put_failure:
 	return rc;
 }
 
-static int do_tm_cmd_clear_rx_diag(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_clear_rx_diag(struct dw3000 *dw, const void *in, void *out)
 {
 	/* Clear statistics */
 	dw3000_rx_stats_clear(dw);
 	return 0;
 }
 
-static int do_tm_cmd_start_tx_cwtone(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_start_tx_cwtone(struct dw3000 *dw, const void *in,
+				     void *out)
 {
 	int rc;
 	/* Disable receiver */
@@ -155,15 +161,16 @@ static int do_tm_cmd_start_tx_cwtone(struct dw3000 *dw, void *in, void *out)
 	return dw3000_tx_setcwtone(dw, true);
 }
 
-static int do_tm_cmd_stop_tx_cwtone(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_stop_tx_cwtone(struct dw3000 *dw, const void *in,
+				    void *out)
 {
 	/* Stop repeated CW tone */
 	return dw3000_tx_setcwtone(dw, false);
 }
 
-static int do_tm_cmd_otp_read(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_otp_read(struct dw3000 *dw, const void *in, void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	struct sk_buff *msg;
 	u32 otp_val;
 	u16 otp_addr;
@@ -204,9 +211,9 @@ nla_put_failure:
 	return rc;
 }
 
-static int do_tm_cmd_otp_write(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_otp_write(struct dw3000 *dw, const void *in, void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	struct sk_buff *msg;
 	u32 otp_val;
 	u16 otp_addr;
@@ -275,9 +282,9 @@ nla_put_failure:
 	return rc;
 }
 
-static int do_tm_cmd_ccc_start(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_ccc_start(struct dw3000 *dw, const void *in, void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	u8 channel;
 	u32 session_time0;
 	u32 start = 0;
@@ -300,7 +307,7 @@ static int do_tm_cmd_ccc_start(struct dw3000 *dw, void *in, void *out)
 		end = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TEND]);
 	}
 
-	if (dw3000_ccc_start(dw, session_time0, start, end))
+	if (dw3000_ccc_start(dw, channel, session_time0, start, end))
 		ccc_cmd_rc = 0;
 	else
 		ccc_cmd_rc = 1;
@@ -308,9 +315,10 @@ static int do_tm_cmd_ccc_start(struct dw3000 *dw, void *in, void *out)
 	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
 }
 
-static int do_tm_cmd_ccc_test_scratch(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_ccc_test_scratch(struct dw3000 *dw, const void *in,
+				      void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
 
 	/* TODO: write to the whole memory, read back, validate */
@@ -319,9 +327,9 @@ static int do_tm_cmd_ccc_test_scratch(struct dw3000 *dw, void *in, void *out)
 	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
 }
 
-static int do_tm_cmd_ccc_test_spi1(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_ccc_test_spi1(struct dw3000 *dw, const void *in, void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
 
 	/**
@@ -336,9 +344,9 @@ static int do_tm_cmd_ccc_test_spi1(struct dw3000 *dw, void *in, void *out)
 	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
 }
 
-static int do_tm_cmd_ccc_test_spi2(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_ccc_test_spi2(struct dw3000 *dw, const void *in, void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
 
 	/**
@@ -351,9 +359,194 @@ static int do_tm_cmd_ccc_test_spi2(struct dw3000 *dw, void *in, void *out)
 	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
 }
 
-static int do_tm_cmd_ccc_read_tlvs(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_ccc_test_direct(struct dw3000 *dw, const void *in,
+				     void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
+	u8 ccc_cmd_rc;
+	static struct ccc_test_config conf = {
+		.mode = DW3000_CCC_TEST_DIRECT,
+		.start = 0,
+		.end = 0,
+	};
+
+	/* Verify the ccc channel attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
+		return -EINVAL;
+	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
+
+	/* Verify the ccc time0 attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
+		return -EINVAL;
+	conf.session_time0 =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
+
+	if (dw3000_ccc_testmode_start(dw, &conf))
+		ccc_cmd_rc = 0;
+	else
+		ccc_cmd_rc = 1;
+
+	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
+}
+
+static int do_tm_cmd_ccc_test_wait(struct dw3000 *dw, const void *in, void *out)
+{
+	const struct do_tm_cmd_params *params = in;
+	u8 ccc_cmd_rc;
+	static struct ccc_test_config conf = {
+		.mode = DW3000_CCC_TEST_WAIT,
+		.margin_ms = 0,
+		.start = 0,
+		.end = 0,
+	};
+
+	/* Verify the ccc channel attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
+		return -EINVAL;
+	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
+
+	/* Verify the ccc time0 attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
+		return -EINVAL;
+	conf.session_time0 =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
+
+	/* margin_ms is optional */
+	if (params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS])
+		conf.margin_ms = nla_get_u32(
+			params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS]);
+
+	if (dw3000_ccc_testmode_start(dw, &conf))
+		ccc_cmd_rc = 0;
+	else
+		ccc_cmd_rc = 1;
+
+	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
+}
+
+static int do_tm_cmd_ccc_test_late(struct dw3000 *dw, const void *in, void *out)
+{
+	const struct do_tm_cmd_params *params = in;
+	u8 ccc_cmd_rc;
+	static struct ccc_test_config conf = {
+		.mode = DW3000_CCC_TEST_LATE,
+		.margin_ms = 0,
+		.RRcount = 0,
+		.start = 0,
+		.end = 0,
+	};
+
+	/* Verify the ccc channel attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
+		return -EINVAL;
+	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
+
+	/* Verify the ccc time0 attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
+		return -EINVAL;
+	conf.session_time0 =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
+
+	/* margin_ms is mandatory */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS])
+		return -EINVAL;
+	conf.margin_ms =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS]);
+
+	/* RRcount is optional */
+	if (params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT])
+		conf.RRcount = nla_get_u32(
+			params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT]);
+
+	if (dw3000_ccc_testmode_start(dw, &conf))
+		ccc_cmd_rc = 0;
+	else
+		ccc_cmd_rc = 1;
+
+	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
+}
+
+static int do_tm_cmd_ccc_test_conflict(struct dw3000 *dw, const void *in,
+				       void *out)
+{
+	const struct do_tm_cmd_params *params = in;
+	u8 ccc_cmd_rc;
+	static struct ccc_test_config conf = {
+		.mode = DW3000_CCC_TEST_CONFLICT,
+		.RRcount = 0,
+		.start = 0,
+		.end = 0,
+	};
+
+	/* Verify the ccc channel attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
+		return -EINVAL;
+	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
+
+	/* Verify the ccc time0 attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
+		return -EINVAL;
+	conf.session_time0 =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
+
+	/* conflit_slot_idx is mandatory */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CONFLICT_SLOT_IDX])
+		return -EINVAL;
+	conf.conflit_slot_idx = nla_get_u32(
+		params->nl_attr[DW3000_TM_ATTR_CCC_CONFLICT_SLOT_IDX]);
+
+	/* RRcount is optional */
+	if (params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT])
+		conf.RRcount = nla_get_u32(
+			params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT]);
+
+	if (dw3000_ccc_testmode_start(dw, &conf))
+		ccc_cmd_rc = 0;
+	else
+		ccc_cmd_rc = 1;
+
+	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
+}
+
+static int do_tm_cmd_ccc_test_offset(struct dw3000 *dw, const void *in,
+				     void *out)
+{
+	const struct do_tm_cmd_params *params = in;
+	u8 ccc_cmd_rc;
+	static struct ccc_test_config conf = {
+		.mode = DW3000_CCC_TEST_SLEEP_OFFSET,
+		.offset_ms = 0,
+		.start = 0,
+		.end = 0,
+	};
+
+	/* Verify the ccc channel attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
+		return -EINVAL;
+	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
+
+	/* Verify the ccc time0 attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
+		return -EINVAL;
+	conf.session_time0 =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
+
+	/* offset_ms is mandatory */
+	if (!params->nl_attr[DW3000_TM_ATTR_CCC_OFFSET_MS])
+		return -EINVAL;
+	conf.offset_ms =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_OFFSET_MS]);
+	if (dw3000_ccc_testmode_start(dw, &conf))
+		ccc_cmd_rc = 0;
+	else
+		ccc_cmd_rc = 1;
+
+	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
+}
+
+static int do_tm_cmd_ccc_read_tlvs(struct dw3000 *dw, const void *in, void *out)
+{
+	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
 
 	/* TODO: read tlvs values */
@@ -362,15 +555,29 @@ static int do_tm_cmd_ccc_read_tlvs(struct dw3000 *dw, void *in, void *out)
 	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
 }
 
-static int do_tm_cmd_ccc_write_tlvs(struct dw3000 *dw, void *in, void *out)
+static int do_tm_cmd_ccc_write_tlvs(struct dw3000 *dw, const void *in,
+				    void *out)
 {
-	struct do_tm_cmd_params *params = in;
+	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
 
 	/* TODO: write tlvs values */
 	ccc_cmd_rc = 1;
 
 	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
+}
+
+static int do_tm_cmd_deep_sleep(struct dw3000 *dw, const void *in, void *out)
+{
+	const struct do_tm_cmd_params *params = in;
+	u32 delay;
+
+	/* Verify the delay attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_DEEP_SLEEP_DELAY_MS])
+		return -EINVAL;
+	delay = nla_get_u32(
+		params->nl_attr[DW3000_TM_ATTR_DEEP_SLEEP_DELAY_MS]);
+	return dw3000_go_to_deep_sleep_and_wakeup_after_ms(dw, delay);
 }
 
 int dw3000_tm_cmd(struct mcps802154_llhw *llhw, void *data, int len)
@@ -395,6 +602,12 @@ int dw3000_tm_cmd(struct mcps802154_llhw *llhw, void *data, int len)
 		[DW3000_TM_CMD_CCC_TEST_SPI2] = do_tm_cmd_ccc_test_spi2,
 		[DW3000_TM_CMD_CCC_READ_TLVS] = do_tm_cmd_ccc_read_tlvs,
 		[DW3000_TM_CMD_CCC_WRITE_TLVS] = do_tm_cmd_ccc_write_tlvs,
+		[DW3000_TM_CMD_CCC_TEST_DIRECT] = do_tm_cmd_ccc_test_direct,
+		[DW3000_TM_CMD_CCC_TEST_WAIT] = do_tm_cmd_ccc_test_wait,
+		[DW3000_TM_CMD_CCC_TEST_LATE] = do_tm_cmd_ccc_test_late,
+		[DW3000_TM_CMD_CCC_TEST_CONFLICT] = do_tm_cmd_ccc_test_conflict,
+		[DW3000_TM_CMD_CCC_TEST_OFFSET] = do_tm_cmd_ccc_test_offset,
+		[DW3000_TM_CMD_DEEP_SLEEP] = do_tm_cmd_deep_sleep,
 	};
 	u32 tm_cmd;
 	int ret;

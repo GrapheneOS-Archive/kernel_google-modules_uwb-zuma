@@ -108,7 +108,7 @@ static const struct nla_policy fira_session_param_nla_policy[FIRA_SESSION_PARAM_
 	},
 	[FIRA_SESSION_PARAM_ATTR_PREAMBLE_DURATION] = {
 		.type = NLA_U8, .validation_type = NLA_VALIDATE_MAX,
-		.max = FIRA_PREAMBULE_DURATION_32
+		.max = FIRA_PREAMBULE_DURATION_64
 	},
 	[FIRA_SESSION_PARAM_ATTR_SFD_ID] = {
 		.type = NLA_U8, .validation_type = NLA_VALIDATE_MAX,
@@ -148,8 +148,8 @@ static const struct nla_policy fira_session_param_nla_policy[FIRA_SESSION_PARAM_
 		.max = FIRA_STS_CONFIG_DYNAMIC_INDIVIDUAL_KEY
 	},
 	[FIRA_SESSION_PARAM_ATTR_SUB_SESSION_ID] = { .type = NLA_U32 },
-	[FIRA_SESSION_PARAM_ATTR_VUPPER64] = {
-		.type = NLA_BINARY, .len = FIRA_VUPPER64_SIZE },
+	[FIRA_SESSION_PARAM_ATTR_VUPPER64] =
+		NLA_POLICY_EXACT_LEN(FIRA_VUPPER64_SIZE),
 	[FIRA_SESSION_PARAM_ATTR_SESSION_KEY] = {
 		.type = NLA_BINARY, .len = FIRA_KEY_SIZE_MAX },
 	[FIRA_SESSION_PARAM_ATTR_SUB_SESSION_KEY] = {
@@ -232,6 +232,13 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 		int initiation_time_dtu;
 		int r;
 
+		r = fira_crypto_derive_per_session(local, session);
+		if (r)
+			return r;
+		r = fira_crypto_derive_per_rotation(local, session, 0);
+		if (r)
+			return r;
+
 		r = mcps802154_get_current_timestamp_dtu(local->llhw, &now_dtu);
 		if (r)
 			return r;
@@ -240,7 +247,7 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 				      (local->llhw->dtu_freq_hz / 1000);
 		session->block_start_dtu = now_dtu + initiation_time_dtu;
 		session->block_index = 0;
-		session->sts_index = 0;
+		session->sts_index = session->crypto.sts_index_init;
 		session->round_index = 0;
 		session->next_round_index = 0;
 		/* With invalid index value the fira_update_antennas_id function will start
@@ -281,6 +288,9 @@ static int fira_session_stop(struct fira_local *local, u32 session_id,
 		/* TODO: Stop fira session. */
 		list_move(&session->entry, &local->inactive_sessions);
 	}
+	/* Reset to max value as it will be recomputed on session start with
+	 * fira_session_is_ready call. */
+	session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
 	return 0;
 }
 
@@ -350,22 +360,45 @@ static int fira_session_set_parameters(struct fira_local *local, u32 session_id,
 			session->params.member = conv;                  \
 		}                                                       \
 	} while (0)
+#define PMEMCPY(attr, member)                                          \
+	do {                                                           \
+		if (attrs[FIRA_SESSION_PARAM_ATTR_##attr]) {           \
+			struct nlattr *attr =                          \
+				attrs[FIRA_SESSION_PARAM_ATTR_##attr]; \
+			memcpy(session->params.member, nla_data(attr), \
+			       nla_len(attr));                         \
+		}                                                      \
+	} while (0)
+	/* Main session parameters. */
 	P(DEVICE_TYPE, device_type, u8, x);
+	P(RANGING_ROUND_USAGE, ranging_round_usage, u8, x);
+	P(MULTI_NODE_MODE, multi_node_mode, u8, x);
 	P(DESTINATION_SHORT_ADDR, controller_short_addr, u16, x);
+	/* Timings parameters. */
 	P(INITIATION_TIME_MS, initiation_time_ms, u32, x);
 	P(SLOT_DURATION_RSTU, slot_duration_dtu, u32,
 	  x * local->llhw->rstu_dtu);
 	P(BLOCK_DURATION_MS, block_duration_dtu, u32,
 	  x * (local->llhw->dtu_freq_hz / 1000));
 	P(ROUND_DURATION_SLOTS, round_duration_slots, u32, x);
+	/* Behaviour parameters. */
 	P(PRIORITY, priority, u8, x);
-	P(MULTI_NODE_MODE, multi_node_mode, u8, x);
+	/* Radio parameters. */
+	P(CHANNEL_NUMBER, channel_number, u8, x);
+	P(PREAMBLE_CODE_INDEX, preamble_code_index, u8, x);
+	P(RFRAME_CONFIG, rframe_config, u8, x);
+	P(PREAMBLE_DURATION, preamble_duration, u8, x);
+	P(SFD_ID, sfd_id, u8, x);
+	P(PSDU_DATA_RATE, psdu_data_rate, u8, x);
+	P(MAC_FCS_TYPE, mac_fcs_type, u8, x);
 	/* Antenna parameters. */
 	P(RX_ANTENNA_SELECTION, rx_antenna_selection, u8, x);
 	P(RX_ANTENNA_PAIR_AZIMUTH, rx_antenna_pair_azimuth, u8, x);
 	P(RX_ANTENNA_PAIR_ELEVATION, rx_antenna_pair_elevation, u8, x);
 	P(TX_ANTENNA_SELECTION, tx_antenna_selection, u8, x);
 	P(RX_ANTENNA_SWITCH, rx_antenna_switch, u8, x);
+	/* STS and crypto parameters. */
+	PMEMCPY(VUPPER64, vupper64);
 	/* Report parameters. */
 	P(AOA_RESULT_REQ, aoa_result_req, u8, !!x);
 	P(REPORT_TOF, report_tof, u8, !!x);
@@ -374,6 +407,7 @@ static int fira_session_set_parameters(struct fira_local *local, u32 session_id,
 	P(REPORT_AOA_FOM, report_aoa_fom, u8, !!x);
 	/* TODO: set all fira session parameters. */
 #undef P
+#undef PMEMCPY
 
 	p = &session->params;
 	switch (p->rx_antenna_switch) {
@@ -425,6 +459,7 @@ static int fira_manage_controlees(struct fira_local *local, u32 call_id,
 	struct nlattr *attrs[FIRA_CALL_CONTROLEE_ATTR_MAX + 1];
 	int r, rem, i, n_controlees = 0;
 	struct fira_session *session;
+	struct fira_controlees_array *controlees_array;
 	bool active;
 
 	if (!params)
@@ -476,15 +511,37 @@ static int fira_manage_controlees(struct fira_local *local, u32 call_id,
 	session = fira_session_get(local, session_id, &active);
 	if (!session)
 		return -ENOENT;
-	if (active)
-		/* TODO: handle live update. */
-		return -EBUSY;
 
-	if (call_id == FIRA_CALL_DEL_CONTROLEE)
-		return fira_session_del_controlees(local, session, controlees,
-						   n_controlees);
-	return fira_session_new_controlees(local, session, controlees,
-					   n_controlees);
+	if (session->params.update_controlees) {
+		/* Many changes on same round is not supported. */
+		return -EBUSY;
+	} else if (active) {
+		fira_session_copy_controlees(
+			&session->params.new_controlees,
+			&session->params.current_controlees);
+		/* Use second array to not disturbe active session. */
+		controlees_array = &session->params.new_controlees;
+	} else {
+		/* No risk to disturbe this session. */
+		controlees_array = &session->params.current_controlees;
+	}
+
+	if (call_id == FIRA_CALL_DEL_CONTROLEE) {
+		r = fira_session_del_controlees(local, session,
+						controlees_array, controlees,
+						n_controlees);
+	} else {
+		r = fira_session_new_controlees(local, session,
+						controlees_array, controlees,
+						n_controlees);
+	}
+	if (r)
+		return r;
+
+	if (active)
+		session->params.update_controlees = true;
+
+	return 0;
 }
 
 int fira_get_capabilities(struct fira_local *local,

@@ -241,6 +241,21 @@ TRACE_EVENT(dw3000_mcps_set_hw_addr_filt,
 		  __entry->changed)
 );
 
+TRACE_EVENT(dw3000_mcps_set_sts_params,
+	TP_PROTO(struct dw3000 *dw, const struct mcps802154_sts_params *p),
+	TP_ARGS(dw, p),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u8, n_segs)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->n_segs = p->n_segs;
+	),
+	TP_printk(DW_PR_FMT ", n_segs: %u", DW_PR_ARG,
+		  __entry->n_segs)
+);
+
 /*************************************************************
  *		dw3000 core functions traces		     *
  *************************************************************/
@@ -302,6 +317,27 @@ TRACE_EVENT(dw3000_coex_gpio,
 	TP_printk(DW_PR_FMT ", state: %s, delay_us: %d, expire: %u",
 		DW_PR_ARG, __entry->state ? "ON" : "OFF", __entry->delay_us,
 		  (unsigned)__entry->expire)
+);
+
+TRACE_EVENT(dw3000_adjust_tx_power,
+	TP_PROTO(struct dw3000 *dw, int len, u32 base_power,
+		 u32 adjusted_power),
+	TP_ARGS(dw, len, base_power, adjusted_power),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(int, len)
+		__field(u32, base_power)
+		__field(u32, adjusted_power)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->len = len;
+		__entry->base_power = base_power;
+		__entry->adjusted_power = adjusted_power;
+	),
+	TP_printk(DW_PR_FMT ", len: %d, base pwr: 0x%08x, adjusted: 0x%08x",
+		DW_PR_ARG, __entry->len,  __entry->base_power,
+		__entry->adjusted_power)
 );
 
 /*************************************************************

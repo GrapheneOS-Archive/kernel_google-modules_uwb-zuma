@@ -33,6 +33,7 @@
 #include "dw3000_stm.h"
 #include "dw3000_calib.h"
 #include "dw3000_testmode_nl.h"
+#include "dw3000_ccc.h"
 
 #undef BIT_MASK
 #ifndef DEBUG
@@ -75,10 +76,14 @@ struct dw3000_isr_data {
 #define DW3000_RCTU_PER_DTU (DW3000_RCTU_PER_CHIP * DW3000_CHIP_PER_DTU)
 #define DW3000_RCTU_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_RCTU_PER_CHIP)
 #define DW3000_NSEC_PER_DTU (1000000000 / DW3000_DTU_FREQ)
+
 /* 6.9.1.5 in 4z, for HRP UWB PHY:
    416 chips = 416 / (499.2 * 10^6) ~= 833.33 ns */
 #define DW3000_DTU_PER_RSTU (416 / DW3000_CHIP_PER_DTU)
 #define DW3000_DTU_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_CHIP_PER_DTU)
+
+#define DTU_TO_US(x) (int)((s64)(x)*1000000 / DW3000_DTU_FREQ)
+#define US_TO_DTU(x) (int)((s64)(x)*DW3000_DTU_FREQ / 1000000)
 
 #define DW3000_RX_ENABLE_STARTUP_DLY 16
 #define DW3000_RX_ENABLE_STARTUP_DTU                          \
@@ -117,11 +122,10 @@ struct dw3000_otp_data {
 enum dw3000_ciagdiag_reg_select {
 	DW3000_CIA_DIAG_REG_SELECT_WITHOUT_STS = 0,
 	DW3000_CIA_DIAG_REG_SELECT_WITH_STS = 1,
-	DW3000_CIA_DIAG_REG_SELECT_WITH_PDAO_M3 = 3,
+	DW3000_CIA_DIAG_REG_SELECT_WITH_PDAO_M3 = 2,
 };
 
-/* DW3000 data */
-/* TODO: Delete */
+/* DW3000 data & register cache */
 struct dw3000_local_data {
 	enum dw3000_spi_crc_mode spicrc;
 	/* Flag to check if DC values are programmed in OTP.
@@ -132,7 +136,6 @@ struct dw3000_local_data {
 	u16 max_frames_len;
 	u16 sleep_mode;
 	s16 ststhreshold;
-	u8 stsconfig;
 	/* CIA diagnostic on/off */
 	bool ciadiag_enabled;
 	/* CIA diagnostic double buffering option */
@@ -147,6 +150,10 @@ struct dw3000_local_data {
 	u32 w4r_time;
 	/* Auto ack turnaroud time */
 	u8 ack_time;
+	/* STS Key */
+	u8 sts_key[AES_KEYSIZE_128];
+	/* STS IV */
+	u8 sts_iv[AES_BLOCK_SIZE];
 };
 
 /* Statistics items */
@@ -225,71 +232,63 @@ struct dw3000_power_control {
 };
 
 /**
- * dw3000_config - Structure holding current device configuration
+ * struct dw3000_config - Structure holding current device configuration
+ * @chan: Channel number (5 or 9)
+ * @txPreambLength: DW3000_PLEN_64..DW3000_PLEN_4096
+ * @txCode: TX preamble code (the code configures the PRF, e.g. 9 -> PRF of 64 MHz)
+ * @rxCode: RX preamble code (the code configures the PRF, e.g. 9 -> PRF of 64 MHz)
+ * @sfdType: SFD type (0 for short IEEE 8b standard, 1 for DW 8b, 2 for DW 16b, 2 for 4z BPRF)
+ * @dataRate: Data rate {DW3000_BR_850K or DW3000_BR_6M8}
+ * @phrMode: PHR mode {0x0 - standard DW3000_PHRMODE_STD, 0x3 - extended frames DW3000_PHRMODE_EXT}
+ * @phrRate: PHR rate {0x0 - standard DW3000_PHRRATE_STD, 0x1 - at datarate DW3000_PHRRATE_DTA}
+ * @sfdTO: SFD timeout value (in symbols)
+ * @stsMode: STS mode (no STS, STS before PHR or STS after data)
+ * @stsLength: STS length (see enum dw3000_sts_lengths)
+ * @pdoaMode: PDOA mode
+ * @ant: Antennas currently connected to RF1 & RF2 ports respectively
+ * @pdoaOffset: Calibrated PDOA offset
+ * @rmarkerOffset: Calibrated rmarker offset
+ * @baseTxPower: Tx power for 1ms frame
+ * @promisc: Promiscuous mode enabled?
+ * @hw_addr_filt: HW filter configuration
  */
 struct dw3000_config {
-	/* Channel number (5 or 9) */
 	u8 chan;
-	/* DW3000_PLEN_64..DW3000_PLEN_4096 */
 	u8 txPreambLength;
-	/* TX preamble code (the code configures the PRF, e.g. 9 -> PRF of 64 MHz) */
 	u8 txCode;
-	/* RX preamble code (the code configures the PRF, e.g. 9 -> PRF of 64 MHz) */
 	u8 rxCode;
-	/* SFD type (0 for short IEEE 8b standard, 1 for DW 8b, 2 for DW 16b, 2 for 4z BPRF) */
 	u8 sfdType;
-	/* Data rate {DW3000_BR_850K or DW3000_BR_6M8} */
 	u8 dataRate;
-	/* PHR mode {0x0 - standard DW3000_PHRMODE_STD, 0x3 - extended frames DW3000_PHRMODE_EXT} */
 	u8 phrMode;
-	/* PHR rate {0x0 - standard DW3000_PHRRATE_STD, 0x1 - at datarate DW3000_PHRRATE_DTA} */
 	u8 phrRate;
-	/* SFD timeout value (in symbols) */
 	u16 sfdTO;
-	/* STS mode (no STS, STS before PHR or STS after data) */
 	u8 stsMode;
-	/* PDOA mode */
-	u8 pdoaMode;
-	/* Antenna currently connected to RF1 & RF2 ports respectively */
-	s8 ant[2];
-	/* Calibrated PDOA offset */
-	s16 pdoaOffset;
-	/* Calibrated rmarker offset */
-	u32 rmarkerOffset;
-	/* STS length (see enum) */
 	enum dw3000_sts_lengths stsLength;
-	/* Promisicuous mode enabled? */
+	u8 pdoaMode;
+	s8 ant[2];
+	s16 pdoaOffset;
+	u32 rmarkerOffset;
+	u32 baseTxPower;
 	bool promisc;
-	/* HW filter configuration */
 	struct ieee802154_hw_addr_filt hw_addr_filt;
 };
 
-/* TX configuration,  power & PG delay */
+/**
+ * struct dw3000_txconfig - Structure holding current TX configuration
+ * @PGdly: PG delay
+ * @PGcount: PG count
+ * @power: TX power
+ *  31:24     TX_CP_PWR
+ *  23:16     TX_SHR_PWR
+ *  15:8      TX_PHR_PWR
+ *  7:0       TX_DATA_PWR
+ * @testmode_enabled: Normal or test mode
+ */
 struct dw3000_txconfig {
 	u8 PGdly;
 	u8 PGcount;
-	/*TX POWER
-	31:24     TX_CP_PWR
-	23:16     TX_SHR_PWR
-	15:8      TX_PHR_PWR
-	7:0       TX_DATA_PWR */
 	u32 power;
-	/* Normal or test mode */
 	bool testmode_enabled;
-};
-
-struct sysfs_power_stats {
-	u64 dur;
-	u64 count;
-};
-
-enum power_state {
-	DW3000_PWR_OFF = 0,
-	DW3000_PWR_RUN,
-	DW3000_PWR_IDLE,
-	DW3000_PWR_RX,
-	DW3000_PWR_TX,
-	DW3000_PWR_MAX,
 };
 
 enum operational_state {
@@ -308,10 +307,41 @@ enum operational_state {
 };
 
 /**
+ * struct sysfs_power_stats - DW3000 device power related data
+ * @dur: accumulated duration in selected state in ns except for RX/TX where
+ *  duration is in DTU
+ * @count: number of time this state was active
+ */
+struct sysfs_power_stats {
+	u64 dur;
+	u64 count;
+};
+
+/**
+ * enum power_state - DW3000 device current power state
+ * @DW3000_PWR_OFF: DW3000 is OFF (unpowered or in reset)
+ * @DW3000_PWR_DEEPSLEEP: DW3000 is ACTIVE (started) but in DEEP SLEEP
+ * @DW3000_PWR_RUN: DW3000 is ACTIVE (include RX/TX state below)
+ * @DW3000_PWR_IDLE: DW3000 is ACTIVE but IDLE (only count is used for it)
+ * @DW3000_PWR_RX: DW3000 is currently RECEIVING
+ * @DW3000_PWR_TX: DW3000 is currently TRANSMITTING
+ * @DW3000_PWR_MAX: Number of power states stored in struct dw3000_power
+ */
+enum power_state {
+	DW3000_PWR_OFF = 0,
+	DW3000_PWR_DEEPSLEEP,
+	DW3000_PWR_RUN,
+	DW3000_PWR_IDLE,
+	DW3000_PWR_RX,
+	DW3000_PWR_TX,
+	DW3000_PWR_MAX,
+};
+
+/**
  * struct dw3000_power - DW3000 device power related data
- * @stats: calculated stats
+ * @stats: accumulated statistics defined by struct sysfs_power_stats
  * @start_time: timestamp of current state start
- * @cur_state: current state
+ * @cur_state: current state defined by enum power_state
  * @tx_adjust: TX time adjustment based on frame length
  * @rx_start: RX start date in DTU for RX time adjustment
  */
@@ -321,6 +351,46 @@ struct dw3000_power {
 	int cur_state;
 	int tx_adjust;
 	u32 rx_start;
+};
+
+enum dw3000_ccc_state {
+	DW3000_CCC_OFF,
+	DW3000_CCC_ON,
+};
+
+/**
+ * struct dw3000_ccc - CCC coexistance related data
+ * @state: CCC state : ON or OFF (may evolve in future versions)
+ * @seqnum: sent messages counter
+ * @process_received_msg_cb: callback that process incoming TLVs
+ * @process_received_msg_cb_args: callback data
+ * @original_channel: channel setting to be restored after CCC session
+ */
+struct dw3000_ccc {
+	enum dw3000_ccc_state state;
+	uint8_t seqnum;
+	ccc_callback process_received_msg_cb;
+	void *process_received_msg_cb_args;
+	u8 original_channel;
+};
+
+/**
+ * struct dw3000_deep_sleep_state - Useful data to restore on wake up
+ * @dtu_before_deep_sleep: DTU immediately before enter deep sleep
+ * @time_before_deep_sleep: time in ns immediately before enter deep sleep
+ * @dtu_on_wakeup: DTU immediately after the PLL lock on the wake up
+ * @time_on_wakeup: time in ns immediately after the PLL lock on the wake up
+ * @dtu_wakeup_offset: Offset in DTU to add to the current DTU to have the DTU
+ * @ccc_nextslot_dtu: Time in DTU of the next CCC slot before deep sleep
+ * as if the system had not gone into DEEP SLEEP mode.
+ */
+struct dw3000_deep_sleep_state {
+	u32 dtu_before_deep_sleep;
+	u64 time_before_deep_sleep;
+	u32 dtu_on_wakeup;
+	u64 time_on_wakeup;
+	u32 dtu_wakeup_offset;
+	u32 ccc_nextslot_dtu;
 };
 
 /**
@@ -337,6 +407,8 @@ struct dw3000_power {
  * @calib_data: calibration data
  * @stats: statistics
  * @power: power related statistics and states
+ * @deep_sleep_state: state related to the deep sleep
+ * @deep_sleep_timer: timer to wake up the chip after deep sleep
  * @chip_dev_id: identified chip device ID
  * @started: interface status
  * @has_lock_pm: power management locked status
@@ -348,7 +420,7 @@ struct dw3000_power {
  * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
  * @lna_pa_mode: LNA/PA configuration to use
  * @autoack: auto-ack status, true if activated
- * @nfcc_mode: NFCC mode enabled, true if activated
+ * @ccc: CCC related data
  * @pgf_cal_running: true if pgf calibration is running
  * @stm: High-priority thread state machine
  * @rx: received skbuff and associated spinlock
@@ -391,6 +463,9 @@ struct dw3000 {
 	/* Statistics */
 	struct dw3000_stats stats;
 	struct dw3000_power power;
+	/* Deep Sleep management */
+	struct dw3000_deep_sleep_state deep_sleep_state;
+	struct timer_list deep_sleep_timer;
 	/* Detected chip device ID */
 	u32 chip_dev_id;
 	/* True when MCPS start() operation had been called */
@@ -410,14 +485,19 @@ struct dw3000 {
 	s8 lna_pa_mode;
 	/* Is auto-ack activated? */
 	bool autoack;
-	/* Is NFCC mode enabled */
-	bool nfcc_mode;
+	/* CCC data */
+	struct dw3000_ccc ccc;
 	/* pgf calibration running */
 	bool pgf_cal_running;
 	/* State machine */
 	struct dw3000_state stm;
 	/* Receive descriptor */
 	struct dw3000_rx rx;
+	/* Internal operational state of the chip */
+	enum operational_state current_operational_state;
+
+	/* Insert new fields before this line */
+
 	/* Shared message protected by a mutex */
 	struct mutex msg_mutex;
 	struct spi_message *msg_readwrite_fdx;
@@ -434,8 +514,6 @@ struct dw3000 {
 	struct spi_message *msg_read_dss_status;
 	struct spi_message *msg_write_dss_status;
 	struct spi_message *msg_write_spi_collision_status;
-	/* Internal operational state of the chip */
-	enum operational_state current_operational_state;
 	struct dw3000_power_control regulators;
 };
 

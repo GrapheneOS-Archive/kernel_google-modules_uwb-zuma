@@ -136,17 +136,8 @@ int mcps802154_scheduler_set_parameters(struct mcps802154_scheduler *scheduler,
 	return scheduler->ops->set_parameters(scheduler, params_attr, extack);
 }
 
-const char *const *
-mcps802154_scheduler_list_region_ids(struct mcps802154_scheduler *scheduler)
-{
-	if (!scheduler->ops->list_region_ids)
-		return NULL;
-
-	return scheduler->ops->list_region_ids(scheduler);
-}
-
 int mcps802154_scheduler_set_region_parameters(
-	struct mcps802154_scheduler *scheduler, const char *region_id,
+	struct mcps802154_scheduler *scheduler, u32 region_id,
 	const char *region_name, const struct nlattr *params_attr,
 	struct netlink_ext_ack *extack)
 {
@@ -168,8 +159,8 @@ int mcps802154_scheduler_call(struct mcps802154_scheduler *scheduler,
 }
 
 int mcps802154_scheduler_call_region(struct mcps802154_scheduler *scheduler,
-				     const char *region_id,
-				     const char *region_name, u32 call_id,
+				     u32 region_id, const char *region_name,
+				     u32 call_id,
 				     const struct nlattr *params_attr,
 				     const struct genl_info *info)
 {

@@ -95,11 +95,11 @@ s16 sqrt_fp(s16 x)
 
 s16 asin_fp(s16 x)
 {
-	static const s16 pi2 = 3217;	/* Same as round((M_PI * K) / 2) */
-	static const s16 a0 = 3217;	/* Same as pi2 */
-	static const s16 a1 = -434;	/* Same as round(-0.2121144 * K) */
-	static const s16 a2 = 152;	/* Same as round(0.074261 * K) */
-	static const s16 a3 = -38;	/* Same as (-0.0187293 * K) */
+	static const s16 pi2 = 3217; /* Same as round((M_PI * K) / 2) */
+	static const s16 a0 = 3217; /* Same as pi2 */
+	static const s16 a1 = -434; /* Same as round(-0.2121144 * K) */
+	static const s16 a2 = 152; /* Same as round(0.074261 * K) */
+	static const s16 a3 = -38; /* Same as (-0.0187293 * K) */
 	s16 xx, y;
 
 	/* Same as : abs(x) in stdlib, which is not available. */

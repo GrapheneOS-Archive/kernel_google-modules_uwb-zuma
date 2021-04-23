@@ -79,7 +79,7 @@ static void mcps802154_fproc_rx_rx_frame(struct mcps802154_local *local)
 }
 
 static void mcps802154_fproc_rx_rx_error(struct mcps802154_local *local,
-					 enum mcps802154_rx_error error)
+					 enum mcps802154_rx_error_type error)
 {
 	mcps802154_fproc_access_done(local);
 

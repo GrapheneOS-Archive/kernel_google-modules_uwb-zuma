@@ -36,6 +36,9 @@
 #define IEEE802154_FC_IE_PRESENT_SHIFT 9
 #define IEEE802154_FC_IE_PRESENT (1 << IEEE802154_FC_IE_PRESENT_SHIFT)
 
+#define IEEE802154_SCF_LEN 1
+#define IEEE802154_SCF_NO_FRAME_COUNTER (1 << 5)
+
 #define IEEE802154_IE_HEADER_LEN 2
 #define IEEE802154_IE_HEADER_TYPE_SHIFT 15
 #define IEEE802154_IE_HEADER_TYPE (1 << IEEE802154_IE_HEADER_TYPE_SHIFT)
@@ -91,6 +94,10 @@ enum mcps802154_ie_get_kind {
  */
 struct mcps802154_ie_get_context {
 	/**
+	 * @in_payload: If true, next decoding is in payload.
+	 */
+	bool in_payload;
+	/**
 	 * @kind: Kind of decoded IE.
 	 */
 	enum mcps802154_ie_get_kind kind;
@@ -143,7 +150,7 @@ void mcps802154_ie_put_begin(struct sk_buff *skb);
  *
  * This function appends a terminator IE if needed.
  *
- * Return: 0 or -ENOBUFS in case of error.
+ * Return: Length of frame header or -ENOBUFS in case of error.
  */
 int mcps802154_ie_put_end(struct sk_buff *skb, bool data_payload);
 
@@ -300,5 +307,20 @@ u64 mcps802154_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
 s64 mcps802154_difference_timestamp_rctu(struct mcps802154_llhw *llhw,
 					 u64 timestamp_a_rctu,
 					 u64 timestamp_b_rctu);
+
+/**
+ * mcps802154_vendor_cmd() - Run a driver vendor specific command.
+ * @llhw: Low-level device pointer.
+ * @vendor_id: Vendor identifier as an OUI.
+ * @subcmd: Command identifier.
+ * @data: Data to be passed to driver, can be in/out.
+ * @data_len: Data length.
+ *
+ * The valid moment to call this function is driver and command specific.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_vendor_cmd(struct mcps802154_llhw *llhw, u32 vendor_id,
+			  u32 subcmd, void *data, size_t data_len);
 
 #endif /* NET_MCPS802154_FRAME_H */

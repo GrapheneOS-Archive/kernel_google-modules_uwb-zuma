@@ -22,13 +22,14 @@
  * Please contact Qorvo to inquire about licensing terms.
  */
 #include "dw3000.h"
+#include "dw3000_txpower_adjustment.h"
 
 /* clang-format off */
 #define CHAN_PRF_PARAMS (4 * DW3000_CALIBRATION_PRF_MAX)
 #define ANT_CHAN_PARAMS (CHAN_PRF_PARAMS * DW3000_CALIBRATION_CHANNEL_MAX)
 #define ANT_OTHER_PARAMS (3) /* port, selector_gpio... */
 #define ANTPAIR_CHAN_PARAMS (2 * DW3000_CALIBRATION_CHANNEL_MAX)
-#define OTHER_PARAMS (2) /* xtal_trim & temperature_reference */
+#define OTHER_PARAMS (3) /* xtal_trim, temperature_reference, smart_tx_power */
 
 #define MAX_CALIB_KEYS ((ANTMAX * (ANT_CHAN_PARAMS + ANT_OTHER_PARAMS)) + \
 			(ANTPAIR_MAX * ANTPAIR_CHAN_PARAMS) +		\
@@ -86,6 +87,8 @@ static const struct {
 	/* chY.* */
 	CAL_INFO(ch[0].pll_locking_code),
 	CAL_INFO(ch[1].pll_locking_code),
+	/* other */
+	CAL_INFO(smart_tx_power),
 	/* other with defaults from OTP */
 	OTP_INFO(xtal_trim),
 	OTP_INFO(tempP)
@@ -134,6 +137,8 @@ static const char *const dw3000_calib_keys[MAX_CALIB_KEYS + 1] = {
 	"ch5.pll_locking_code",
 	"ch9.pll_locking_code",
 	/* other */
+	"smart_tx_power",
+	/* other (OTP) */
 	"xtal_trim",
 	"temperature_reference",
 	/* NULL terminated array for caller of dw3000_calib_list_keys(). */
@@ -231,5 +236,12 @@ int dw3000_calib_update_config(struct dw3000 *dw)
 	antpair_calib = &dw->calib_data.antpair[antpair];
 	/* Update PDOA offset */
 	config->pdoaOffset = antpair_calib->ch[chanidx].pdoa_offset;
+
+	/* Smart TX power */
+	config->baseTxPower = txconfig->power;
+	/* When deactivated, reset register to default value (if change occurs
+	   while already started) */
+	if (!dw->calib_data.smart_tx_power && dw->started)
+		dw3000_set_tx_power_register(dw, config->baseTxPower);
 	return 0;
 }

@@ -80,6 +80,36 @@ int dw3000_enqueue_generic(struct dw3000 *dw, struct dw3000_stm_command *cmd)
 	return cmd->ret;
 }
 
+/* Enqueue a timer work and don't wait for execution because sleeping in not
+ * possible from a timer callback function.
+ */
+void dw3000_enqueue_timer(struct dw3000 *dw, struct dw3000_stm_command *cmd)
+{
+	struct dw3000_state *stm = &dw->stm;
+	unsigned long flags;
+
+	spin_lock_irqsave(&stm->work_wq.lock, flags);
+	if (stm->pending_work & DW3000_TIMER_WORK) {
+		/* A timer cmd is already queued. */
+		spin_unlock_irqrestore(&stm->work_wq.lock, flags);
+		dev_err(dw->dev,
+			"A timer cmd is already queued, this cmd will be ignored\n");
+		return;
+	}
+	stm->pending_work |= DW3000_TIMER_WORK;
+	/* The cmd should not be stored on the stack of the calling function. */
+	stm->timer_work = *cmd;
+	wake_up_locked(&stm->work_wq);
+	/* Can't unlock in the event thread, when the cmd is finished, because
+	 * the current function is executed in the timer function in atomic context.
+	 * If the unlock is made in the event thread, a preempt leak warning
+	 * occurs in call_timer_fn().
+	 * So, it's less bad to unlock here.
+	 */
+	spin_unlock_irqrestore(&stm->work_wq.lock, flags);
+	/* Can't return cmd->ret because it's not yet executed. */
+}
+
 /* Dequeue work item(s) */
 void dw3000_dequeue(struct dw3000 *dw, unsigned long work)
 {
@@ -145,7 +175,7 @@ unsigned long dw3000_get_pending_work(struct dw3000 *dw)
 }
 
 /* Init work that run inside the high-priority thread below */
-int dw3000_init_work(struct dw3000 *dw, void *in, void *out)
+int dw3000_init_work(struct dw3000 *dw, const void *in, void *out)
 {
 	int rc;
 
@@ -211,6 +241,14 @@ int dw3000_event_thread(void *data)
 				/* Run SPI tests if enabled after dw3000_init_work. */
 				dw3000_spitests(dw);
 			}
+		}
+
+		/* Execute the cmd from a timer handler that can't sleep. */
+		if (pending_work & DW3000_TIMER_WORK) {
+			struct dw3000_stm_command *cmd = &stm->timer_work;
+
+			cmd->ret = cmd->cmd(dw, cmd->in, cmd->out);
+			dw3000_dequeue(dw, DW3000_TIMER_WORK);
 		}
 
 		if (!pending_work) {

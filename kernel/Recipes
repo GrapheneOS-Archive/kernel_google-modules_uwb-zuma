@@ -2,12 +2,15 @@
 #
 # You can get help with `make -f Recipes help`.
 
-ALL = linux/x86_64 linux-uwb/dragon
+ALL = linux/x86_64 linux-uwb/dragon linux-rpi/pi4
 
 DESTS = root@db845c
 
 linux-uwb/dragon_CROSS := ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
 linux-uwb/dragon_INSTALLFLAGS := $(DESTS)
+
+linux-rpi/pi4_CROSS := ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+linux-rpi/pi4_INSTALLFLAGS := $(DESTS)
 
 KDIR = ../projects/linux-build/$*/deps/linux/linux
 KARGS = $($*_CROSS) CONFIG_MCPS_FAKE=m CONFIG_QCOM_SPI_LOWLATENCY=m

@@ -22,15 +22,17 @@
  * Please contact Qorvo to inquire about licensing terms.
  */
 
-#ifndef __DW3000_NFCC_IPC_H
-#define __DW3000_NFCC_IPC_H
+#ifndef __DW3000_CCC_MAILBOX_H
+#define __DW3000_CCC_MAILBOX_H
 
 #include "dw3000.h"
+#include "dw3000_ccc.h"
 
 int dw3000_ccc_write(struct dw3000 *dw, u8 *buffer, u16 len);
-int dw3000_ccc_read(struct dw3000 *dw, u8 *buffer, u16 len);
-int dw3000_ccc_enable(struct dw3000 *dw);
+int dw3000_ccc_read(struct dw3000 *dw, struct ccc_msg *buffer, u16 len);
+int dw3000_ccc_enable(struct dw3000 *dw, u8 channel, ccc_callback cb,
+		      void *args);
 int dw3000_ccc_disable(struct dw3000 *dw);
-int dw3000_isr_handle_spi1_avail(struct dw3000 *dw);
+int dw3000_ccc_isr_handle_spi1_avail(struct dw3000 *dw);
 
-#endif /* __DW3000_NFCC_IPC_H */
+#endif /* __DW3000_CCC_MAILBOX_H */

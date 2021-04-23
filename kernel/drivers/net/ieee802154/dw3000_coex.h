@@ -26,11 +26,7 @@
 
 #include "dw3000.h"
 
-#define DTU_TO_US(x) (int)((s64)(x)*1000000 / DW3000_DTU_FREQ)
-#define US_TO_DTU(x) (int)((s64)(x)*DW3000_DTU_FREQ / 1000000)
-
 #define COEX_TIME_US (dw->coex_delay_us)
-
 #define COEX_MARGIN_US 20
 
 /**

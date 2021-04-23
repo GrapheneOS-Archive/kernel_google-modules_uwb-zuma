@@ -603,6 +603,16 @@ struct mcps802154_ops {
 	 * Return: NULL terminated strings pointer array.
 	 */
 	const char *const *(*list_calibration)(struct mcps802154_llhw *llhw);
+	/**
+	 * @vendor_cmd: Run a vendor specific command.
+	 *
+	 * Do not (ab)use this feature to implement features that could be
+	 * openly shared across drivers.
+	 *
+	 * Return: 0 or error.
+	 */
+	int (*vendor_cmd)(struct mcps802154_llhw *llhw, u32 vendor_id,
+			  u32 subcmd, void *data, size_t data_len);
 #ifdef CONFIG_MCPS802154_TESTMODE
 	/**
 	 * @testmode_cmd: Run a testmode command.
@@ -620,7 +630,7 @@ struct mcps802154_ops {
 #endif
 
 /**
- * enum mcps802154_rx_error - Type of reception errors.
+ * enum mcps802154_rx_error_type - Type of reception errors.
  * @MCPS802154_RX_ERROR_BAD_CKSUM:
  *	Checksum is not correct.
  * @MCPS802154_RX_ERROR_UNCORRECTABLE:
@@ -633,7 +643,7 @@ struct mcps802154_ops {
  * @MCPS802154_RX_ERROR_OTHER:
  *	Other error, frame reception is aborted.
  */
-enum mcps802154_rx_error {
+enum mcps802154_rx_error_type {
 	MCPS802154_RX_ERROR_BAD_CKSUM = 0,
 	MCPS802154_RX_ERROR_UNCORRECTABLE = 1,
 	MCPS802154_RX_ERROR_FILTERED = 2,
@@ -697,7 +707,7 @@ void mcps802154_rx_timeout(struct mcps802154_llhw *llhw);
  * &mcps802154_ops.rx_get_error_frame() handler to retrieve frame information.
  */
 void mcps802154_rx_error(struct mcps802154_llhw *llhw,
-			 enum mcps802154_rx_error error);
+			 enum mcps802154_rx_error_type error);
 
 /**
  * mcps802154_tx_done() - Signal the end of an MCPS transmission.

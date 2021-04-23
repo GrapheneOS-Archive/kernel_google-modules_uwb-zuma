@@ -111,8 +111,9 @@ static void mcps802154_fproc_multi_rx_rx_timeout(struct mcps802154_local *local)
 	mcps802154_fproc_multi_next(local, access, frame_idx);
 }
 
-static void mcps802154_fproc_multi_rx_rx_error(struct mcps802154_local *local,
-					       enum mcps802154_rx_error error)
+static void
+mcps802154_fproc_multi_rx_rx_error(struct mcps802154_local *local,
+				   enum mcps802154_rx_error_type error)
 {
 	struct mcps802154_access *access = local->fproc.access;
 	size_t frame_idx = local->fproc.frame_idx;
@@ -208,6 +209,12 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 		if (frame->rx.info.flags & MCPS802154_RX_INFO_AACK)
 			return -EINVAL;
 
+		if (frame->sts_params) {
+			r = llhw_set_sts_params(local, frame->sts_params);
+			if (r)
+				return r;
+		}
+
 		r = llhw_rx_enable(local, &frame->rx.info);
 		if (r)
 			return r;
@@ -221,6 +228,16 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 		skb = access->ops->tx_get_frame(access, frame_idx);
 
 		/* TODO: prepare next RX directly. */
+
+		if (frame->sts_params) {
+			r = llhw_set_sts_params(local, frame->sts_params);
+			if (r) {
+				access->ops->tx_return(
+					access, frame_idx, skb,
+					MCPS802154_ACCESS_TX_RETURN_REASON_CANCEL);
+				return r;
+			}
+		}
 
 		r = llhw_tx_frame(local, skb, &frame->tx_frame_info);
 		if (r) {

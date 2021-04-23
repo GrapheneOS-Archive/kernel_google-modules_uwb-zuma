@@ -36,6 +36,8 @@ struct dw3000;
  * @prog_ldo_and_bias_tune: programs the device's LDO and BIAS tuning
  * @get_config_mrxlut_chan: Lookup table default values for channel provided or NULL
  * @pre_read_sys_time: Workaround before the SYS_TIME register reads
+ * @adc_offset_calibration: Workaround to calibrate ADC offset
+ * @pll_calibration_from_scratch: Workaround to calibrate the PLL from scratch
  */
 struct dw3000_chip_ops {
 	int (*softreset)(struct dw3000 *dw);
@@ -45,6 +47,8 @@ struct dw3000_chip_ops {
 	int (*prog_ldo_and_bias_tune)(struct dw3000 *dw);
 	const u32 *(*get_config_mrxlut_chan)(struct dw3000 *dw, u8 channel);
 	int (*pre_read_sys_time)(struct dw3000 *dw);
+	int (*adc_offset_calibration)(struct dw3000 *dw);
+	int (*pll_calibration_from_scratch)(struct dw3000 *dw);
 };
 
 /**

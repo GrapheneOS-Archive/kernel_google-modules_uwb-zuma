@@ -29,15 +29,16 @@ struct dw3000;
 /* Pending work bits */
 enum { DW3000_IRQ_WORK = BIT(0),
        DW3000_COMMAND_WORK = BIT(1),
+       DW3000_TIMER_WORK = BIT(2),
 };
 
 /* Custom function for command */
-typedef int (*cmd_func)(struct dw3000 *dw, void *in, void *out);
+typedef int (*cmd_func)(struct dw3000 *dw, const void *in, void *out);
 
 /* Generic command descriptor */
 struct dw3000_stm_command {
 	cmd_func cmd;
-	void *in;
+	const void *in;
 	void *out;
 	int ret;
 };
@@ -50,6 +51,8 @@ struct dw3000_state {
 	unsigned int recovery_count;
 	/* Generic work argument */
 	struct dw3000_stm_command *generic_work;
+	/* Timer work argument */
+	struct dw3000_stm_command timer_work;
 	/* Event handler thread */
 	struct task_struct *mthread;
 	/* Wait queue */
@@ -62,6 +65,7 @@ int dw3000_event_thread(void *data);
 void dw3000_enqueue(struct dw3000 *dw, unsigned long work);
 void dw3000_enqueue_irq(struct dw3000 *dw);
 int dw3000_enqueue_generic(struct dw3000 *dw, struct dw3000_stm_command *cmd);
+void dw3000_enqueue_timer(struct dw3000 *dw, struct dw3000_stm_command *cmd);
 
 int dw3000_state_init(struct dw3000 *dw, unsigned int cpu);
 int dw3000_state_start(struct dw3000 *dw);

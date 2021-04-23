@@ -27,10 +27,11 @@
 #include "dw3000_core_reg.h"
 #include "dw3000_ccc.h"
 
-static int dw3000_scratch_ram_read_data(struct dw3000 *dw, u8 *buffer, u16 len,
+static int dw3000_scratch_ram_read_data(struct dw3000 *dw,
+					struct ccc_msg *buffer, u16 len,
 					u16 offset)
 {
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	if (unlikely((len + offset) > DW3000_SCRATCH_RAM_LEN)) {
 		dev_err(dw->dev, "Scratch ram bad address\n");
@@ -43,7 +44,7 @@ static int dw3000_scratch_ram_read_data(struct dw3000 *dw, u8 *buffer, u16 len,
 static int dw3000_scratch_ram_write_data(struct dw3000 *dw, u8 *buffer, u16 len,
 					 u16 offset)
 {
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	if (unlikely((len + offset) > DW3000_SCRATCH_RAM_LEN)) {
 		dev_err(dw->dev, "Scratch ram bad address\n");
@@ -58,7 +59,7 @@ static int dw3000_is_spi1_reserved(struct dw3000 *dw, bool *val)
 	u8 reg;
 	int rc;
 
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	/* Check if SPI1 is reserved by reading SPI_SEM register */
 	rc = dw3000_reg_read8(dw, DW3000_SPI_SEM_ID, 0, &reg);
@@ -71,12 +72,12 @@ static int dw3000_is_spi1_reserved(struct dw3000 *dw, bool *val)
 	return 0;
 }
 
-static int dw3000_spi1_release(struct dw3000 *dw)
+int dw3000_spi1_release(struct dw3000 *dw)
 {
 	int rc;
 	bool is_spi1_enabled;
 
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	rc = dw3000_write_fastcmd(dw, DW3000_CMD_SEMA_REL);
 	if (rc)
@@ -86,6 +87,8 @@ static int dw3000_spi1_release(struct dw3000 *dw)
 		return rc;
 	if (is_spi1_enabled)
 		rc = -EBUSY;
+	else
+		rc = 0;
 	return rc;
 }
 
@@ -94,7 +97,7 @@ static int dw3000_spi1_reserve(struct dw3000 *dw)
 	int rc;
 	bool is_spi1_reserved;
 
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	rc = dw3000_write_fastcmd(dw, DW3000_CMD_SEMA_REQ);
 	if (rc)
@@ -147,7 +150,7 @@ static int dw3000_is_SPIxMAVAIL_interrupts_enabled(struct dw3000 *dw, bool *val)
 	return 0;
 }
 
-static int dw3000_SPIxMAVAIL_interrupts_enable(struct dw3000 *dw)
+int dw3000_SPIxMAVAIL_interrupts_enable(struct dw3000 *dw)
 {
 	int rc;
 	u8 reg;
@@ -193,7 +196,7 @@ static int dw3000_SPIxMAVAIL_interrupts_disable(struct dw3000 *dw)
 	int rc;
 	u8 reg;
 
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	/* Please read the comment in dw3000_SPIxMAVAIL_interrupts_enable() for SPI_SEM access */
 	rc = dw3000_reg_read8(dw, DW3000_SPI_SEM_ID, 1, &reg);
@@ -214,7 +217,7 @@ int dw3000_ccc_write(struct dw3000 *dw, u8 *buffer, u16 len)
 {
 	int rc;
 
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	if (unlikely((len) > DW3000_CCC_SCRATCH_AP_SIZE)) {
 		dev_err(dw->dev, "Writing to NFCC should not exceed %u bytes\n",
@@ -228,13 +231,17 @@ int dw3000_ccc_write(struct dw3000 *dw, u8 *buffer, u16 len)
 					   DW3000_CCC_SCRATCH_AP_OFFSET);
 	if (rc)
 		return rc;
+	dev_dbg(dw->dev, "written %u bytes to CCC scratch RAM", len);
+	print_hex_dump_debug(" >>> ", DUMP_PREFIX_OFFSET, 16, 1, buffer, len,
+			     true);
 	/* Trigger IRQ2 to inform NFCC */
 	return dw3000_spi1_release(dw);
 }
 
-int dw3000_ccc_read(struct dw3000 *dw, u8 *buffer, u16 len)
+int dw3000_ccc_read(struct dw3000 *dw, struct ccc_msg *buffer, u16 len)
 {
-	if (unlikely(!dw->nfcc_mode))
+	int rc;
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 	if (unlikely((len) > DW3000_CCC_SCRATCH_NFCC_SIZE)) {
 		dev_err(dw->dev,
@@ -242,36 +249,66 @@ int dw3000_ccc_read(struct dw3000 *dw, u8 *buffer, u16 len)
 			DW3000_CCC_SCRATCH_NFCC_SIZE);
 		return -EINVAL;
 	}
-	return dw3000_scratch_ram_read_data(dw, buffer, len,
-					    DW3000_CCC_SCRATCH_NFCC_OFFSET);
+	rc = dw3000_scratch_ram_read_data(dw, buffer, len,
+					  DW3000_CCC_SCRATCH_NFCC_OFFSET);
+	if (rc) {
+		dev_err(dw->dev, "Error while reading CCC scratch RAM");
+	} else {
+		dev_dbg(dw->dev,
+			"Successfully read %u bytes from CCC scratch RAM", len);
+		print_hex_dump_debug(" <<< ", DUMP_PREFIX_OFFSET, 16, 1, buffer,
+				     len, true);
+	}
+	return rc;
 }
 
-int dw3000_isr_handle_spi1_avail(struct dw3000 *dw)
+int dw3000_ccc_isr_handle_spi1_avail(struct dw3000 *dw)
 {
 	int rc;
-	u8 buffer[DW3000_CCC_MSGSIZE];
+	struct ccc_msg buffer;
 
-	if (unlikely(!dw->nfcc_mode))
+	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
 		return -EOPNOTSUPP;
 
-	rc = dw3000_ccc_read(dw, buffer, DW3000_CCC_SCRATCH_NFCC_SIZE);
+	rc = dw3000_ccc_read(dw, &buffer, DW3000_CCC_SCRATCH_NFCC_SIZE);
 	/* clear interrupt even on error to avoid isr in loop */
 	rc &= dw3000_clear_SPI1MAVAIL_interrupt(dw);
 	if (rc)
 		return rc;
 
-	return dw3000_ccc_process_received_msg(dw, buffer);
+	if (unlikely(!dw->ccc.process_received_msg_cb)) {
+		dev_err(dw->dev,
+			"CCC : No callback defined to handle received buffer");
+		return -EOPNOTSUPP;
+	}
+
+	return dw->ccc.process_received_msg_cb(
+		dw, &buffer, dw->ccc.process_received_msg_cb_args);
 }
 
-int dw3000_ccc_enable(struct dw3000 *dw)
+int dw3000_ccc_enable(struct dw3000 *dw, u8 channel, ccc_callback cb,
+		      void *args)
 {
 	int rc;
 
-	/* NFCC need a D0 chip or above. C0 does not have 2 SPI interfaces */
+	/* CCC needs a D0 chip or above. C0 does not have 2 SPI interfaces */
 	if (__dw3000_chip_version == 0) {
-		dev_err(dw->dev, "NFCC mode is not supported on C0 chip.\n");
+		dev_err(dw->dev, "CCC mode is not supported on C0 chip.\n");
 		return -EOPNOTSUPP;
 	}
+
+	/* set the channel for CCC and save current config */
+	dw->ccc.original_channel = dw->config.chan;
+	dw->config.chan = channel;
+	rc = dw3000_configure_chan(dw);
+	if (rc) {
+		dev_dbg(dw->dev,
+			"CCC enable: error while setting channel to %u",
+			dw->config.chan);
+		return rc;
+	}
+	dev_dbg(dw->dev, "CCC enable: set channel to %u (orig == %u)",
+		dw->config.chan, dw->ccc.original_channel);
 
 	/* disable rx during ccc */
 	rc = dw3000_rx_disable(dw);
@@ -284,7 +321,9 @@ int dw3000_ccc_enable(struct dw3000 *dw)
 		dev_err(dw->dev, "SPIxMAVAIL interrupts enable failed: %d\n",
 			rc);
 	}
-	dw->nfcc_mode = true;
+	dw->ccc.state = DW3000_CCC_ON;
+	dw->ccc.process_received_msg_cb = cb;
+	dw->ccc.process_received_msg_cb_args = args;
 	return rc;
 }
 
@@ -310,7 +349,22 @@ int dw3000_ccc_disable(struct dw3000 *dw)
 		}
 	}
 
+	if (dw->ccc.original_channel == 5 || dw->ccc.original_channel == 9) {
+		dw->config.chan = dw->ccc.original_channel;
+		rc = dw3000_configure_chan(dw);
+		if (rc) {
+			dev_dbg(dw->dev,
+				"CCC disable: error while restoring channel to %u",
+				dw->ccc.original_channel);
+			return rc;
+		}
+		dev_dbg(dw->dev, "CCC disable: restore channel to %u",
+			dw->ccc.original_channel);
+	}
+
 	/* TODO: inform HAL that CCC session is complete */
-	dw->nfcc_mode = false;
+	dw->ccc.state = DW3000_CCC_OFF;
+	dw->ccc.process_received_msg_cb = NULL;
+	dw->ccc.process_received_msg_cb_args = NULL;
 	return rc;
 }

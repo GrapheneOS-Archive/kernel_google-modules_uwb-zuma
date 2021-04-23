@@ -12,6 +12,7 @@ add_library(mac
 	default_region.c
 	endless_scheduler.c
 	fira_access.c
+	fira_crypto.c
 	fira_frame.c
 	fira_region.c
 	fira_region_call.c
@@ -19,6 +20,7 @@ add_library(mac
 	fproc.c
 	fproc_broken.c
 	fproc_multi.c
+	fproc_vendor.c
 	fproc_nothing.c
 	fproc_rx.c
 	fproc_stopped.c

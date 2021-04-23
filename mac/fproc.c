@@ -88,6 +88,9 @@ void mcps802154_fproc_access(struct mcps802154_local *local,
 	case MCPS802154_ACCESS_METHOD_MULTI:
 		r = mcps802154_fproc_multi_handle(local, access);
 		break;
+	case MCPS802154_ACCESS_METHOD_VENDOR:
+		r = mcps802154_fproc_vendor_handle(local, access);
+		break;
 	default:
 		r = -1;
 	}
@@ -117,6 +120,8 @@ void mcps802154_fproc_access_done(struct mcps802154_local *local)
 {
 	struct mcps802154_access *access = local->fproc.access;
 
+	/* access_done handler is declared in common and unamed structure of
+	 * all type of access ops */
 	access->ops->access_done(access);
 	local->fproc.access = NULL;
 }
@@ -127,6 +132,8 @@ void mcps802154_fproc_access_reset(struct mcps802154_local *local)
 
 	if (access) {
 		if (local->fproc.tx_skb) {
+			WARN_ON(access->method ==
+				MCPS802154_ACCESS_METHOD_VENDOR);
 			access->ops->tx_return(
 				access, local->fproc.frame_idx,
 				local->fproc.tx_skb,
@@ -177,7 +184,7 @@ void mcps802154_rx_timeout(struct mcps802154_llhw *llhw)
 EXPORT_SYMBOL(mcps802154_rx_timeout);
 
 void mcps802154_rx_error(struct mcps802154_llhw *llhw,
-			 enum mcps802154_rx_error error)
+			 enum mcps802154_rx_error_type error)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
 

@@ -30,19 +30,20 @@ else # ifeq ($(PROJECTS_BUILD),$(abspath $(KDIR)/../../../../..))
 
 # Regular build, build here.
 ifneq ($(KERNEL_SRC),)
-# Compile Android external module in $OUT
-# M = output directory
+# Compile Android external module in OUT directory
 # KERNEL_SRC = Kernel path
-$(info Android Build )
+$(info *** Building Android in $O/$M )
 KDIR := $(KERNEL_SRC)
+
+all:
+	$(MAKE) -C $(KDIR) M=$(M) modules $(KBUILD_OPTIONS)
+
 else # ifneq ($(KERNEL_SRC),)
 M := $(CURDIR)
 endif # ifneq ($(KERNEL_SRC),)
 
 default:
 	$(MAKE) -C $(KDIR) M=$(M)
-all:
-	$(MAKE) -C $(KDIR) M=$(M) modules $(KBUILD_OPTIONS)
 modules modules_install clean help:
 	$(MAKE) -C $(KDIR) M=$(M) $@
 

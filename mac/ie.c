@@ -61,7 +61,13 @@ struct mcps802154_ie_cb {
 	 * @mlme_ie_index: Index in buffer of the MLME IE header. Valid in the
 	 * corresponding state only, used to increment IE payload length.
 	 */
-	int mlme_ie_index;
+	u16 mlme_ie_index;
+	/**
+	 * @header_len: Length of frame header. Can be used for frame
+	 * encryption, the header is not encrypted but only used for
+	 * authentication.
+	 */
+	u16 header_len;
 };
 
 void mcps802154_ie_put_begin(struct sk_buff *skb)
@@ -69,6 +75,7 @@ void mcps802154_ie_put_begin(struct sk_buff *skb)
 	struct mcps802154_ie_cb *cb = (struct mcps802154_ie_cb *)&skb->cb;
 
 	cb->ie_state = MCPS802154_IE_STATE_INIT;
+	cb->header_len = skb->len;
 }
 EXPORT_SYMBOL(mcps802154_ie_put_begin);
 
@@ -88,7 +95,7 @@ int mcps802154_ie_put_end(struct sk_buff *skb, bool data_payload)
 		if (unlikely(err))
 			return -ENOBUFS;
 	}
-	return 0;
+	return cb->header_len;
 }
 EXPORT_SYMBOL(mcps802154_ie_put_end);
 
@@ -115,6 +122,8 @@ void *mcps802154_ie_put_header_ie(struct sk_buff *skb, int element_id,
 
 	ie = skb_put(skb, IEEE802154_IE_HEADER_LEN + len);
 	put_unaligned_le16(ie_header, ie);
+
+	cb->header_len = skb->len;
 
 	return ie + IEEE802154_IE_HEADER_LEN;
 }
@@ -223,6 +232,7 @@ int mcps802154_ie_get(struct sk_buff *skb,
 		      struct mcps802154_ie_get_context *context)
 {
 	u16 ie_header;
+	bool header;
 	bool last = false;
 
 	if (skb->len < IEEE802154_IE_HEADER_LEN) {
@@ -232,6 +242,7 @@ int mcps802154_ie_get(struct sk_buff *skb,
 		if (skb->len > 0)
 			/* Not enough for a header, but too much for nothing. */
 			return -EBADMSG;
+		context->in_payload = true;
 		context->kind = MCPS802154_IE_GET_KIND_NONE;
 		context->id = 0;
 		context->len = 0;
@@ -263,8 +274,11 @@ int mcps802154_ie_get(struct sk_buff *skb,
 			return -EBADMSG;
 		context->mlme_len -= IEEE802154_IE_HEADER_LEN + context->len;
 	} else {
-		if ((ie_header & IEEE802154_IE_HEADER_TYPE) ==
-		    IEEE802154_HEADER_IE_HEADER_TYPE) {
+		header = (ie_header & IEEE802154_IE_HEADER_TYPE) ==
+			 IEEE802154_HEADER_IE_HEADER_TYPE;
+		if (header != !context->in_payload)
+			return -EBADMSG;
+		if (header) {
 			context->kind = MCPS802154_IE_GET_KIND_HEADER;
 			context->id = FIELD_GET(
 				IEEE802154_HEADER_IE_HEADER_ELEMENT_ID,
@@ -272,8 +286,13 @@ int mcps802154_ie_get(struct sk_buff *skb,
 			context->len = FIELD_GET(
 				IEEE802154_HEADER_IE_HEADER_LENGTH, ie_header);
 			if (context->id ==
-			    IEEE802154_IE_HEADER_TERMINATION_2_ID)
+			    IEEE802154_IE_HEADER_TERMINATION_1_ID)
+				context->in_payload = true;
+			if (context->id ==
+			    IEEE802154_IE_HEADER_TERMINATION_2_ID) {
+				context->in_payload = true;
 				last = true;
+			}
 		} else {
 			context->kind = MCPS802154_IE_GET_KIND_PAYLOAD;
 			context->id =

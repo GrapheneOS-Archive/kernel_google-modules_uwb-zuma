@@ -135,17 +135,6 @@ int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
 				struct netlink_ext_ack *extack);
 
 /**
- * mcps802154_ca_list_scheduler_region_ids() - List the scheduler regions ids.
- * @local: MCPS private data.
- *
- * FSM mutex should be locked.
- *
- * Return: NULL ended string array.
- */
-const char *const *
-mcps802154_ca_list_scheduler_region_ids(struct mcps802154_local *local);
-
-/**
  * mcps802154_ca_scheduler_set_parameters() - Set the scheduler parameters.
  * @local: MCPS private data.
  * @name: Scheduler name.
@@ -166,7 +155,7 @@ int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
  * parameters.
  * @local: MCPS private data.
  * @scheduler_name: Scheduler name.
- * @region_id: Identifier of the region, scheduler specific, can be NULL.
+ * @region_id: Identifier of the region, scheduler specific.
  * @region_name: Name of region to attach to the scheduler.
  * @params_attr: Nested attribute containing region parameters.
  * @extack: Extended ACK report structure.
@@ -177,7 +166,7 @@ int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
  */
 int mcps802154_ca_scheduler_set_region_parameters(
 	struct mcps802154_local *local, const char *scheduler_name,
-	const char *region_id, const char *region_name,
+	u32 region_id, const char *region_name,
 	const struct nlattr *params_attr, struct netlink_ext_ack *extack);
 
 /**
@@ -201,7 +190,7 @@ int mcps802154_ca_scheduler_call(struct mcps802154_local *local,
  * mcps802154_ca_scheduler_call_region() - Call region specific procedure.
  * @local: MCPS private data.
  * @scheduler_name: Scheduler name.
- * @region_id: Identifier of the region, scheduler specific, can be NULL.
+ * @region_id: Identifier of the region, scheduler specific.
  * @region_name: Name of the region to call.
  * @call_id: Identifier of the procedure, region specific.
  * @params_attr: Nested attribute containing procedure parameters.
@@ -213,8 +202,8 @@ int mcps802154_ca_scheduler_call(struct mcps802154_local *local,
  */
 int mcps802154_ca_scheduler_call_region(struct mcps802154_local *local,
 					const char *scheduler_name,
-					const char *region_id,
-					const char *region_name, u32 call_id,
+					u32 region_id, const char *region_name,
+					u32 call_id,
 					const struct nlattr *params_attr,
 					const struct genl_info *info);
 

@@ -83,6 +83,7 @@ struct simple_ranging_local {
 	struct mcps802154_llhw *llhw;
 	struct mcps802154_access access;
 	struct mcps802154_access_frame frames[N_TWR_FRAMES];
+	struct mcps802154_sts_params sts_params;
 	struct mcps802154_nl_ranging_request
 		requests[MCPS802154_NL_RANGING_REQUESTS_MAX];
 	unsigned int n_requests;
@@ -600,6 +601,7 @@ twr_responder_get_access(struct mcps802154_region *region,
 				MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
 				MCPS802154_RX_FRAME_INFO_RANGING_PDOA,
 		},
+		.sts_params = &local->sts_params,
 	};
 
 	access->frames[TWR_FRAME_RESP] = (struct mcps802154_access_frame){
@@ -682,6 +684,7 @@ twr_get_access(struct mcps802154_region *region, u32 next_timestamp_dtu,
 				MCPS802154_TX_FRAME_SP1,
 			.ant_id = local->tx_ant,
 		},
+		.sts_params = &local->sts_params,
 	};
 	local->initiator.poll_tx_timestamp_rctu =
 		mcps802154_tx_timestamp_dtu_to_rmarker_rctu(
@@ -758,6 +761,8 @@ simple_ranging_scheduler_open(struct mcps802154_llhw *llhw)
 	local->region_resp.ops = &simple_ranging_twr_responder_region_ops;
 	local->region_init.ops = &simple_ranging_twr_region_ops;
 	local->llhw = llhw;
+	local->sts_params.n_segs = 1;
+	local->sts_params.seg_len = 256;
 	local->slot_duration_dtu = TWR_SLOT_DEFAULT_RCTU / llhw->dtu_rctu;
 	local->is_responder = false;
 	local->tx_ant = TX_ANT_ID_DEFAULT;

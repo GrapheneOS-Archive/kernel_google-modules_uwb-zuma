@@ -113,6 +113,9 @@ void mcps802154_free_llhw(struct mcps802154_llhw *llhw)
 	mutex_destroy(&local->fsm_lock);
 
 	WARN_ON(waitqueue_active(&local->wq));
+#ifndef __KERNEL__
+	destroy_waitqueue_head(&local->wq);
+#endif
 
 	ieee802154_free_hw(local->hw);
 }

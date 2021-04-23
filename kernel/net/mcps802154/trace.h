@@ -46,7 +46,7 @@
 	__entry->flags = info->flags
 #define RX_FRAME_INFO_FLAGS_PR_FMT \
 	"flags=%s"
-#define RX_FRAME_INFO_FLAGS \
+#define RX_FRAME_INFO_FLAGS                                            \
 	{ MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU, "TIMESTAMP_DTU" },   \
 	{ MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU, "TIMESTAMP_RCTU" }, \
 	{ MCPS802154_RX_FRAME_INFO_LQI, "LQI" },                       \
@@ -54,6 +54,12 @@
 	{ MCPS802154_RX_FRAME_INFO_RANGING_FOM, "RANGING_FOM" },       \
 	{ MCPS802154_RX_FRAME_INFO_RANGING_OFFSET, "RANGING_OFFSET" }, \
 	{ MCPS802154_RX_FRAME_INFO_RANGING_PDOA, "RANGING_PDOA" },     \
+	{ MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM,                   \
+	  "RANGING_PDOA_FOM" },                                        \
+	{ MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU,         \
+	  "RANGING_STS_TIMESTAMP_RCTU" },                              \
+	{ MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM,                    \
+	  "RANGING_STS_FOM" },                                         \
 	{ MCPS802154_RX_FRAME_INFO_AACK, "AACK" }
 #define RX_FRAME_INFO_FLAGS_PR_ARG \
 	__print_flags(__entry->flags, "|", RX_FRAME_INFO_FLAGS)
@@ -62,19 +68,23 @@
 	__field(u32, timestamp_dtu)      \
 	__field(u64, timestamp_rctu)     \
 	__field(int, frame_duration_dtu) \
+	__field(u8, ranging_sts_fom0)    \
 	RX_FRAME_INFO_FLAGS_ENTRY
 #define RX_FRAME_INFO_ASSIGN                                    \
 	__entry->timestamp_dtu = info->timestamp_dtu;           \
 	__entry->timestamp_rctu = info->timestamp_rctu;         \
 	__entry->frame_duration_dtu = info->frame_duration_dtu; \
+	__entry->ranging_sts_fom0 = info->ranging_sts_fom[0];   \
 	RX_FRAME_INFO_FLAGS_ASSIGN
 #define RX_FRAME_INFO_PR_FMT                                                \
 	"timestamp_dtu=0x%08x timestamp_rctu=0x%llx frame_duration_dtu=%d " \
+	"ranging_sts_fom[0]=0x%02x "                                        \
 	RX_FRAME_INFO_FLAGS_PR_FMT
 #define RX_FRAME_INFO_PR_ARG         \
 	__entry->timestamp_dtu,      \
 	__entry->timestamp_rctu,     \
 	__entry->frame_duration_dtu, \
+	__entry->ranging_sts_fom0,   \
 	RX_FRAME_INFO_FLAGS_PR_ARG
 
 #define KEY_ENTRY	__string(key, key)
@@ -506,13 +516,31 @@ DEFINE_EVENT(local_only_evt, llhw_list_calibration,
 	TP_ARGS(local)
 	);
 
+TRACE_EVENT(llhw_vendor_cmd,
+	TP_PROTO(const struct mcps802154_local *local, u32 vendor_id,
+		 u32 subcmd),
+	TP_ARGS(local, vendor_id, subcmd),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		__field(u32, vendor_id)
+		__field(u32, subcmd)
+		),
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		__entry->vendor_id = vendor_id;
+		__entry->subcmd = subcmd;
+		),
+	TP_printk(LOCAL_PR_FMT " vendor_id=%06x subcmd=%d", LOCAL_PR_ARG,
+		  __entry->vendor_id, __entry->subcmd)
+	);
+
 TRACE_EVENT(llhw_event_rx_error,
 	TP_PROTO(const struct mcps802154_local *local,
-		 enum mcps802154_rx_error error),
+		 enum mcps802154_rx_error_type error),
 	TP_ARGS(local, error),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
-		__field(enum mcps802154_rx_error, error)
+		__field(enum mcps802154_rx_error_type, error)
 		),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
@@ -572,23 +600,23 @@ TRACE_EVENT(ca_set_scheduler_parameters,
 
 TRACE_EVENT(ca_scheduler_set_region_parameters,
 	TP_PROTO(const struct mcps802154_local *local,
-		 const char *scheduler_name, const char *region_id,
+		 const char *scheduler_name, u32 region_id,
 		 const char *region_name),
 	TP_ARGS(local, scheduler_name, region_id, region_name),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__string(scheduler_name, scheduler_name)
-		__string(region_id, region_id)
+		__field(u32, region_id)
 		__string(region_name, region_name)
 		),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
 		__assign_str(scheduler_name, scheduler_name);
-		__assign_str(region_id, region_id);
+		__entry->region_id = region_id;
 		__assign_str(region_name, region_name);
 		),
-	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=\"%s\" region_name=\"%s\"",
-		  LOCAL_PR_ARG, __get_str(scheduler_name), __get_str(region_id),
+	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=%u region_name=\"%s\"",
+		  LOCAL_PR_ARG, __get_str(scheduler_name), __entry->region_id,
 		  __get_str(region_name))
 	);
 
@@ -612,27 +640,26 @@ TRACE_EVENT(ca_scheduler_call,
 
 TRACE_EVENT(ca_scheduler_call_region,
 	TP_PROTO(const struct mcps802154_local *local,
-		const char *scheduler_name, const char *region_id,
+		const char *scheduler_name, u32 region_id,
 		const char *region_name, u32 call_id),
 	TP_ARGS(local, scheduler_name, region_id, region_name, call_id),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__string(scheduler_name, scheduler_name)
-		__string(region_id, region_id)
+		__field(u32, region_id)
 		__string(region_name, region_name)
 		__field(u32, call_id)
 		),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
 		__assign_str(scheduler_name, scheduler_name);
-		__assign_str(region_id, region_id);
+		__entry->region_id = region_id;
 		__assign_str(region_name, region_name);
 		__entry->call_id = call_id;
 		),
-	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=\"%s\" region_name=\"%s\" call_id=0x%x",
-		  LOCAL_PR_ARG, __get_str(scheduler_name),
-		  __get_str(region_id), __get_str(region_name),
-		  __entry->call_id)
+	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=%u region_name=\"%s\" call_id=0x%x",
+		  LOCAL_PR_ARG, __get_str(scheduler_name), __entry->region_id,
+		  __get_str(region_name), __entry->call_id)
 	);
 
 TRACE_EVENT(ca_get_access,

@@ -29,6 +29,7 @@
 #include "fira_session.h"
 #include "fira_frame.h"
 
+#include <asm/unaligned.h>
 #include <linux/string.h>
 #include <linux/ieee802154.h>
 #include <net/mcps802154_frame.h>
@@ -37,6 +38,8 @@
 #include "utils_fixed_point.h"
 
 #define FIRA_FRAME_MAX_SIZE 127
+
+#define FIRA_STS_FOM_THRESHOLD 153
 
 /**
  * phase_to_rad() - compute the angle(AoA) from phase(PDOA) with fixed-point.
@@ -78,6 +81,7 @@ static s16 phase_to_rad_fp(s16 pdoa_rad_q11)
  * fira_access_setup_frame() - Fill an access frame from a FiRa slot.
  * @local: FiRa context.
  * @frame: Access frame.
+ * @sts_params: Where to store STS parameters.
  * @slot: Corresponding slot.
  * @frame_dtu: frame transmission or reception date.
  * @is_tx: true for TX.
@@ -85,11 +89,31 @@ static s16 phase_to_rad_fp(s16 pdoa_rad_q11)
  */
 static void fira_access_setup_frame(struct fira_local *local,
 				    struct mcps802154_access_frame *frame,
+				    struct mcps802154_sts_params *sts_params,
 				    const struct fira_slot *slot, u32 frame_dtu,
 				    bool is_tx, bool is_rframe)
 {
 	const struct fira_session *session = local->current_session;
 	const struct fira_session_params *params = &session->params;
+	struct mcps802154_sts_params *sts_params_for_access = NULL;
+
+	if (is_rframe) {
+		memcpy(sts_params->v, session->crypto.sts_v, AES_BLOCK_SIZE);
+		put_unaligned_be32(slot->index,
+				   sts_params->v + AES_BLOCK_SIZE / 2);
+		memcpy(sts_params->key,
+		       session->crypto.derived_authentication_key,
+		       AES_KEYSIZE_128);
+		/* Constant for the moment. */
+		sts_params->n_segs = 1;
+		sts_params->seg_len = 64;
+		sts_params->sp2_tx_gap_4chips = 0;
+		sts_params->sp2_rx_gap_4chips[0] = 0;
+		sts_params->sp2_rx_gap_4chips[1] = 0;
+		sts_params->sp2_rx_gap_4chips[2] = 0;
+		sts_params->sp2_rx_gap_4chips[3] = 0;
+		sts_params_for_access = sts_params;
+	}
 
 	if (is_tx) {
 		u8 flags = MCPS802154_TX_FRAME_TIMESTAMP_DTU;
@@ -108,11 +132,12 @@ static void fira_access_setup_frame(struct fira_local *local,
 		}
 		*frame = (struct mcps802154_access_frame){
 			.is_tx = true,
-				.tx_frame_info = {
-					.timestamp_dtu = frame_dtu,
-					.flags = flags,
-					.ant_id = slot->tx_ant,
-				},
+			.tx_frame_info = {
+				.timestamp_dtu = frame_dtu,
+				.flags = flags,
+				.ant_id = slot->tx_ant,
+			},
+			.sts_params = sts_params_for_access,
 		};
 	} else {
 		u8 flags = MCPS802154_RX_INFO_TIMESTAMP_DTU;
@@ -123,22 +148,36 @@ static void fira_access_setup_frame(struct fira_local *local,
 				 MCPS802154_RX_INFO_SP3;
 			request =
 				MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
+				MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM |
 				(params->aoa_result_req ?
-					 MCPS802154_RX_FRAME_INFO_RANGING_PDOA :
+					 MCPS802154_RX_FRAME_INFO_RANGING_PDOA |
+						 MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM :
 					 0);
 		}
 		*frame = (struct mcps802154_access_frame){
 			.is_tx = false,
-				.rx = {
-					.info = {
-						.timestamp_dtu = frame_dtu,
-						.flags = flags,
-						.ant_pair_id = slot->rx_ant_pair,
-					},
-					.frame_info_flags_request = request,
+			.rx = {
+				.info = {
+					.timestamp_dtu = frame_dtu,
+					.flags = flags,
+					.ant_pair_id = slot->rx_ant_pair,
 				},
+				.frame_info_flags_request = request,
+			},
+			.sts_params = sts_params_for_access,
 		};
 	}
+}
+
+static bool fira_rx_sts_good(struct fira_local *local,
+			     const struct mcps802154_rx_frame_info *info)
+{
+	if (!(info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM))
+		return false;
+	/* Only one segment for the moment. */
+	if (info->ranging_sts_fom[0] < FIRA_STS_FOM_THRESHOLD)
+		return false;
+	return true;
 }
 
 static void fira_rx_frame_ranging(struct fira_local *local,
@@ -153,7 +192,7 @@ static void fira_rx_frame_ranging(struct fira_local *local,
 	bool timestamp_rctu_present;
 	bool pdoa_info_present;
 
-	if (!info) {
+	if (!info || !fira_rx_sts_good(local, info)) {
 		ranging_info->failed = true;
 		return;
 	}
@@ -164,6 +203,8 @@ static void fira_rx_frame_ranging(struct fira_local *local,
 
 	if (pdoa_info_present) {
 		struct fira_local_aoa_info *local_aoa;
+		bool pdoa_fom_info_present =
+			info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM;
 		s16 local_pdoa_q11 = info->ranging_pdoa_rad_q11;
 		s16 local_aoa_q11 = phase_to_rad_fp(local_pdoa_q11);
 
@@ -180,6 +221,8 @@ static void fira_rx_frame_ranging(struct fira_local *local,
 		local_aoa->rx_ant_pair = slot->rx_ant_pair;
 		local_aoa->pdoa_2pi = local_pdoa_q11;
 		local_aoa->aoa_2pi = local_aoa_q11;
+		if (pdoa_fom_info_present)
+			local_aoa->aoa_fom = info->ranging_pdoa_fom;
 	}
 
 	if (timestamp_rctu_present) {
@@ -206,7 +249,8 @@ static void fira_rx_frame_control(struct fira_local *local,
 
 	if (!info || !(info->flags & MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU))
 		goto failed_without_info;
-	if (!fira_frame_header_check(local, skb, &ie_get, &sts_index))
+	if (fira_frame_header_check_decrypt(local, slot, skb, &ie_get,
+					    &sts_index))
 		goto failed;
 
 	if (!fira_frame_control_payload_check(local, skb, &ie_get, &n_slots))
@@ -219,6 +263,8 @@ static void fira_rx_frame_control(struct fira_local *local,
 	for (i = 1; i < n_slots; i++) {
 		const struct fira_slot *slot = &local->slots[i];
 		struct mcps802154_access_frame *frame = &local->frames[i];
+		struct mcps802154_sts_params *sts_params =
+			&local->sts_params[i];
 		bool is_tx, is_rframe;
 		u32 frame_dtu;
 
@@ -228,8 +274,8 @@ static void fira_rx_frame_control(struct fira_local *local,
 			    session->params.slot_duration_dtu * slot->index;
 		last_slot_index = slot->index;
 
-		fira_access_setup_frame(local, frame, slot, frame_dtu, is_tx,
-					is_rframe);
+		fira_access_setup_frame(local, frame, sts_params, slot,
+					frame_dtu, is_tx, is_rframe);
 	}
 	local->access.timestamp_dtu = info->timestamp_dtu;
 	local->access.duration_dtu =
@@ -250,14 +296,11 @@ static void fira_rx_frame_measurement_report(
 {
 	struct fira_ranging_info *ranging_info =
 		&local->ranging_info[slot->ranging_index];
-	struct fira_session *session = local->current_session;
 	struct mcps802154_ie_get_context ie_get = {};
-	u32 sts_index;
 
 	if (!info)
 		goto failed;
-	if (!fira_frame_header_check(local, skb, &ie_get, &sts_index) ||
-	    sts_index != session->sts_index + slot->index)
+	if (fira_frame_header_check_decrypt(local, slot, skb, &ie_get, NULL))
 		goto failed;
 
 	if (!fira_frame_measurement_report_payload_check(local, slot, skb,
@@ -276,14 +319,11 @@ fira_rx_frame_result_report(struct fira_local *local,
 {
 	struct fira_ranging_info *ranging_info =
 		&local->ranging_info[slot->ranging_index];
-	struct fira_session *session = local->current_session;
 	struct mcps802154_ie_get_context ie_get = {};
-	u32 sts_index;
 
 	if (!info)
 		goto failed;
-	if (!fira_frame_header_check(local, skb, &ie_get, &sts_index) ||
-	    sts_index != session->sts_index + slot->index)
+	if (fira_frame_header_check_decrypt(local, slot, skb, &ie_get, NULL))
 		goto failed;
 
 	if (!fira_frame_result_report_payload_check(local, slot, skb, &ie_get))
@@ -350,7 +390,7 @@ static struct sk_buff *fira_tx_get_frame(struct mcps802154_access *access,
 
 	skb = mcps802154_frame_alloc(local->llhw, FIRA_FRAME_MAX_SIZE,
 				     GFP_KERNEL);
-	WARN_RETURN_NULL(!skb);
+	WARN_RETURN_ON(!skb, NULL);
 
 	fira_frame_header_put(local, slot, skb);
 
@@ -368,9 +408,14 @@ static struct sk_buff *fira_tx_get_frame(struct mcps802154_access *access,
 		break;
 	default: /* LCOV_EXCL_START */
 		kfree_skb(skb);
-		skb = NULL;
 		WARN_UNREACHABLE_DEFAULT();
+		return NULL;
 		/* LCOV_EXCL_STOP */
+	}
+
+	if (fira_frame_encrypt(local, slot, skb)) {
+		kfree_skb(skb);
+		skb = NULL;
 	}
 
 	if (frame_idx == access->n_frames - 1)
@@ -388,7 +433,15 @@ static void fira_tx_return(struct mcps802154_access *access, int frame_idx,
 
 static void fira_access_done(struct mcps802154_access *access)
 {
-	/* Nothing. */
+	struct fira_local *local = access_to_local(access);
+	struct fira_session *session = local->current_session;
+
+	if (session && session->params.update_controlees) {
+		fira_session_copy_controlees(
+			&session->params.current_controlees,
+			&session->params.new_controlees);
+		session->params.update_controlees = false;
+	}
 }
 
 struct mcps802154_access_ops fira_access_ops = {
@@ -461,17 +514,19 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 {
 	struct mcps802154_access *access;
 	struct mcps802154_access_frame *frame;
+	struct mcps802154_sts_params *sts_params;
 	struct fira_slot *s;
 	struct fira_ranging_info *ri;
+	struct fira_controlees_array *controlees_array =
+		&session->params.current_controlees;
 	u32 frame_dtu;
 	int i;
 	int index = 0;
 
 	local->src_short_addr = mcps802154_get_short_addr(local->llhw);
-	local->dst_short_addr =
-		(session->params.n_controlees == 1) ?
-			session->params.controlees[0].short_addr :
-			IEEE802154_ADDR_SHORT_BROADCAST;
+	local->dst_short_addr = (controlees_array->size == 1) ?
+					controlees_array->data[0].short_addr :
+					IEEE802154_ADDR_SHORT_BROADCAST;
 
 	access = &local->access;
 	access->method = MCPS802154_ACCESS_METHOD_MULTI;
@@ -480,8 +535,8 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 	access->frames = local->frames;
 
 	fira_update_antennas_id(session);
-	local->n_ranging_info = session->params.n_controlees;
-	local->n_ranging_valid = session->params.n_controlees;
+	local->n_ranging_info = controlees_array->size;
+	local->n_ranging_valid = controlees_array->size;
 	ri = local->ranging_info;
 
 	memset(ri, 0, local->n_ranging_info * sizeof(*ri));
@@ -503,7 +558,7 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 
 	s++;
 	for (i = 0; i < local->n_ranging_info; i++) {
-		ri->short_addr = session->params.controlees[i].short_addr;
+		ri->short_addr = controlees_array->data[i].short_addr;
 		/* Requested in fira_report_aoa function. */
 		ri++;
 		s->index = index++;
@@ -544,12 +599,13 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 
 		s = &local->slots[i];
 		frame = &local->frames[i];
+		sts_params = &local->sts_params[i];
 
 		is_tx = s->tx_controlee_index == -1;
 		is_rframe = s->message_id <= FIRA_MESSAGE_ID_RFRAME_MAX;
 
-		fira_access_setup_frame(local, frame, s, frame_dtu, is_tx,
-					is_rframe);
+		fira_access_setup_frame(local, frame, sts_params, s, frame_dtu,
+					is_tx, is_rframe);
 
 		frame_dtu += session->params.slot_duration_dtu;
 	}
