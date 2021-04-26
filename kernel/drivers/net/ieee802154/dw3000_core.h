@@ -244,7 +244,7 @@ void dw3000_spitests(struct dw3000 *dw);
 int dw3000_hardreset(struct dw3000 *dw);
 int dw3000_softreset(struct dw3000 *dw);
 
-int dw3000_setup_regulators(struct dw3000 *dw);
+void dw3000_setup_regulators(struct dw3000 *dw);
 int dw3000_setup_reset_gpio(struct dw3000 *dw);
 int dw3000_setup_irq(struct dw3000 *dw);
 

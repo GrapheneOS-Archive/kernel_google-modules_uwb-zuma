@@ -216,6 +216,14 @@ enum dw3000_sts_lengths {
 	DW3000_STS_LEN_2048 = 8
 };
 
+/* DW3000 power supply structure */
+struct dw3000_power_control {
+	/* Power supply  1.8V */
+	struct regulator *regulator_1p8;
+	/* Power supply  2.5V */
+	struct regulator *regulator_2p5;
+};
+
 /**
  * dw3000_config - Structure holding current device configuration
  */
@@ -391,8 +399,6 @@ struct dw3000 {
 	bool has_lock_pm;
 	/* Control GPIOs */
 	int reset_gpio;
-	/* Power supply */
-	struct regulator *regulator;
 	/* Chips per PAC unit. */
 	int chips_per_pac;
 	/* Preamble timeout in PAC unit. */
@@ -430,6 +436,7 @@ struct dw3000 {
 	struct spi_message *msg_write_spi_collision_status;
 	/* Internal operational state of the chip */
 	enum operational_state current_operational_state;
+	struct dw3000_power_control regulators;
 };
 
 #endif /* __DW3000_H */

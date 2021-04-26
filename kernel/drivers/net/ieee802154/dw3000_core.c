@@ -1547,6 +1547,32 @@ static inline int dw3000_rx_stats_inc(struct dw3000 *dw,
 	return rc;
 }
 
+static int dw3000_power_supply(struct dw3000 *dw, struct dw3000_power_control *power, int onoff)
+{
+	int rc;
+
+	if (!power->regulator_1p8 && !power->regulator_2p5) {
+		dev_warn(dw->dev, "No regulators, assuming always on\n");
+		return 0;
+	}
+
+	if (power->regulator_1p8) {
+		if (onoff)
+			rc = regulator_enable(power->regulator_1p8);
+		else
+			rc = regulator_disable(power->regulator_1p8);
+	}
+
+	if (power->regulator_2p5) {
+		if (onoff)
+			rc = regulator_enable(power->regulator_2p5);
+		else
+			rc = regulator_disable(power->regulator_2p5);
+	}
+
+	return rc;
+}
+
 /**
  * dw3000_poweron() - Power-on device using configured reset gpio
  * @dw: the DW device to power-on
@@ -1560,16 +1586,14 @@ int dw3000_poweron(struct dw3000 *dw)
 {
 	int rc;
 
-	if (dw->regulator) {
-		rc = regulator_enable(dw->regulator);
-		if (rc) {
-			dev_err(dw->dev, "Could not enable regulator\n");
-			return rc;
-		}
-		/* Add some delay to wait regulator stable */
-		usleep_range(DW3000_SOFT_RESET_DELAY_US,
-			     DW3000_SOFT_RESET_DELAY_US + 100);
+	rc = dw3000_power_supply(dw, &dw->regulators, true);
+	if (rc) {
+		dev_err(dw->dev, "Could not enable regulator\n");
+		return rc;
 	}
+	/* Add some delay to wait regulator stable */
+	usleep_range(DW3000_SOFT_RESET_DELAY_US,
+			DW3000_SOFT_RESET_DELAY_US + 100);
 
 	/* HW may rely only on regulator, so exit without error if no GPIO */
 	if (!gpio_is_valid(dw->reset_gpio))
@@ -1603,12 +1627,10 @@ int dw3000_poweroff(struct dw3000 *dw)
 {
 	int rc;
 
-	if (dw->regulator) {
-		rc = regulator_disable(dw->regulator);
-		if (rc) {
-			dev_err(dw->dev, "Could not disable regulator\n");
-			return rc;
-		}
+	rc = dw3000_power_supply(dw, &dw->regulators, false);
+	if (rc) {
+		dev_err(dw->dev, "Could not disable regulator\n");
+		return rc;
 	}
 
 	/* HW may rely only on regulator, so exit without error if no GPIO */
@@ -1782,23 +1804,27 @@ static irqreturn_t dw3000_irq_handler(int irq, void *context)
 
 /**
  * dw3000_setup_regulators() - request regulator
- * @dw: the DW device to put back in IDLE state
- *
- * Return: 0 on success, else a negative error code.
+ * @dw: the DW device to request regulators.
  */
 
-int dw3000_setup_regulators(struct dw3000 *dw)
+void dw3000_setup_regulators(struct dw3000 *dw)
 {
-	struct regulator *regulator_vdd;
+	struct regulator *regulator_1p8, *regulator_2p5;
 
-	regulator_vdd = devm_regulator_get_optional(dw->dev, "power_reg");
-	if (IS_ERR(regulator_vdd) || regulator_vdd == NULL) {
-		dev_dbg(dw->dev, "No regulator found in DT\n");
-		return -EINVAL;
+	regulator_1p8 = devm_regulator_get_optional(dw->dev, "power_reg_1p8");
+	if (IS_ERR_OR_NULL(regulator_1p8)) {
+		dev_dbg(dw->dev, "No regulator 1.8V found in DT\n");
+		regulator_1p8 = NULL;
 	}
 
-	dw->regulator = regulator_vdd;
-	return 0;
+	regulator_2p5 = devm_regulator_get_optional(dw->dev, "power_reg_2p5");
+	if (IS_ERR_OR_NULL(regulator_2p5)) {
+		dev_dbg(dw->dev, "No regulator 2.5V found in DT\n");
+		regulator_2p5 = NULL;
+	}
+
+	dw->regulators.regulator_1p8 = regulator_1p8;
+	dw->regulators.regulator_2p5 = regulator_2p5;
 }
 
 int dw3000_setup_reset_gpio(struct dw3000 *dw)
