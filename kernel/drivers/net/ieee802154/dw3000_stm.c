@@ -148,10 +148,15 @@ unsigned long dw3000_get_pending_work(struct dw3000 *dw)
 int dw3000_init_work(struct dw3000 *dw, void *in, void *out)
 {
 	int rc;
-	/* Turn on power (with RST GPIO) */
+
+	rc = dw3000_poweron(dw);
+	if (rc) {
+		return rc;
+	}
+
 	rc = dw3000_hardreset(dw);
 	if (rc != 0) {
-		dev_err(dw->dev, "device power on failed: %d\n", rc);
+		dev_err(dw->dev, "hard reset failed: %d\n", rc);
 		return rc;
 	}
 

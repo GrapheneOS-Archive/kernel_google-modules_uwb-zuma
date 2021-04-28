@@ -114,9 +114,15 @@ static int do_start(struct dw3000 *dw, void *in, void *out)
 	 * and soft resets to ensure good state of the device */
 
 	/* Turn on power (with RST GPIO) */
-	rc = dw3000_hardreset(dw);
+	rc = dw3000_poweron(dw);
 	if (rc) {
 		dev_err(dw->dev, "device power on failed: %d\n", rc);
+		return rc;
+	}
+
+	rc = dw3000_hardreset(dw);
+	if (rc) {
+		dev_err(dw->dev, "hard reset failed: %d\n", rc);
 		return rc;
 	}
 

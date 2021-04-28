@@ -1574,11 +1574,42 @@ static int dw3000_power_supply(struct dw3000 *dw, struct dw3000_power_control *p
 }
 
 /**
- * dw3000_poweron() - Power-on device using configured reset gpio
- * @dw: the DW device to power-on
+ * dw3000_reset_assert() - reset gpio control
+ * @dw: the DW device
  *
  * The configured reset gpio is switched to input to ensure it is not
  * driven low.
+ *
+ * Return: 0 on success, else a negative error code.
+ */
+static int dw3000_reset_assert(struct dw3000 *dw, bool assert)
+{
+	int rc;
+
+	if (!gpio_is_valid(dw->reset_gpio)) {
+		dev_err(dw->dev, "invalid reset gpio\n");
+		return -EINVAL;
+	}
+
+	if (assert) {
+		/* Assert RESET GPIO */
+		rc = gpio_direction_output(dw->reset_gpio, 0);
+		if (rc)
+			dev_err(dw->dev, "Could not set reset gpio as output\n");
+	} else {
+		/* Release RESET GPIO.
+		 * Reset should be open drain, or switched to input whenever not driven
+		 * low. It should not be driven high. */
+		rc = gpio_direction_input(dw->reset_gpio);
+		if (rc)
+			dev_err(dw->dev, "Could not set reset gpio as input\n");
+	}
+	return rc;
+}
+
+/**
+ * dw3000_poweron() - Power-on device using configured reset gpio
+ * @dw: the DW device to power-on
  *
  * Return: 0 on success, else a negative error code.
  */
@@ -1591,24 +1622,16 @@ int dw3000_poweron(struct dw3000 *dw)
 		dev_err(dw->dev, "Could not enable regulator\n");
 		return rc;
 	}
-	/* Add some delay to wait regulator stable */
-	usleep_range(DW3000_SOFT_RESET_DELAY_US,
-			DW3000_SOFT_RESET_DELAY_US + 100);
 
 	/* HW may rely only on regulator, so exit without error if no GPIO */
 	if (!gpio_is_valid(dw->reset_gpio))
 		goto stats;
 
-	/* Release RESET GPIO.
-	 * Reset should be open drain, or switched to input whenever not driven
-	 * low. It should not be driven high. */
-	rc = gpio_direction_input(dw->reset_gpio);
-	if (rc) {
-		dev_err(dw->dev, "Could not set reset gpio as input\n");
+	rc = dw3000_reset_assert(dw, false);
+	if (rc)
 		return rc;
-	}
-	usleep_range(DW3000_HARD_RESET_DELAY_US,
-		     DW3000_HARD_RESET_DELAY_US + 100);
+
+	usleep_range(DW3000_HARD_RESET_DELAY_US, DW3000_HARD_RESET_DELAY_US + 100);
 
 stats:
 	dw3000_power_stats(dw, DW3000_PWR_RUN, 0);
@@ -1638,13 +1661,9 @@ int dw3000_poweroff(struct dw3000 *dw)
 		goto stats;
 
 	/* Assert RESET GPIO */
-	rc = gpio_direction_output(dw->reset_gpio, 0);
-	if (rc) {
-		dev_err(dw->dev, "Could not set reset gpio as output\n");
+	rc = dw3000_reset_assert(dw, true);
+	if (rc)
 		return rc;
-	}
-	usleep_range(DW3000_HARD_RESET_DELAY_US,
-		     DW3000_HARD_RESET_DELAY_US + 100);
 
 stats:
 	dw3000_power_stats(dw, DW3000_PWR_OFF, 0);
@@ -1869,10 +1888,20 @@ int dw3000_setup_irq(struct dw3000 *dw)
 
 int dw3000_hardreset(struct dw3000 *dw)
 {
-	if (dw3000_poweroff(dw) != 0)
-		return -EIO;
-	if (dw3000_poweron(dw) != 0)
-		return -EIO;
+	int rc;
+
+	rc = dw3000_reset_assert(dw, true);
+	if (rc)
+		return rc;
+
+	usleep_range(DW3000_HARD_RESET_DELAY_US, DW3000_HARD_RESET_DELAY_US + 100);
+
+	rc = dw3000_reset_assert(dw, false);
+	if (rc)
+		return rc;
+
+	usleep_range(DW3000_HARD_RESET_DELAY_US, DW3000_HARD_RESET_DELAY_US + 100);
+
 	return 0;
 }
 
