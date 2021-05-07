@@ -28,6 +28,7 @@
 #include <linux/spi/spi.h>
 #include <linux/skbuff.h>
 #include <net/mcps802154.h>
+#include <linux/pm_qos.h>
 #include <linux/regulator/consumer.h>
 #include "dw3000_chip.h"
 #include "dw3000_stm.h"
@@ -397,6 +398,7 @@ struct dw3000_deep_sleep_state {
  * struct dw3000 - main DW3000 device structure
  * @spi: pointer to corresponding spi device
  * @dev: pointer to generic device holding sysfs attributes
+ * @pm_qos_req: CPU latency request object
  * @sysfs_power_dir: kobject holding sysfs power directory
  * @chip_ops: version specific chip operations
  * @llhw: pointer to associated struct mcps802154_llhw
@@ -447,6 +449,8 @@ struct dw3000 {
 	struct spi_device *spi;
 	/* Generic device */
 	struct device *dev;
+	/* PM QoS object */
+	struct pm_qos_request pm_qos_req;
 	/* Kernel object holding sysfs power sub-directory */
 	struct kobject sysfs_power_dir;
 	/* Chip version specific operations */

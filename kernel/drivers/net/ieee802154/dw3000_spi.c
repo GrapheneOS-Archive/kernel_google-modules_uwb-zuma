@@ -27,6 +27,7 @@
 #include <linux/of.h>
 
 #include "dw3000.h"
+#include "dw3000_pm.h"
 #include "dw3000_core.h"
 #include "dw3000_stm.h"
 #include "dw3000_mcps.h"
@@ -34,6 +35,11 @@
 static int dw3000_thread_cpu;
 module_param_named(cpu, dw3000_thread_cpu, uint, 0444);
 MODULE_PARM_DESC(cpu, "CPU on which the DW state machine's thread will run");
+
+int dw3000_qos_latency = FREQ_QOS_MIN_DEFAULT_VALUE;
+module_param_named(qos_latency, dw3000_qos_latency, int, 0660);
+MODULE_PARM_DESC(qos_latency,
+		 "Latency request to PM QOS on active ranging in microsecond");
 
 static int dw3000_wifi_coex_gpio = -1;
 module_param_named(wificoex_gpio, dw3000_wifi_coex_gpio, int, 0444);
@@ -127,6 +133,12 @@ static int dw3000_spi_probe(struct spi_device *spi)
 		goto err_register_hw;
 	}
 
+	/*
+	 * Initialize PM QoS. Using the default latency won't change anything
+	 * to the QoS list
+	 */
+	dw3000_pm_qos_add_request(dw, PM_QOS_DEFAULT_VALUE);
+
 	/* Start state machine & initialise device using high-prio thread */
 	rc = dw3000_state_start(dw);
 	if (rc != 0)
@@ -160,6 +172,8 @@ static int dw3000_spi_remove(struct spi_device *spi)
 
 	/* Unregister subsystems */
 	dw3000_mcps_unregister(dw);
+
+	dw3000_pm_qos_remove_request(dw);
 
 	/* Stop state machine */
 	dw3000_state_stop(dw);

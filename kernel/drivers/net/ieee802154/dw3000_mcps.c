@@ -28,6 +28,7 @@
 #include <net/mcps802154.h>
 
 #include "dw3000.h"
+#include "dw3000_pm.h"
 #include "dw3000_core.h"
 #include "dw3000_mcps.h"
 #include "dw3000_testmode.h"
@@ -101,6 +102,8 @@ static int do_start(struct dw3000 *dw, const void *in, void *out)
 #endif
 	const unsigned long changed = (unsigned long)-1;
 	int rc;
+
+	dw3000_pm_qos_update_request(dw, dw3000_qos_latency);
 
 	/* Lock power management of SPI controller */
 	rc = pm_runtime_get_sync(ctlr->dev.parent);
@@ -194,6 +197,8 @@ static int do_stop(struct dw3000 *dw, const void *in, void *out)
 		pm_runtime_put(ctlr->dev.parent);
 		dw->has_lock_pm = false;
 	}
+
+	dw3000_pm_qos_update_request(dw, FREQ_QOS_MAX_DEFAULT_VALUE);
 	return 0;
 }
 
