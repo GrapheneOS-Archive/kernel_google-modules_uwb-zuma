@@ -360,7 +360,7 @@ static ssize_t dw3000_sysfs_store(struct kobject *kobj,
 				  struct kobj_attribute *attr, const char *buf,
 				  size_t length);
 const struct kobj_attribute dw3000_attribute =
-	__ATTR(power_stats, 0660, dw3000_sysfs_show, dw3000_sysfs_store);
+	__ATTR(power_stats, 0664, dw3000_sysfs_show, dw3000_sysfs_store);
 
 /* Interrupt working options */
 enum int_options {
