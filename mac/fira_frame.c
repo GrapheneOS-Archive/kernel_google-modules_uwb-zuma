@@ -635,7 +635,8 @@ fira_frame_result_report_fill_ranging_info(struct fira_local *local,
 	}
 	if (aoa_elevation_present) {
 		ranging_info->remote_aoa_elevation_present = true;
-		ranging_info->remote_aoa_elevation_pi = get_unaligned_le16(p);
+		ranging_info->remote_aoa_elevation_pi =
+			get_unaligned_le16(p) * 2;
 		p += sizeof(s16);
 	}
 	if (aoa_fom_present) {

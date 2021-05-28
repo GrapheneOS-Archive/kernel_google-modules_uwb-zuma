@@ -226,8 +226,8 @@ static void fira_rx_frame_ranging(struct fira_local *local,
 
 		local_aoa->present = true;
 		local_aoa->rx_ant_pair = slot->rx_ant_pair;
-		local_aoa->pdoa_2pi = local_pdoa_q11;
-		local_aoa->aoa_2pi = local_aoa_q11;
+		local_aoa->pdoa_2pi = map_q11_to_2pi(local_pdoa_q11);
+		local_aoa->aoa_2pi = map_q11_to_2pi(local_aoa_q11);
 		if (pdoa_fom_info_present)
 			local_aoa->aoa_fom = info->ranging_pdoa_fom;
 	}

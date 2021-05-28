@@ -25,6 +25,9 @@
 #include "linux/limits.h"
 #include "utils_fixed_point.h"
 
+static const s16 pi = 6434; /* Same as round((M_PI * K)). */
+static const s16 pi2 = 3217; /* Same as round((M_PI * K) / 2). */
+
 s16 sat_fp(s32 x)
 {
 	if (x > S16_MAX)
@@ -97,7 +100,6 @@ s16 sqrt_fp(s16 x)
 
 s16 asin_fp(s16 x)
 {
-	static const s16 pi2 = 3217; /* Same as round((M_PI * K) / 2). */
 	static const s16 a0 = 3217; /* Same as pi2. */
 	static const s16 a1 = -434; /* Same as round(-0.2121144 * K). */
 	static const s16 a2 = 152; /* Same as round(0.074261 * K). */
@@ -113,4 +115,12 @@ s16 asin_fp(s16 x)
 	if (x < 0)
 		return -y;
 	return y;
+}
+
+s16 map_q11_to_2pi(s16 x)
+{
+	s32 temp = (s32)(x * S16_MAX);
+	temp /= pi;
+
+	return sat_fp(temp);
 }

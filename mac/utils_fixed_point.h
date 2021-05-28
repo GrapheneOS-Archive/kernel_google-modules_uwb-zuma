@@ -87,4 +87,13 @@ s16 sqrt_fp(s16 x);
  */
 s16 asin_fp(s16 x);
 
+/**
+ * map_q11_to_2pi() - Map a Fixed Point azimuth angle
+ * to an signed 16 bit interger
+ * @x: angle as Q11 fixed_point value in range [-PI, PI]
+ *
+ * Return: the angle mapped to [INT16_MIN, INT16_MAX]
+ */
+s16 map_q11_to_2pi(s16 x);
+
 #endif /* NET_UTILS_FIXED_POINT_H */
