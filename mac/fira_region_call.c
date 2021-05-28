@@ -32,7 +32,9 @@
 #include <net/mcps802154_frame.h>
 
 #include "fira_session.h"
+#include "fira_access.h"
 #include "fira_region_call.h"
+#include "fira_trace.h"
 
 static const struct nla_policy fira_call_nla_policy[FIRA_CALL_ATTR_MAX + 1] = {
 	[FIRA_CALL_ATTR_SESSION_ID] = { .type = NLA_U32 },
@@ -224,8 +226,12 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 	if (!session)
 		return -ENOENT;
 
+	trace_region_fira_session_params(session, &session->params);
+
 	if (!fira_session_is_ready(local, session))
 		return -EINVAL;
+
+	session->event_portid = info->snd_portid;
 
 	if (!active) {
 		u32 now_dtu;
@@ -248,11 +254,14 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 		session->block_start_dtu = now_dtu + initiation_time_dtu;
 		session->block_index = 0;
 		session->sts_index = session->crypto.sts_index_init;
+		session->hopping_sequence_generation =
+			session->params.round_hopping;
 		session->round_index = 0;
 		session->next_round_index = 0;
-		/* With invalid index value the fira_update_antennas_id function will start
-		 * by the first antenna on first session.
-		 * It's the case only when antenna_switch value is 'BETWEEN_ROUND'. */
+		session->synchronised = false;
+		session->last_access_timestamp_dtu = -1;
+		session->last_access_duration_dtu = 0;
+		fira_session_round_hopping(session);
 		session->tx_ant = -1;
 		session->rx_ant_pair[0] = -1;
 		session->rx_ant_pair[1] = -1;
@@ -260,8 +269,6 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 
 		mcps802154_reschedule(local->llhw);
 	}
-
-	session->event_portid = info->snd_portid;
 
 	return 0;
 }
@@ -285,12 +292,13 @@ static int fira_session_stop(struct fira_local *local, u32 session_id,
 		return -ENOENT;
 
 	if (active) {
-		/* TODO: Stop fira session. */
-		list_move(&session->entry, &local->inactive_sessions);
+		session->stop_request = true;
+		if (local->current_session != session)
+			fira_session_access_done(local, session);
+		else
+			mcps802154_reschedule(local->llhw);
 	}
-	/* Reset to max value as it will be recomputed on session start with
-	 * fira_session_is_ready call. */
-	session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
+
 	return 0;
 }
 
@@ -382,6 +390,7 @@ static int fira_session_set_parameters(struct fira_local *local, u32 session_id,
 	  x * (local->llhw->dtu_freq_hz / 1000));
 	P(ROUND_DURATION_SLOTS, round_duration_slots, u32, x);
 	/* Behaviour parameters. */
+	P(ROUND_HOPPING, round_hopping, u8, !!x);
 	P(PRIORITY, priority, u8, x);
 	/* Radio parameters. */
 	P(CHANNEL_NUMBER, channel_number, u8, x);

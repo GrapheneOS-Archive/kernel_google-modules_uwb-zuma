@@ -26,6 +26,9 @@
  */
 
 #include "fira_session.h"
+#include "fira_crypto.h"
+#include "fira_round_hopping_sequence.h"
+#include "fira_access.h"
 
 #include <linux/errno.h>
 #include <linux/ieee802154.h>
@@ -86,6 +89,7 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	session->params.round_duration_slots =
 		FIRA_ROUND_DURATION_SLOTS_DEFAULT;
 	session->params.priority = FIRA_PRIORITY_DEFAULT;
+	session->params.round_hopping = false;
 	session->params.rframe_config = FIRA_RFRAME_CONFIG_SP3;
 	session->params.preamble_duration = FIRA_PREAMBULE_DURATION_64;
 	session->params.sfd_id = FIRA_SFD_ID_2;
@@ -100,13 +104,20 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	session->params.report_tof = true;
 	session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
 
+	if (fira_round_hopping_sequence_init(session))
+		goto failed;
+
 	list_add(&session->entry, &local->inactive_sessions);
 
 	return session;
+failed:
+	kfree(session);
+	return NULL;
 }
 
 void fira_session_free(struct fira_local *local, struct fira_session *session)
 {
+	fira_round_hopping_sequence_destroy(session);
 	list_del(&session->entry);
 	fira_aead_destroy(&session->crypto.aead);
 	/* The session structure contains the Crypto context. This needs to be
@@ -229,6 +240,20 @@ bool fira_session_is_ready(struct fira_local *local,
 	       round_duration_dtu < params->block_duration_dtu;
 }
 
+void fira_session_round_hopping(struct fira_session *session)
+{
+	if (session->hopping_sequence_generation) {
+		session->round_index = fira_round_hopping_sequence_get(
+			session, session->block_index);
+		session->next_round_index = fira_round_hopping_sequence_get(
+			session, session->block_index + 1);
+	} else {
+		session->round_index = session->next_round_index;
+		session->hopping_sequence_generation =
+			session->params.round_hopping;
+	}
+}
+
 static void fira_session_update(struct fira_local *local,
 				struct fira_session *session,
 				u32 next_timestamp_dtu)
@@ -246,20 +271,178 @@ static void fira_session_update(struct fira_local *local,
 		session->block_start_dtu += add_blocks * block_duration_dtu;
 		session->block_index += add_blocks;
 		session->sts_index += add_blocks * block_duration_slots;
+		if (add_blocks != 1)
+			session->hopping_sequence_generation =
+				session->params.round_hopping;
+		fira_session_round_hopping(session);
+	}
+}
+
+static struct fira_session *
+fira_session_find_next(struct fira_local *local, u32 next_timestamp_dtu,
+		       u32 *timestamp_dtu, u32 *duration_dtu, bool *bounded)
+{
+	struct fira_session *selected_session = NULL;
+	struct fira_session *session;
+	u32 selected_timestamp_dtu = 0;
+	u32 selected_duration_dtu = 0;
+	u32 access_timestamp_dtu;
+	u32 access_duration_dtu;
+	struct mcps802154_region_demand demand;
+
+	*bounded = false;
+	list_for_each_entry (session, &local->active_sessions, entry) {
+		if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLEE &&
+		    !session->synchronised)
+			continue;
+		*bounded = true;
+		fira_session_update(local, session, next_timestamp_dtu);
+		fira_get_demand(local, session, &demand);
+		access_timestamp_dtu = demand.timestamp_dtu;
+		access_duration_dtu = demand.duration_dtu;
+		if (!selected_session ||
+		    (s32)(access_timestamp_dtu + access_duration_dtu +
+			  local->llhw->anticip_dtu - selected_timestamp_dtu) <=
+			    0 ||
+		    ((s32)(access_timestamp_dtu - selected_timestamp_dtu -
+			   selected_duration_dtu) < 0 &&
+		     (session->params.priority >
+			      selected_session->params.priority ||
+		      (session->params.priority ==
+			       selected_session->params.priority &&
+		       (s32)(session->last_access_timestamp_dtu -
+			     selected_session->last_access_timestamp_dtu) <
+			       0)))) {
+			selected_session = session;
+			selected_timestamp_dtu = access_timestamp_dtu;
+			selected_duration_dtu = access_duration_dtu;
+		}
+	}
+
+	list_for_each_entry (session, &local->active_sessions, entry) {
+		if (session->params.device_type != FIRA_DEVICE_TYPE_CONTROLEE ||
+		    session->synchronised)
+			continue;
+		fira_session_update(local, session, next_timestamp_dtu);
+		fira_get_demand(local, session, &demand);
+		access_timestamp_dtu = demand.timestamp_dtu;
+		access_duration_dtu = demand.duration_dtu;
+		if (!selected_session) {
+			selected_session = session;
+			selected_timestamp_dtu = next_timestamp_dtu;
+			selected_duration_dtu = access_duration_dtu;
+			break;
+		} else if ((s32)(selected_timestamp_dtu - next_timestamp_dtu -
+				 access_duration_dtu -
+				 local->llhw->anticip_dtu) >= 0) {
+			selected_session = session;
+			selected_duration_dtu = selected_timestamp_dtu -
+						next_timestamp_dtu -
+						local->llhw->anticip_dtu;
+			selected_timestamp_dtu = next_timestamp_dtu;
+			break;
+		}
+	}
+
+	*timestamp_dtu = selected_timestamp_dtu;
+	*duration_dtu = selected_duration_dtu;
+	return selected_session;
+}
+
+static void
+fira_session_send_collision_reports(struct fira_local *local,
+				    struct fira_session *selected_session,
+				    u32 selected_end_dtu)
+{
+	struct fira_session *session;
+	struct mcps802154_region_demand demand;
+	int i;
+
+	list_for_each_entry (session, &local->active_sessions, entry) {
+		if (session == selected_session ||
+		    (session->params.device_type ==
+			     FIRA_DEVICE_TYPE_CONTROLEE &&
+		     !session->synchronised))
+			continue;
+		fira_get_demand(local, session, &demand);
+		if (demand.timestamp_dtu < selected_end_dtu) {
+			fira_compute_access(local, session);
+			for (i = 0; i < local->n_ranging_info; i++) {
+				local->ranging_info[i].failed = true;
+			}
+			fira_report(local, session, true);
+		}
 	}
 }
 
 struct fira_session *fira_session_next(struct fira_local *local,
 				       u32 next_timestamp_dtu)
 {
-	struct fira_session *session;
+	struct fira_session *selected_session;
+	u32 selected_timestamp_dtu = 0;
+	u32 selected_duration_dtu = 0;
+	bool bounded = false;
+	u32 selected_end_dtu;
 
 	if (list_empty(&local->active_sessions))
 		return NULL;
 
-	/* Support only one session for the moment. */
-	session = list_first_entry(&local->active_sessions, struct fira_session,
-				   entry);
-	fira_session_update(local, session, next_timestamp_dtu);
-	return session;
+	selected_session = fira_session_find_next(local, next_timestamp_dtu,
+						  &selected_timestamp_dtu,
+						  &selected_duration_dtu,
+						  &bounded);
+	selected_end_dtu = selected_timestamp_dtu + selected_duration_dtu +
+			   local->llhw->anticip_dtu;
+	fira_session_send_collision_reports(local, selected_session,
+					    selected_end_dtu);
+	selected_session->last_access_timestamp_dtu = selected_timestamp_dtu;
+	if (selected_session->params.device_type ==
+		    FIRA_DEVICE_TYPE_CONTROLEE &&
+	    (list_is_singular(&local->active_sessions) || !bounded))
+		selected_session->last_access_duration_dtu = 0;
+	else
+		selected_session->last_access_duration_dtu =
+			selected_duration_dtu;
+	return selected_session;
+}
+
+void fira_session_resync(struct fira_local *local, struct fira_session *session,
+			 u32 sts_index, u32 timestamp_dtu)
+{
+	int block_duration_slots = session->params.block_duration_dtu /
+				   session->params.slot_duration_dtu;
+	int slot_index = sts_index - session->crypto.sts_index_init;
+	int block_index = slot_index / block_duration_slots;
+	int round_slot_index = slot_index - block_index * block_duration_slots;
+
+	session->block_index = block_index;
+	session->block_start_dtu =
+		timestamp_dtu -
+		round_slot_index * session->params.slot_duration_dtu;
+	session->sts_index = sts_index - round_slot_index;
+	session->round_index =
+		round_slot_index / session->params.round_duration_slots;
+	session->synchronised = true;
+	session->last_access_timestamp_dtu = timestamp_dtu;
+}
+
+void fira_session_access_done(struct fira_local *local,
+			      struct fira_session *session)
+{
+	fira_report(local, session, session == local->current_session);
+
+	if (session->params.update_controlees) {
+		fira_session_copy_controlees(
+			&session->params.current_controlees,
+			&session->params.new_controlees);
+		session->params.update_controlees = false;
+	}
+
+	if (session->stop_request) {
+		list_move(&session->entry, &local->inactive_sessions);
+		session->stop_request = false;
+		/* Reset to max value as it will be recomputed on session start
+		 * with fira_session_is_ready call. */
+		session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
+	}
 }

@@ -26,6 +26,73 @@
 
 /* Forward declaration */
 struct dw3000;
+struct dw3000_chip_register_priv;
+
+/**
+ * enum dw3000_chip_register_flags - flags for the register declaration
+ * @DW3000_CHIPREG_NONE: no special flag defined
+ * @DW3000_CHIPREG_DUMP: register is dump only, address is fileid number only
+ * @DW3000_CHIPREG_RO: register is always read-only
+ * @DW3000_CHIPREG_WP: register is write-protected. write refused if device is
+ *  already active.
+ */
+enum dw3000_chip_register_flags {
+	DW3000_CHIPREG_NONE = 0,
+	DW3000_CHIPREG_DUMP = 1,
+	DW3000_CHIPREG_RO = 2,
+	DW3000_CHIPREG_WP = 4,
+};
+
+/**
+ * typedef dw3000_chip_register_cb - virtual register callback function
+ * @filp: the debugfs file structure pointer
+ * @write: true when called for a write operation
+ * @buffer: input or output buffer, depending on write parameter
+ * @size: size of input buffer or available space of output buffer
+ *
+ * All functions of this type will parse input buffer and do the relevant
+ * action according given parameters when write is true.
+ * When write is false, relevant information is written to buffer.
+ *
+ * The filp parameter is used by the function to retrieve required private
+ * data given when the file was created. See struct dw3000_chip_register_priv.
+ *
+ * Returns: length read from buffer or written to buffer or negative error
+ */
+typedef int (*dw3000_chip_register_cb)(struct file *filp, bool write,
+				       void *buffer, size_t size);
+
+/**
+ * struct dw3000_chip_register - version dependent register declaration
+ * @name: register name
+ * @address: register address
+ * @size: register size (in bits if mask defined)
+ * @mask: register mask (unused if 0)
+ * @flags: or'ed value of enum dw3000_chip_register_flags
+ * @callback: processing callback for a virtual register
+ */
+struct dw3000_chip_register {
+	const char *const name;
+	unsigned address;
+	size_t size;
+	unsigned mask;
+	unsigned flags;
+	dw3000_chip_register_cb callback;
+};
+
+/**
+ * struct dw3000_chip_register_priv - private data for debugfs file
+ * @dw: backpointer to DW3000 device instance
+ * @reg: pointer to first struct dw3000_chip_register this file belong to
+ * @count: number of struct dw3000_chip_register this file handle
+ *
+ * If a specific debugfs file need more data, it can derive this structure.
+ */
+struct dw3000_chip_register_priv {
+	struct dw3000 *dw;
+	struct dw3000_chip_register *reg;
+	size_t count;
+};
 
 /**
  * struct dw3000_chip_ops - version dependent chip operations
@@ -38,6 +105,7 @@ struct dw3000;
  * @pre_read_sys_time: Workaround before the SYS_TIME register reads
  * @adc_offset_calibration: Workaround to calibrate ADC offset
  * @pll_calibration_from_scratch: Workaround to calibrate the PLL from scratch
+ * @get_registers: Return known registers table and it's size
  */
 struct dw3000_chip_ops {
 	int (*softreset)(struct dw3000 *dw);
@@ -49,12 +117,14 @@ struct dw3000_chip_ops {
 	int (*pre_read_sys_time)(struct dw3000 *dw);
 	int (*adc_offset_calibration)(struct dw3000 *dw);
 	int (*pll_calibration_from_scratch)(struct dw3000 *dw);
+	const struct dw3000_chip_register *(*get_registers)(struct dw3000 *dw,
+							    size_t *count);
 };
 
 /**
- * dw3000_chip_version - supported chip version definition
+ * struct dw3000_chip_version - supported chip version definition
  * @id: device model ID
- * @version: device version, saved to __dw3000_chip_version
+ * @ver: device version, saved to __dw3000_chip_version
  * @ops: associated version specific operations
  */
 struct dw3000_chip_version {

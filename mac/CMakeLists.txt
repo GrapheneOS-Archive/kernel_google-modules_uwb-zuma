@@ -4,6 +4,7 @@ project(mac)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../tools/cmake)
 
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
+option(ENABLE_MAC_UTEST "Enable mac utest" OFF)
 
 enable_testing()
 
@@ -11,8 +12,13 @@ add_library(mac
 	ca.c
 	default_region.c
 	endless_scheduler.c
+	nfcc_coex_session.c
+	nfcc_coex_access.c
+	nfcc_coex_region.c
+	nfcc_coex_region_call.c
 	fira_access.c
 	fira_crypto.c
+	fira_round_hopping_sequence.c
 	fira_frame.c
 	fira_region.c
 	fira_region_call.c
@@ -54,4 +60,6 @@ endif()
 include(Sanitize)
 target_sanitize(mac)
 
-add_subdirectory(utest)
+if(ENABLE_MAC_UTEST)
+	add_subdirectory(utest)
+endif()

@@ -23,7 +23,7 @@ modules modules_install:
 	ln -srTf Kbuild $B/Kbuild
 	$(MAKE) -C $(KDIR) O=$O M=$M $@
 
-clean help:
+clean help kernelrelease:
 	$(MAKE) -C $(KDIR) O=$O M=$M $@
 
 else # ifeq ($(PROJECTS_BUILD),$(abspath $(KDIR)/../../../../..))
@@ -42,9 +42,17 @@ else # ifneq ($(KERNEL_SRC),)
 M := $(CURDIR)
 endif # ifneq ($(KERNEL_SRC),)
 
+B := $(abspath $O/$M)
+
 default:
 	$(MAKE) -C $(KDIR) M=$(M)
-modules modules_install clean help:
+modules modules_install clean help kernelrelease:
 	$(MAKE) -C $(KDIR) M=$(M) $@
 
 endif # ifeq ($(PROJECTS_BUILD),$(abspath $(KDIR)/../../../../..))
+
+# Install generated dw3000.dtbo
+dtbo_install: modules_install
+	d=`echo $(INSTALL_MOD_PATH)/lib/modules/* | sed 's#lib/modules#boot/dtbs#'` && \
+	mkdir -p $$d/overlays && \
+	find $B -name '*.dtbo' -print -exec cp -v {} $$d/overlays \;

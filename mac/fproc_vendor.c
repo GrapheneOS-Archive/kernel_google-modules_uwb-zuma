@@ -57,7 +57,10 @@ static void mcps802154_fproc_vendor_rx_frame(struct mcps802154_local *local)
 	struct mcps802154_access *access = local->fproc.access;
 	int r;
 
-	r = access->vendor_ops->rx_frame(access);
+	if (access->vendor_ops->rx_frame)
+		r = access->vendor_ops->rx_frame(access);
+	else
+		r = -EOPNOTSUPP;
 	mcps802154_fproc_vendor_handle_callback_return(local, r);
 }
 
@@ -66,7 +69,10 @@ static void mcps802154_fproc_vendor_rx_timeout(struct mcps802154_local *local)
 	struct mcps802154_access *access = local->fproc.access;
 	int r;
 
-	r = access->vendor_ops->rx_timeout(access);
+	if (access->vendor_ops->rx_timeout)
+		r = access->vendor_ops->rx_timeout(access);
+	else
+		r = -EOPNOTSUPP;
 	mcps802154_fproc_vendor_handle_callback_return(local, r);
 }
 
@@ -77,7 +83,10 @@ mcps802154_fproc_vendor_rx_error(struct mcps802154_local *local,
 	struct mcps802154_access *access = local->fproc.access;
 	int r;
 
-	r = access->vendor_ops->rx_error(access, error);
+	if (access->vendor_ops->rx_error)
+		r = access->vendor_ops->rx_error(access, error);
+	else
+		r = -EOPNOTSUPP;
 	mcps802154_fproc_vendor_handle_callback_return(local, r);
 }
 
@@ -95,7 +104,10 @@ static void mcps802154_fproc_vendor_broken(struct mcps802154_local *local)
 	struct mcps802154_access *access = local->fproc.access;
 	int r;
 
-	r = access->vendor_ops->broken(access);
+	if (access->vendor_ops->broken)
+		r = access->vendor_ops->broken(access);
+	else
+		r = -EOPNOTSUPP;
 	mcps802154_fproc_vendor_handle_callback_return(local, r);
 }
 

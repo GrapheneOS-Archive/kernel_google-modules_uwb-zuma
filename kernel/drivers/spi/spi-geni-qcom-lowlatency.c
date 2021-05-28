@@ -879,5 +879,6 @@ static struct platform_driver spi_geni_driver = {
 };
 module_platform_driver(spi_geni_driver);
 
-MODULE_DESCRIPTION("SPI driver for GENI based QUP cores with low-latency support");
+MODULE_DESCRIPTION(
+	"SPI driver for GENI based QUP cores with low-latency support");
 MODULE_LICENSE("GPL v2");

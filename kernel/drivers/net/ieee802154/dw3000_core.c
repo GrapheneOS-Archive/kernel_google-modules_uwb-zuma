@@ -1652,6 +1652,7 @@ stats:
  */
 int dw3000_poweroff(struct dw3000 *dw)
 {
+	struct dw3000_local_data *local = &dw->data;
 	int rc;
 
 	rc = dw3000_power_supply(dw, &dw->regulators, false);
@@ -1659,6 +1660,12 @@ int dw3000_poweroff(struct dw3000 *dw)
 		dev_err(dw->dev, "Could not disable regulator\n");
 		return rc;
 	}
+
+	/* Clear security registers related cache */
+	memset(local->sts_key, 0, AES_KEYSIZE_128);
+	memset(local->sts_iv, 0, AES_BLOCK_SIZE);
+	/* Reset STS mode */
+	dw->config.stsMode = DW3000_STS_MODE_OFF | DW3000_STS_MODE_SDC;
 
 	/* HW may rely only on regulator, so exit without error if no GPIO */
 	if (!gpio_is_valid(dw->reset_gpio))
@@ -1850,6 +1857,16 @@ void dw3000_setup_regulators(struct dw3000 *dw)
 	dw->regulators.regulator_2p5 = regulator_2p5;
 }
 
+/**
+ * dw3000_setup_reset_gpio() - request reset GPIO
+ * @dw: the DW device to get reset GPIO config from DT
+ *
+ * Get the reset GPIO to use from the DT and configure it in OUTPUT
+ * open-drain mode and activate it. This ensure the DW device is
+ * in reset state, IRQ pin low from the end of this function.
+ *
+ * Return: 0 on success, else a negative error code.
+ */
 int dw3000_setup_reset_gpio(struct dw3000 *dw)
 {
 	/* Initialise reset GPIO pin as output */
@@ -1865,6 +1882,19 @@ int dw3000_setup_reset_gpio(struct dw3000 *dw)
 				     "dw3000-reset");
 }
 
+/**
+ * dw3000_setup_irq() - request IRQ for the device
+ * @dw: the DW device
+ *
+ * Ensure the IRQ is correctly configured and install the hard IRQ handler.
+ * The IRQ is immediately disabled, waiting the device to be started by MCPS.
+ *
+ * Note: If the reset GPIO is deasserted before this function, a spurious
+ *  IRQ may be handled and dw3000_irq_handler() called. This IRQ is ignored
+ *  if occurs before dw3000_init() call.
+ *
+ * Return: 0 on success, else a negative error code.
+ */
 int dw3000_setup_irq(struct dw3000 *dw)
 {
 	int rc;
@@ -2416,7 +2446,7 @@ int dw3000_tx_frame(struct dw3000 *dw, struct sk_buff *skb, bool tx_delayed,
 	} else
 		len = 0;
 
-	if (dw->calib_data.smart_tx_power)
+	if (dw->txconfig.smart)
 		dw3000_adjust_tx_power(dw, len);
 
 	rc = dw3000_writetxfctrl(dw, len, 0, 0);
@@ -3246,6 +3276,11 @@ static int dw3000_setdwstate(struct dw3000 *dw, enum operational_state state)
 		 */
 		dw3000_power_stats(dw, DW3000_PWR_DEEPSLEEP, 0);
 		dw->current_operational_state = DW3000_OP_STATE_DEEP_SLEEP;
+		/* Clear security registers related cache */
+		memset(dw->data.sts_key, 0, AES_KEYSIZE_128);
+		memset(dw->data.sts_iv, 0, AES_BLOCK_SIZE);
+		/* Reset STS mode */
+		dw->config.stsMode = DW3000_STS_MODE_OFF | DW3000_STS_MODE_SDC;
 		break;
 
 	case DW3000_OP_STATE_IDLE_PLL:
@@ -5009,19 +5044,19 @@ void dw3000_init_config(struct dw3000 *dw)
 {
 	int i, j, k;
 	/* Default configuration */
-	const struct dw3000_txconfig txconfig = { 0x34, 0, 0xfefefefe, false };
-	const struct dw3000_ccc cccconfig = {
-		.state = DW3000_CCC_OFF,
-		.seqnum = 0,
-		.process_received_msg_cb = NULL,
-		.process_received_msg_cb_args = NULL,
+	const struct dw3000_txconfig txconfig = {
+		.PGdly = 0x34,
+		.PGcount = 0,
+		.power = 0xfefefefe,
+		.smart = false,
+		.testmode_enabled = false,
 	};
 	const struct dw3000_config config = {
 		.chan = 5,
 		.txPreambLength = DW3000_PLEN_64,
 		.txCode = 9,
 		.rxCode = 9,
-		.sfdType = DW3000_SFD_TYPE_DW_8,
+		.sfdType = DW3000_SFD_TYPE_4Z,
 		.dataRate = DW3000_BR_6M8,
 		.phrMode = DW3000_PHRMODE_STD,
 		.phrRate = DW3000_PHRRATE_STD,
@@ -5031,11 +5066,11 @@ void dw3000_init_config(struct dw3000 *dw)
 		.pdoaMode = DW3000_PDOA_M0,
 		.pdoaOffset = 0,
 		.ant = { -1, -1 },
+		.antpair_spacing_mm_q11 = DW3000_DEFAULT_ANTPAIR_SPACING,
 	};
 	/* Set default configuration */
 	dw->config = config;
 	dw->txconfig = txconfig;
-	dw->ccc = cccconfig;
 	for (i = 0; i < DW3000_CALIBRATION_ANTENNA_MAX; i++) {
 		/* Ensure no GPIO pin are configured by default */
 		dw->calib_data.ant[i].selector_gpio = 0xff;
@@ -5046,15 +5081,19 @@ void dw3000_init_config(struct dw3000 *dw)
 					DW3000_DEFAULT_ANT_DELAY;
 		}
 	}
+	for (i = 0; i < ANTPAIR_MAX; i++) {
+		/* Ensure default antennas pair spacing is configured */
+		dw->calib_data.antpair[i].spacing_mm_q11 =
+			DW3000_DEFAULT_ANTPAIR_SPACING;
+	}
 	/* Set default antenna ports configuration */
 	dw->calib_data.ant[0].port = 0;
 	dw->calib_data.ant[1].port = 1;
-	/* Smart Power is OFF by default */
-	dw->calib_data.smart_tx_power = false;
 	/* Ensure power stats timing start at load time */
 	dw->power.cur_state = DW3000_PWR_OFF;
 	dw->power.stats[DW3000_PWR_OFF].count = 1;
 	dw->power.start_time = ktime_get_boottime_ns();
+	dw3000_nfcc_coex_init(dw);
 
 	/* Initialize dw3000_rx spinlock */
 	spin_lock_init(&dw->rx.lock);
@@ -5097,21 +5136,13 @@ static inline int dw3000_isr_handle_spi_ready(struct dw3000 *dw)
 	 * and restored here.
 	 * Please see UWB-1040.
 	 */
-	if (dw->ccc.state == DW3000_CCC_ON) {
-		/* CCC was enabled before sleeping. Enable the CCC mailbox
-		 * interrupt and send the right message to the CCC.
-		 */
-		rc = dw3000_SPIxMAVAIL_interrupts_enable(dw);
-		if (rc)
-			return rc;
-		rc = dw3000_ccc_write_msg_on_wakeup(dw);
-		if (rc)
-			return rc;
+	if (dw->nfcc_coex.enabled) {
+		rc = dw3000_nfcc_coex_handle_spi_ready_isr(dw);
 	} else {
 		/* CCC is disabled, enable RX. */
 		rc = dw3000_rx_enable(dw, 0, 0, 0);
 	}
-	return 0;
+	return rc;
 }
 
 static inline int dw3000_isr_handle_timer_events(struct dw3000 *dw)
@@ -5397,7 +5428,7 @@ void dw3000_isr(struct dw3000 *dw)
 	if (dw->pgf_cal_running)
 		if (dw3000_read_sys_status_hi(dw, &isr.status_hi))
 			goto spi_err;
-	if (dw->ccc.state == DW3000_CCC_ON)
+	if (dw->nfcc_coex.enabled)
 		if (dw3000_read_dss_status(dw, &isr.dss_stat))
 			goto spi_err;
 	trace_dw3000_isr(dw, isr.status);
@@ -5514,10 +5545,10 @@ void dw3000_isr(struct dw3000 *dw)
 	}
 
 	/* Handle the SPI1 Available events in CCC mode only */
-	if (dw->ccc.state == DW3000_CCC_ON &&
+	if (dw->nfcc_coex.enabled &&
 	    (isr.dss_stat & DW3000_DSS_STAT_SPI1_AVAIL_BIT_MASK)) {
 		/* Handle SPI ready */
-		rc = dw3000_ccc_isr_handle_spi1_avail(dw);
+		rc = dw3000_nfcc_coex_handle_spi1_avail_isr(dw);
 		if (unlikely(rc))
 			goto spi_err;
 	}

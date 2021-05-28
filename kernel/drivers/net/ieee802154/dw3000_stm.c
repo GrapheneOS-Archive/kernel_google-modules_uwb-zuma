@@ -294,10 +294,18 @@ int dw3000_state_init(struct dw3000 *dw, unsigned int cpu)
 /* Start state machine */
 int dw3000_state_start(struct dw3000 *dw)
 {
+	struct dw3000_state *stm = &dw->stm;
 	struct dw3000_stm_command cmd = { dw3000_init_work, NULL, NULL };
+	unsigned long flags;
+
+	/* Ensure spurious IRQ that may come during dw3000_setup_irq() (because
+	   IRQ pin is already HIGH) isn't handle by the STM thread. */
+	spin_lock_irqsave(&stm->work_wq.lock, flags);
+	stm->pending_work &= ~DW3000_IRQ_WORK;
+	spin_unlock_irqrestore(&stm->work_wq.lock, flags);
 
 	/* Start state machine thread */
-	wake_up_process(dw->stm.mthread);
+	wake_up_process(stm->mthread);
 	dev_dbg(dw->dev, "state machine started\n");
 
 	/* Do initialisation and return result to caller */

@@ -28,6 +28,7 @@
 #include <asm/unaligned.h>
 #include <linux/bitfield.h>
 #include <linux/errno.h>
+#include <linux/kernel.h>
 #include <linux/ieee802154.h>
 #include <linux/module.h>
 #include <net/mcps802154_frame.h>

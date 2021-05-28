@@ -189,8 +189,9 @@ DEFINE_EVENT(local_only_evt, llhw_stop,
 
 TRACE_EVENT(llhw_tx_frame,
 	TP_PROTO(const struct mcps802154_local *local,
-		 const struct mcps802154_tx_frame_info *info),
-	TP_ARGS(local, info),
+		 const struct mcps802154_tx_frame_info *info,
+		 int next_delay_dtu),
+	TP_ARGS(local, info, next_delay_dtu),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__field(u32, timestamp_dtu)
@@ -198,6 +199,7 @@ TRACE_EVENT(llhw_tx_frame,
 		__field(int, rx_enable_after_tx_timeout_dtu)
 		__field(int, ant_id)
 		__field(u8, flags)
+		__field(int, next_delay_dtu)
 		),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
@@ -206,31 +208,36 @@ TRACE_EVENT(llhw_tx_frame,
 		__entry->rx_enable_after_tx_timeout_dtu = info->rx_enable_after_tx_timeout_dtu;
 		__entry->ant_id = info->ant_id;
 		__entry->flags = info->flags;
+		__entry->next_delay_dtu = next_delay_dtu;
 		),
 	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x rx_enable_after_tx_dtu=%d rx_enable_after_tx_timeout_dtu=%d"
-		  " ant_id=%d flags=%s", LOCAL_PR_ARG, __entry->timestamp_dtu,
-		  __entry->rx_enable_after_tx_dtu, __entry->rx_enable_after_tx_timeout_dtu,
-		  __entry->ant_id,
+		  " ant_id=%d flags=%s next_delay_dtu=%d", LOCAL_PR_ARG,
+		  __entry->timestamp_dtu, __entry->rx_enable_after_tx_dtu,
+		  __entry->rx_enable_after_tx_timeout_dtu, __entry->ant_id,
 		  __print_flags(__entry->flags, "|",
 			{ MCPS802154_TX_FRAME_TIMESTAMP_DTU, "TIMESTAMP_DTU" },
 			{ MCPS802154_TX_FRAME_CCA, "CCA" },
 			{ MCPS802154_TX_FRAME_RANGING, "RANGING" },
+			{ MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK, "KEEP_RANGING_CLOCK" },
 			{ MCPS802154_TX_FRAME_SP3, "SP3" },
 			{ MCPS802154_TX_FRAME_SP2, "SP2" },
-			{ MCPS802154_TX_FRAME_SP1, "SP1" })
+			{ MCPS802154_TX_FRAME_SP1, "SP1" }),
+		  __entry->next_delay_dtu
 		  )
 	);
 
 TRACE_EVENT(llhw_rx_enable,
 	TP_PROTO(const struct mcps802154_local *local,
-		 const struct mcps802154_rx_info *info),
-	TP_ARGS(local, info),
+		 const struct mcps802154_rx_info *info,
+		 int next_delay_dtu),
+	TP_ARGS(local, info, next_delay_dtu),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__field(u32, timestamp_dtu)
 		__field(int, timeout_dtu)
 		__field(u8, flags)
 		__field(u8, ant_pair_id)
+		__field(int, next_delay_dtu)
 		),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
@@ -238,8 +245,10 @@ TRACE_EVENT(llhw_rx_enable,
 		__entry->timeout_dtu = info->timeout_dtu;
 		__entry->flags = info->flags;
 		__entry->ant_pair_id = info->ant_pair_id;
+		__entry->next_delay_dtu = next_delay_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x timeout_dtu=%d ant_pair_id=%d flags=%s",
+	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x timeout_dtu=%d ant_pair_id=%d"
+		  " flags=%s next_delay_dtu=%d",
 		  LOCAL_PR_ARG,
 		  __entry->timestamp_dtu, __entry->timeout_dtu,
 		  __entry->ant_pair_id,
@@ -247,9 +256,11 @@ TRACE_EVENT(llhw_rx_enable,
 			{ MCPS802154_RX_INFO_TIMESTAMP_DTU, "TIMESTAMP_DTU" },
 			{ MCPS802154_RX_INFO_AACK, "AACK" },
 			{ MCPS802154_RX_INFO_RANGING, "RANGING" },
+			{ MCPS802154_RX_INFO_KEEP_RANGING_CLOCK, "KEEP_RANGING_CLOCK" },
 			{ MCPS802154_RX_INFO_SP3, "SP3" },
 			{ MCPS802154_RX_INFO_SP2, "SP2" },
-			{ MCPS802154_RX_INFO_SP1, "SP1" })
+			{ MCPS802154_RX_INFO_SP1, "SP1" }),
+		  __entry->next_delay_dtu
 		  )
 	);
 
@@ -284,6 +295,29 @@ DEFINE_EVENT(rx_frame_info_evt, llhw_rx_get_error_frame,
 	TP_PROTO(const struct mcps802154_local *local,
 		 const struct mcps802154_rx_frame_info *info),
 	TP_ARGS(local, info)
+	);
+
+DEFINE_EVENT(local_only_evt, llhw_idle,
+	TP_PROTO(const struct mcps802154_local *local),
+	TP_ARGS(local)
+	);
+
+TRACE_EVENT(llhw_idle_timestamp,
+	TP_PROTO(const struct mcps802154_local *local,
+		 u32 timestamp_dtu),
+	TP_ARGS(local, timestamp_dtu),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		__field(u32, timestamp_dtu)
+		),
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		__entry->timestamp_dtu = timestamp_dtu;
+		),
+	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x",
+		  LOCAL_PR_ARG,
+		  __entry->timestamp_dtu
+		  )
 	);
 
 DEFINE_EVENT(local_only_evt, llhw_reset,
@@ -514,24 +548,6 @@ DEFINE_EVENT(str_key_evt, llhw_get_calibration,
 DEFINE_EVENT(local_only_evt, llhw_list_calibration,
 	TP_PROTO(const struct mcps802154_local *local),
 	TP_ARGS(local)
-	);
-
-TRACE_EVENT(llhw_vendor_cmd,
-	TP_PROTO(const struct mcps802154_local *local, u32 vendor_id,
-		 u32 subcmd),
-	TP_ARGS(local, vendor_id, subcmd),
-	TP_STRUCT__entry(
-		LOCAL_ENTRY
-		__field(u32, vendor_id)
-		__field(u32, subcmd)
-		),
-	TP_fast_assign(
-		LOCAL_ASSIGN;
-		__entry->vendor_id = vendor_id;
-		__entry->subcmd = subcmd;
-		),
-	TP_printk(LOCAL_PR_FMT " vendor_id=%06x subcmd=%d", LOCAL_PR_ARG,
-		  __entry->vendor_id, __entry->subcmd)
 	);
 
 TRACE_EVENT(llhw_event_rx_error,

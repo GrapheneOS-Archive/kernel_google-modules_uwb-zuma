@@ -26,6 +26,44 @@
 #include "dw3000_core_reg.h"
 #include "dw3000_ccc_mailbox.h"
 
+static const struct dw3000_chip_register d0_registers[] = {
+	/* registres virtuels pour dump des fileID */
+	{ "GEN_CFG0   ", 0x00, 0x7e, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "GEN_CFG1   ", 0x01, 0x64, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "STS_CFG    ", 0x02, 0x2c, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "RX_TUNE    ", 0x03, 0x54, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "EXT_SYNC   ", 0x04, 0x21, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "GPIO_CTRL  ", 0x05, 0x2e, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "DRX        ", 0x06, 0x2c, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "RF_CONF    ", 0x07, 0x51, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "RF_CAL     ", 0x08, 0x1e, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "FS_CTRL    ", 0x09, 0x15, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "AON        ", 0x0a, 0x15, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "OTP_IF     ", 0x0b, 0x18, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "CIA_1      ", 0x0c, 0x6c, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "CIA_2      ", 0x0d, 0x6c, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "CIA_3      ", 0x0e, 0x20, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "DIG_DIAG   ", 0x0f, 0x51, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "PMSC       ", 0x11, 0x4a, 0, DW3000_CHIPREG_DUMP, NULL },
+	/* TODO: RX/TX buffers limited to first 128bytes only.
+	   Shall we dump the whole 1024 bytes? */
+	{ "RX_BUFFER  ", 0x12, 0x80, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "RX_BUFFER1 ", 0x13, 0x80, 0, DW3000_CHIPREG_DUMP, NULL },
+	/* No TX_BUFFER as read isn't supported */
+	/* CIR memory require 2 bits configured elsewhere, so removed. */
+	{ "SCRATCH_RAM", 0x16, 0x7f, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "AES RAM    ", 0x17, 0x80, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "SET_X      ", 0x18, 0x1d0, 0, DW3000_CHIPREG_DUMP, NULL },
+	{ "IN_PTR_CFG ", 0x1f, 0x12, 0, DW3000_CHIPREG_DUMP, NULL },
+};
+
+const struct dw3000_chip_register *dw3000_d0_get_registers(struct dw3000 *dw,
+							   size_t *count)
+{
+	*count = ARRAY_SIZE(d0_registers);
+	return d0_registers;
+}
+
 const u32 *dw3000_d0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel)
 {
 	/* Lookup table default values for channel 5 */
@@ -74,9 +112,8 @@ int dw3000_d0_init(struct dw3000 *dw)
 
 	if (dw->current_operational_state != DW3000_OP_STATE_DEEP_SLEEP) {
 		/* Disable CCC Mailbox only if the chip is not in deep sleep.
-		 * Else, on wake up, the CCC state will be not detectable.
-		 */
-		rc = dw3000_ccc_disable(dw);
+		 * Else, on wake up, the CCC state will be not detectable. */
+		rc = dw3000_nfcc_coex_disable(dw);
 	}
 	return rc;
 }
@@ -164,4 +201,5 @@ const struct dw3000_chip_ops dw3000_chip_d0_ops = {
 	.coex_gpio = dw3000_d0_coex_gpio,
 	.prog_ldo_and_bias_tune = dw3000_d0_prog_ldo_and_bias_tune,
 	.get_config_mrxlut_chan = dw3000_d0_get_config_mrxlut_chan,
+	.get_registers = dw3000_d0_get_registers,
 };

@@ -307,7 +307,8 @@ static int do_tm_cmd_ccc_start(struct dw3000 *dw, const void *in, void *out)
 		end = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TEND]);
 	}
 
-	if (dw3000_ccc_start(dw, channel, session_time0, start, end))
+	if (dw3000_nfcc_coex_testmode_session(dw, channel, session_time0, start,
+					      end))
 		ccc_cmd_rc = 0;
 	else
 		ccc_cmd_rc = 1;
@@ -364,7 +365,7 @@ static int do_tm_cmd_ccc_test_direct(struct dw3000 *dw, const void *in,
 {
 	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
-	static struct ccc_test_config conf = {
+	static struct dw3000_nfcc_coex_testmode_config conf = {
 		.mode = DW3000_CCC_TEST_DIRECT,
 		.start = 0,
 		.end = 0,
@@ -381,7 +382,7 @@ static int do_tm_cmd_ccc_test_direct(struct dw3000 *dw, const void *in,
 	conf.session_time0 =
 		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
 
-	if (dw3000_ccc_testmode_start(dw, &conf))
+	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
 		ccc_cmd_rc = 0;
 	else
 		ccc_cmd_rc = 1;
@@ -393,7 +394,7 @@ static int do_tm_cmd_ccc_test_wait(struct dw3000 *dw, const void *in, void *out)
 {
 	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
-	static struct ccc_test_config conf = {
+	static struct dw3000_nfcc_coex_testmode_config conf = {
 		.mode = DW3000_CCC_TEST_WAIT,
 		.margin_ms = 0,
 		.start = 0,
@@ -416,7 +417,7 @@ static int do_tm_cmd_ccc_test_wait(struct dw3000 *dw, const void *in, void *out)
 		conf.margin_ms = nla_get_u32(
 			params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS]);
 
-	if (dw3000_ccc_testmode_start(dw, &conf))
+	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
 		ccc_cmd_rc = 0;
 	else
 		ccc_cmd_rc = 1;
@@ -428,7 +429,7 @@ static int do_tm_cmd_ccc_test_late(struct dw3000 *dw, const void *in, void *out)
 {
 	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
-	static struct ccc_test_config conf = {
+	static struct dw3000_nfcc_coex_testmode_config conf = {
 		.mode = DW3000_CCC_TEST_LATE,
 		.margin_ms = 0,
 		.RRcount = 0,
@@ -458,7 +459,7 @@ static int do_tm_cmd_ccc_test_late(struct dw3000 *dw, const void *in, void *out)
 		conf.RRcount = nla_get_u32(
 			params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT]);
 
-	if (dw3000_ccc_testmode_start(dw, &conf))
+	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
 		ccc_cmd_rc = 0;
 	else
 		ccc_cmd_rc = 1;
@@ -471,7 +472,7 @@ static int do_tm_cmd_ccc_test_conflict(struct dw3000 *dw, const void *in,
 {
 	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
-	static struct ccc_test_config conf = {
+	static struct dw3000_nfcc_coex_testmode_config conf = {
 		.mode = DW3000_CCC_TEST_CONFLICT,
 		.RRcount = 0,
 		.start = 0,
@@ -500,7 +501,7 @@ static int do_tm_cmd_ccc_test_conflict(struct dw3000 *dw, const void *in,
 		conf.RRcount = nla_get_u32(
 			params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT]);
 
-	if (dw3000_ccc_testmode_start(dw, &conf))
+	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
 		ccc_cmd_rc = 0;
 	else
 		ccc_cmd_rc = 1;
@@ -513,7 +514,7 @@ static int do_tm_cmd_ccc_test_offset(struct dw3000 *dw, const void *in,
 {
 	const struct do_tm_cmd_params *params = in;
 	u8 ccc_cmd_rc;
-	static struct ccc_test_config conf = {
+	static struct dw3000_nfcc_coex_testmode_config conf = {
 		.mode = DW3000_CCC_TEST_SLEEP_OFFSET,
 		.offset_ms = 0,
 		.start = 0,
@@ -536,7 +537,7 @@ static int do_tm_cmd_ccc_test_offset(struct dw3000 *dw, const void *in,
 		return -EINVAL;
 	conf.offset_ms =
 		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_OFFSET_MS]);
-	if (dw3000_ccc_testmode_start(dw, &conf))
+	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
 		ccc_cmd_rc = 0;
 	else
 		ccc_cmd_rc = 1;

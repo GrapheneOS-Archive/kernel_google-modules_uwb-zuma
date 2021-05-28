@@ -30,6 +30,7 @@
 
 #include "fira_region.h"
 #include "fira_crypto.h"
+#include "fira_round_hopping_crypto_impl.h"
 
 struct fira_controlees_array {
 	struct fira_controlee data[FIRA_CONTROLEES_MAX];
@@ -49,6 +50,7 @@ struct fira_session_params {
 	int block_duration_dtu;
 	int round_duration_slots;
 	/* Behaviour parameters. */
+	bool round_hopping;
 	int priority;
 	/* Radio. */
 	int channel_number;
@@ -110,6 +112,10 @@ struct fira_session {
 	 */
 	u32 sts_index;
 	/**
+	 * @hopping_sequence_generation: Whether to compute round index from ranging round sequence.
+	 */
+	bool hopping_sequence_generation;
+	/**
 	 * @round_index: Round index of the reference block.
 	 */
 	int round_index;
@@ -118,21 +124,44 @@ struct fira_session {
 	 */
 	int next_round_index;
 	/**
-	 * @event_portid: port identifier to use for notifications.
-	 */
-	u32 event_portid;
-	/**
-	 * @tx_ant: antenna index to use for transmit.
+	 * @tx_ant: Antenna index to use for transmission in the reference
+	 * block.
 	 */
 	int tx_ant;
 	/**
-	 * @rx_ant_pair: Antenna pair indexes to use for reception.
+	 * @rx_ant_pair: Antenna pair indexes to use for reception in the
+	 * reference block.
 	 */
 	int rx_ant_pair[2];
+	/**
+	 * @stop_request: Session has been requested to stop.
+	 */
+	bool stop_request;
 	/**
 	 * @crypto: Crypto context.
 	 */
 	struct fira_crypto crypto;
+	/**
+	 * @round_hopping_sequence: Round hopping sequence generation context.
+	 */
+	struct fira_round_hopping_sequence round_hopping_sequence;
+	/**
+	 * @event_portid: Port identifier to use for notifications.
+	 */
+	u32 event_portid;
+	/**
+	 * @synchronised: Whether a controlee session was synchronised. This
+	 * field is not used for controller sessions.
+	 */
+	bool synchronised;
+	/**
+	 * @last_access_timestamp_dtu: Timestamp of the last computed access.
+	 */
+	u32 last_access_timestamp_dtu;
+	/**
+	 * @last_access_duration_dtu: Duration of the last computed access.
+	 */
+	u32 last_access_duration_dtu;
 };
 
 /**
@@ -221,5 +250,54 @@ bool fira_session_is_ready(struct fira_local *local,
  */
 struct fira_session *fira_session_next(struct fira_local *local,
 				       u32 next_timestamp_dtu);
+
+/**
+ * fira_session_round_hopping() - Update round index for round hopping.
+ * @session: Session to update.
+ */
+void fira_session_round_hopping(struct fira_session *session);
+
+/**
+ * fira_session_resync() - Resync session parameters on control message.
+ * @local: FiRa context.
+ * @session: Session to synchronize.
+ * @sts_index: STS index of control message.
+ * @timestamp_dtu: Timestamp of control message.
+ */
+void fira_session_resync(struct fira_local *local, struct fira_session *session,
+			 u32 sts_index, u32 timestamp_dtu);
+
+/**
+ * fira_session_access_done() - Update session at end of access, or on event
+ * when no access is active.
+ * @local: FiRa context.
+ * @session: Session.
+ */
+void fira_session_access_done(struct fira_local *local,
+			      struct fira_session *session);
+
+/**
+ * fira_session_get_round_slot() - Get current round's slot.
+ * @session: Session.
+ *
+ * Return: The first slot of the current round.
+ */
+static inline u32
+fira_session_get_round_slot(const struct fira_session *session)
+{
+	return session->round_index * session->params.round_duration_slots;
+}
+
+/**
+ * fira_session_get_round_sts_index() - Get current round's STS index.
+ * @session: Session.
+ *
+ * Return: The STS of the first slot of the current round.
+ */
+static inline u32
+fira_session_get_round_sts_index(const struct fira_session *session)
+{
+	return session->sts_index + fira_session_get_round_slot(session);
+}
 
 #endif /* NET_MCPS802154_FIRA_SESSION_H */

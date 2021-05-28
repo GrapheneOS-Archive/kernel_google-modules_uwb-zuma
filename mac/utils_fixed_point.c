@@ -1,4 +1,3 @@
-
 /*
  * This file is part of the UWB stack for linux.
  *
@@ -22,6 +21,7 @@
  * Qorvo.
  * Please contact Qorvo to inquire about licensing terms.
  */
+#include "linux/kernel.h"
 #include "linux/limits.h"
 #include "utils_fixed_point.h"
 
@@ -37,21 +37,22 @@ s16 sat_fp(s32 x)
 
 s16 div_fp(s16 a, s16 b)
 {
-	/* Pre-multiply by the base (Upscale to Q16 so that the result will be in Q format) */
+	/* Pre-multiply by the base (upscale to Q16 so that the result will be
+	 * in Q format). */
 	s32 temp = (s32)a * K;
+
 	/* Rounding: mid values are rounded up (down for negative values). */
-	if ((temp >= 0 && b >= 0) || (temp < 0 && b < 0)) {
+	if ((temp >= 0 && b >= 0) || (temp < 0 && b < 0))
 		temp += K / 2;
-	} else {
+	else
 		temp -= K / 2;
-	}
 	return temp / b;
 }
 
 s16 mult_fp(s16 a, s16 b)
 {
 	s32 temp;
-	/* Result type is operand's type */
+
 	temp = (s32)a * (s32)b;
 	/* Rounding */
 	if (temp >= 0) {
@@ -59,7 +60,7 @@ s16 mult_fp(s16 a, s16 b)
 	} else {
 		temp -= K / 2;
 	}
-	/* Correct by dividing by base and saturate result */
+	/* Correct by dividing by base and saturate result. */
 	return sat_fp(temp / K);
 }
 
@@ -77,6 +78,7 @@ s16 pow_fp(s16 x, int n)
 s16 sqrt_fp(s16 x)
 {
 	uint32_t t, q, b, r;
+
 	r = x;
 	b = 1 << (Q + 2);
 	q = 0;
@@ -84,7 +86,7 @@ s16 sqrt_fp(s16 x)
 		t = q + b;
 		if (r >= t) {
 			r -= t;
-			q = t + b; /* equivalent to q += 2*b */
+			q = t + b; /* Equivalent to q += 2*b. */
 		}
 		r <<= 1;
 		b >>= 1;
@@ -95,11 +97,11 @@ s16 sqrt_fp(s16 x)
 
 s16 asin_fp(s16 x)
 {
-	static const s16 pi2 = 3217; /* Same as round((M_PI * K) / 2) */
-	static const s16 a0 = 3217; /* Same as pi2 */
-	static const s16 a1 = -434; /* Same as round(-0.2121144 * K) */
-	static const s16 a2 = 152; /* Same as round(0.074261 * K) */
-	static const s16 a3 = -38; /* Same as (-0.0187293 * K) */
+	static const s16 pi2 = 3217; /* Same as round((M_PI * K) / 2). */
+	static const s16 a0 = 3217; /* Same as pi2. */
+	static const s16 a1 = -434; /* Same as round(-0.2121144 * K). */
+	static const s16 a2 = 152; /* Same as round(0.074261 * K). */
+	static const s16 a3 = -38; /* Same as (-0.0187293 * K). */
 	s16 xx, y;
 
 	/* Same as : abs(x) in stdlib, which is not available. */

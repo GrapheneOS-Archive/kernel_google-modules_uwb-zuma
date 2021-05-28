@@ -28,11 +28,11 @@
 #ifndef NET_FIRA_REGION_H
 #define NET_FIRA_REGION_H
 
+#include <linux/kernel.h>
 #include <net/mcps802154_schedule.h>
 
-#define FIRA_VUPPER64_SIZE 8
-#define FIRA_KEY_SIZE_MAX 32
-#define FIRA_KEY_SIZE_MIN 16
+#include "fira_region_params.h"
+
 #define FIRA_SLOT_DURATION_RSTU_DEFAULT 2400
 #define FIRA_BLOCK_DURATION_MS_DEFAULT 200
 #define FIRA_ROUND_DURATION_SLOTS_DEFAULT 30
@@ -41,110 +41,8 @@
 #define FIRA_IN_BAND_TERMINATION_ATTEMPT_COUNT_MAX 10
 #define FIRA_IN_BAND_TERMINATION_ATTEMPT_COUNT_MIN 1
 #define FIRA_BOOLEAN_MAX 1
-#define FIRA_CONTROLEES_MAX 16
 #define FIRA_FRAMES_MAX (3 + 3 * FIRA_CONTROLEES_MAX)
 #define FIRA_CONTROLEE_FRAMES_MAX (3 + 3 + 1)
-#define FIRA_RX_ANTENNA_PAIR_INVALID 0xff
-
-enum fira_device_type {
-	FIRA_DEVICE_TYPE_CONTROLEE,
-	FIRA_DEVICE_TYPE_CONTROLLER,
-};
-
-enum fira_device_role {
-	FIRA_DEVICE_ROLE_RESPONDER,
-	FIRA_DEVICE_ROLE_INITIATOR,
-};
-
-enum fira_ranging_round_usage {
-	FIRA_RANGING_ROUND_USAGE_OWR,
-	FIRA_RANGING_ROUND_USAGE_SSTWR,
-	FIRA_RANGING_ROUND_USAGE_DSTWR,
-};
-
-enum fira_multi_node_mode {
-	FIRA_MULTI_NODE_MODE_UNICAST,
-	FIRA_MULTI_NODE_MODE_ONE_TO_MANY,
-	FIRA_MULTI_NODE_MODE_MANY_TO_MANY,
-};
-
-enum fira_measurement_report {
-	FIRA_MEASUREMENT_REPORT_AT_RESPONDER,
-	FIRA_MEASUREMENT_REPORT_AT_INITIATOR,
-};
-
-enum fira_embedded_mode {
-	FIRA_EMBEDDED_MODE_DEFERRED,
-	FIRA_EMBEDDED_MODE_NON_DEFERRED,
-};
-
-enum fira_rframe_config {
-	FIRA_RFRAME_CONFIG_SP0,
-	FIRA_RFRAME_CONFIG_SP1,
-	FIRA_RFRAME_CONFIG_SP2,
-	FIRA_RFRAME_CONFIG_SP3,
-};
-
-enum fira_prf_mode {
-	FIRA_PRF_MODE_BPRF,
-	FIRA_PRF_MODE_HPRF,
-};
-
-enum fira_preambule_duration {
-	FIRA_PREAMBULE_DURATION_32,
-	FIRA_PREAMBULE_DURATION_64,
-};
-
-enum fira_sfd_id {
-	FIRA_SFD_ID_0,
-	FIRA_SFD_ID_1,
-	FIRA_SFD_ID_2,
-	FIRA_SFD_ID_3,
-	FIRA_SFD_ID_4,
-};
-
-enum fira_sts_segments {
-	FIRA_STS_SEGMENTS_0,
-	FIRA_STS_SEGMENTS_1,
-	FIRA_STS_SEGMENTS_2,
-};
-
-enum fira_psdu_data_rate {
-	FIRA_PSDU_DATA_RATE_6M81,
-	FIRA_PSDU_DATA_RATE_7M80,
-	FIRA_PSDU_DATA_RATE_27M2,
-	FIRA_PSDU_DATA_RATE_31M2,
-};
-
-enum fira_phr_data_rate {
-	FIRA_PHR_DATA_RATE_850k,
-	FIRA_PHR_DATA_RATE_6M81,
-};
-
-enum fira_mac_fcs_type {
-	FIRA_MAC_FCS_TYPE_CRC_16,
-	FIRA_MAC_FCS_TYPE_CRC_32,
-};
-
-enum fira_rx_antenna_switch {
-	FIRA_RX_ANTENNA_SWITCH_BETWEEN_ROUND,
-	FIRA_RX_ANTENNA_SWITCH_DURING_ROUND,
-	FIRA_RX_ANTENNA_SWITCH_TWO_RANGING,
-};
-
-enum fira_sts_config {
-	FIRA_STS_CONFIG_STATIC,
-	FIRA_STS_CONFIG_DYNAMIC,
-	FIRA_STS_CONFIG_DYNAMIC_INDIVIDUAL_KEY,
-};
-
-struct fira_controlee {
-	u32 sub_session_id;
-	__le16 short_addr;
-	u16 sub_session_key_len;
-	char sub_session_key[FIRA_KEY_SIZE_MAX];
-	bool sub_session;
-};
 
 /**
  * enum fira_message_id - Message identifiers, used in internal state and in
@@ -245,15 +143,15 @@ struct fira_ranging_info {
 	 */
 	int tof_rctu;
 	/**
-	 * @local_aoa: Local ranging AoA information
+	 * @local_aoa: Local ranging AoA information.
 	 */
 	struct fira_local_aoa_info local_aoa;
 	/**
-	 * @local_aoa_azimuth: Azimuth ranging AoA information
+	 * @local_aoa_azimuth: Azimuth ranging AoA information.
 	 */
 	struct fira_local_aoa_info local_aoa_azimuth;
 	/**
-	 * @local_aoa_elevation: Elevation ranging AoA information
+	 * @local_aoa_elevation: Elevation ranging AoA information.
 	 */
 	struct fira_local_aoa_info local_aoa_elevation;
 	/**
@@ -359,7 +257,7 @@ struct fira_local {
 	__le16 src_short_addr;
 	/**
 	 * @dst_short_addr: Destination address for the current session. When
-	 * controller, this is broadcast of the address of the only controlee.
+	 * controller, this is broadcast or the address of the only controlee.
 	 * When controlee, this is the address of the controller.
 	 */
 	__le16 dst_short_addr;
@@ -385,6 +283,13 @@ access_to_local(struct mcps802154_access *access)
 	return container_of(access, struct fira_local, access);
 }
 
-void fira_report(struct fira_local *local);
+/**
+ * fira_report() - Report state change or ranging result for a session.
+ * @local: FiRa context.
+ * @session: Session to report. Report ranging result if current session.
+ * @add_measurements: True to add measurements to report.
+ */
+void fira_report(struct fira_local *local, struct fira_session *session,
+		 bool add_measurements);
 
 #endif /* NET_FIRA_REGION_H */

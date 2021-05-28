@@ -24,20 +24,13 @@
 #ifndef __DW3000_CCC_H
 #define __DW3000_CCC_H
 
+#include <net/vendor_cmd.h>
+
 /* Main defines */
 #define DW3000_CCC_VER_ID 1
 #define DW3000_CCC_SIGNATURE_STR "QORVO"
 #define DW3000_CCC_SIGNATURE_LEN 5
 #define DW3000_CCC_MAX_NB_TLV 12
-#define DW3000_CCC_MARGIN_TIME_RELEASE_MS 8
-/* This constant comes from STM32 CCC code, with this comment:
- *
- * Starting time reference (resolution 1 microsecond) for ranging.
- * Offset value relative to initial LE Connection Complete event.
- * UWB_T0 is used to set the delay between the sess_srt command and the prepoll message.
- * Following the CCC , uwb_time0 is in us (microsec) unit.
- */
-#define DW3000_CCC_DEFAULT_CCC_UWB_TIME0_US 65536
 
 /* Scratch memory */
 #define DW3000_CCC_SCRATCH_AP_OFFSET (0U)
@@ -45,66 +38,206 @@
 #define DW3000_CCC_SCRATCH_NFCC_OFFSET (64U)
 #define DW3000_CCC_SCRATCH_NFCC_SIZE (63U)
 
-struct ccc_raw_msg {
+/**
+ * struct dw3000_nfcc_coex_msg - Message read/write from/to scratch memory.
+ */
+struct dw3000_nfcc_coex_msg {
+	/**
+	 * @signature: String signature, example "QORVO".
+	 */
 	u8 signature[DW3000_CCC_SIGNATURE_LEN];
+	/**
+	 * @ver_id: Version identifier.
+	 */
 	u8 ver_id;
+	/**
+	 * @seqnum: Sequence number.
+	 */
 	u8 seqnum;
+	/**
+	 * @nb_tlv: Number of TLV object in the body message.
+	 */
 	u8 nb_tlv;
-	u8 tlvs[]; /* its addr points to TLVs start */
+	/**
+	 * @tlvs: Body message. Its addr points to TLVs start.
+	 */
+	u8 tlvs[];
 } __attribute__((packed));
 
-struct ccc_msg {
+/**
+ * struct dw3000_nfcc_coex_buffer - Memory buffer to read/write a NFCC message.
+ */
+struct dw3000_nfcc_coex_buffer {
+	/* Unamed union for structured access or raw access. */
 	union {
-		u8 rawbuf[DW3000_CCC_SCRATCH_AP_SIZE];
-		struct ccc_raw_msg raw;
+		/**
+		 * @raw: Byte memory.
+		 */
+		u8 raw[DW3000_CCC_SCRATCH_AP_SIZE];
+		/**
+		 * @msg: CCC Message.
+		 */
+		struct dw3000_nfcc_coex_msg msg;
 	};
-	u8 tlvs_len; /* len of TLVs in bytes */
+	/**
+	 * @tlvs_len: Len of TLVs in bytes.
+	 */
+	u8 tlvs_len;
 } __attribute__((packed));
 
-struct ccc_data {
-	/* current round data */
+/**
+ * struct dw3000_nfcc_coex_data - Result of message parsed.
+ */
+struct dw3000_nfcc_coex_data {
+	/**
+	 * @nextslot: current round data.
+	 */
 	u32 nextslot;
+	/**
+	 * @diff_ms: Delta between two date.
+	 */
 	u32 diff_ms;
-	struct ccc_slots *slots;
-
-	/* session data (persistent) */
-	u32 round_count;
+	/**
+	 * @slots: Pointer to array of slot.
+	 */
+	struct dw3000_nfcc_coex_tlv_slots *slots;
 };
 
-struct ccc_test_config {
-	/* test parameters */
+/**
+ * struct dw3000_nfcc_coex_testmode_config - Test config used in testmode.
+ */
+struct dw3000_nfcc_coex_testmode_config {
+	/**
+	 * @mode: test mode identifier.
+	 */
 	enum { DW3000_CCC_TEST_DIRECT,
 	       DW3000_CCC_TEST_WAIT,
 	       DW3000_CCC_TEST_LATE,
 	       DW3000_CCC_TEST_CONFLICT,
 	       DW3000_CCC_TEST_SLEEP_OFFSET,
 	} mode;
-
+	/**
+	 * @margin_ms: Delay in ms to apply after Ranging Round(RR).
+	 */
 	u32 margin_ms;
+	/**
+	 * @RRcount: Ranging Round count.
+	 */
 	u32 RRcount;
+	/**
+	 * @conflit_slot_idx: slot index with conflict on date.
+	 */
 	u32 conflit_slot_idx;
+	/**
+	 * @offset_ms: Duration in ms to add to NFCC base time;
+	 */
 	u32 offset_ms;
-
-	/* CCC channel */
+	/**
+	 * @channel: Channel number.
+	 */
 	u8 channel;
-	/* CCC init session_time0  */
+	/**
+	 * @session_time0: Offset in ms to add to SESSION_TIME0.
+	 */
 	u32 session_time0;
-	/* CCC init first slots */
-	u32 start, end;
-	/* test callback data */
-	struct ccc_data data;
+	/**
+	 * @start: Start offset in ms for the first slot.
+	 */
+	u32 start;
+	/**
+	 * @end: End offset in ms for the first slot.
+	 */
+	u32 end;
 };
 
-typedef int (*ccc_callback)(struct dw3000 *dw, struct ccc_msg *in, void *arg);
-int dw3000_ccc_process_received_msg(struct dw3000 *dw, struct ccc_msg *in,
-				    void *arg);
-int dw3000_ccc_testmode_process_received_msg(struct dw3000 *dw,
-					     struct ccc_msg *in, void *arg);
+/**
+ * typedef dw3000_nfcc_coex_spi_avail_cb - SPI available isr handler.
+ * @dw: Driver context.
+ * @buffer: Memory read from scratch memory.
+ *
+ * Return: 0 on success, else an error.
+ */
+typedef int (*dw3000_nfcc_coex_spi_avail_cb)(
+	struct dw3000 *dw, const struct dw3000_nfcc_coex_buffer *buffer);
 
-int dw3000_ccc_start(struct dw3000 *dw, u8 chan, u32 session_time0, u32 start,
-		     u32 end);
-int dw3000_ccc_testmode_start(struct dw3000 *dw, struct ccc_test_config *conf);
+/**
+ * struct dw3000_nfcc_coex - NFCC coexistence context.
+ */
+struct dw3000_nfcc_coex {
+	/**
+	 * @testmode_config: config with testmode enabled.
+	 */
+	const struct dw3000_nfcc_coex_testmode_config *testmode_config;
+	/**
+	 * @access_info: Access information to provide to upper layer.
+	 */
+	struct dw3000_vendor_cmd_nfcc_coex_get_access_info access_info;
+	/**
+	 * @spi_avail_cb: callback used on SPI available isr.
+	 */
+	dw3000_nfcc_coex_spi_avail_cb spi_avail_cb;
+	/**
+	 * @seqnum: sequence message counter increased on outgoing message.
+	 */
+	int seqnum;
+	/**
+	 * @testmode_round_count: Index number of NFCC session.
+	*/
+	u32 testmode_round_count;
+	/**
+	 * @original_channel: channel number to be restored after NFCC session.
+	 */
+	u8 original_channel;
+	/**
+	 * @enabled: True when nfcc coex is enabled.
+	 */
+	bool enabled;
+};
 
-int dw3000_ccc_write_msg_on_wakeup(struct dw3000 *dw);
+/**
+ * dw3000_nfcc_coex_testmode_session() - Start one custom NFCC session.
+ * @dw: Driver context.
+ * @chan: Channel number.
+ * @session_time0: Offset in ms to add to current time.
+ * @start: Start date of NFCC session in ms.
+ * @end: End date of NFCC session in ms.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_testmode_session(struct dw3000 *dw, u8 chan,
+				      u32 session_time0, u32 start, u32 end);
+
+/**
+ * dw3000_nfcc_coex_testmode_config() - Process testmode config.
+ * @dw: Driver context.
+ * @testmode_config: Pointer on persistente config to use.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_testmode_config(
+	struct dw3000 *dw,
+	const struct dw3000_nfcc_coex_testmode_config *testmode_config);
+
+/**
+ * dw3000_nfcc_coex_write_msg_on_wakeup() - Send clock offset message to NFCC.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_write_msg_on_wakeup(struct dw3000 *dw);
+
+/**
+ * dw3000_nfcc_coex_vendor_cmd() - Vendor NFCC coexistence command processing.
+ *
+ * @dw: Driver context.
+ * @vendor_id: Vendor Identifier on 3 bytes.
+ * @subcmd: Sub-command identifier.
+ * @data: Null or data related with the sub-command.
+ * @data_len: Length of the data
+ *
+ * Return: 0 on success, 1 to request a stop, error on other value.
+ */
+int dw3000_nfcc_coex_vendor_cmd(struct dw3000 *dw, u32 vendor_id, u32 subcmd,
+				void *data, size_t data_len);
 
 #endif /* __DW3000_CCC_H */

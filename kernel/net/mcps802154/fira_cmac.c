@@ -26,6 +26,7 @@
 #include <asm/unaligned.h>
 #include <linux/crypto.h>
 #include <crypto/hash.h>
+#include <linux/err.h>
 
 int fira_digest(const u8 *key, unsigned int key_len, const u8 *data,
 		unsigned int data_len, u8 *out)

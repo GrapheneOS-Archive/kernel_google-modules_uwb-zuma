@@ -300,11 +300,7 @@ static int mcps802154_nl_set_scheduler(struct sk_buff *skb,
 		    sizeof(name));
 
 	mutex_lock(&local->fsm_lock);
-	if (local->started)
-		r = -EBUSY;
-	else
-		r = mcps802154_ca_set_scheduler(local, name, params_attr,
-						info->extack);
+	r = mcps802154_ca_set_scheduler(local, name, params_attr, info->extack);
 	mutex_unlock(&local->fsm_lock);
 	if (r)
 		return r;

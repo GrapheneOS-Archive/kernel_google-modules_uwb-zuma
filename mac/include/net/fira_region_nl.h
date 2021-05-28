@@ -459,12 +459,29 @@ enum fira_call_controlee_attrs {
 };
 
 /**
+ * enum fira_ranging_data_attrs_stopped_values - Values for
+ * FIRA_RANGING_DATA_ATTR_STOPPED attribute.
+ *
+ * @FIRA_RANGING_DATA_ATTR_STOPPED_REQUEST:
+ *	Stopped due to stop request.
+ * @FIRA_RANGING_DATA_ATTR_STOPPED_IN_BAND:
+ *	Stopped using in band signaling from the controller [controlee only].
+ * @FIRA_RANGING_DATA_ATTR_STOPPED_NO_RESPONSE:
+ *	Stopped due to maximum attempts reached with no response [controller
+ *	only].
+ */
+enum fira_ranging_data_attrs_stopped_values {
+	FIRA_RANGING_DATA_ATTR_STOPPED_REQUEST,
+	FIRA_RANGING_DATA_ATTR_STOPPED_IN_BAND,
+	FIRA_RANGING_DATA_ATTR_STOPPED_NO_RESPONSE,
+};
+
+/**
  * enum fira_ranging_data_attrs - Fira ranging data attributes.
  *
  * @FIRA_RANGING_DATA_ATTR_STOPPED:
- *	If present, session was stopped using in band signaling from
- *	the controller (1 [controlee only]) or due to maximum attempts reached
- *	with no response (2 [controller only]).
+ *	If present, session was stopped, see
+ *	&enum fira_ranging_data_attrs_stopped_values.
  * @FIRA_RANGING_DATA_ATTR_BLOCK_INDEX:
  *	Current block index.
  * @FIRA_RANGING_DATA_ATTR_TIMESTAMP_NS:

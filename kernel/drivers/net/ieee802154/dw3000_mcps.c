@@ -279,7 +279,8 @@ static int do_tx_frame(struct dw3000 *dw, const void *in, void *out)
 }
 
 static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
-		    const struct mcps802154_tx_frame_info *info)
+		    const struct mcps802154_tx_frame_info *info,
+		    int next_delay_dtu)
 {
 	struct dw3000 *dw = llhw->priv;
 	struct do_tx_frame_params params = { skb, info };
@@ -346,7 +347,7 @@ static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
 }
 
 static int rx_enable(struct mcps802154_llhw *llhw,
-		     const struct mcps802154_rx_info *info)
+		     const struct mcps802154_rx_info *info, int next_delay_dtu)
 {
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_stm_command cmd = { do_rx_enable, (void *)info, NULL };
@@ -407,6 +408,30 @@ static u8 get_ranging_pdoa_fom(u8 sts_fom)
 	return ((a_numerator * sts_fom) / a_denominator) + b;
 }
 
+static int get_ranging_sts_fom(struct mcps802154_llhw *llhw,
+			       struct mcps802154_rx_frame_info *info)
+{
+	int ret;
+	struct dw3000 *dw = llhw->priv;
+	struct dw3000_config *config = &dw->config;
+	/* Max sts_acc_qual value depend on STS length */
+	int sts_acc_max = DW3000_GET_STS_LEN_UNIT_VALUE(config->stsLength) * 8;
+	s16 sts_acc_qual;
+
+	/* TODO: Reading TOAST disabled. According to hardware team,
+	 * this needs more tuning. They suggest to use quality only for
+	 * now. See UWB-940 and commit "disable TOAST quality checking
+	 * for STS". */
+
+	ret = dw3000_read_sts_quality(dw, &sts_acc_qual);
+	if (ret)
+		return ret;
+	/* DW3000 only support one STS segment. */
+	info->ranging_sts_fom[0] =
+		clamp(1 + sts_acc_qual * 254 / sts_acc_max, 1, 255);
+	return ret;
+}
+
 static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 			struct mcps802154_rx_frame_info *info)
 {
@@ -461,9 +486,12 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	if (rx_flags & DW3000_RX_FLAG_AACK)
 		info->flags |= MCPS802154_RX_FRAME_INFO_AACK;
 	/* In case of PDoA. */
-	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA)
+	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA) {
 		info->ranging_pdoa_rad_q11 =
 			dw3000_read_pdoa(dw) - config->pdoaOffset;
+		info->ranging_pdoa_spacing_mm_q11 =
+			config->antpair_spacing_mm_q11;
+	}
 	/* In case of STS */
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU) {
 		u64 sts_ts_rctu;
@@ -482,24 +510,16 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	}
 	info->ranging_sts_fom[0] = 0;
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM) {
-		/* Max sts_acc_qual value depend on STS length */
-		int sts_acc_max =
-			DW3000_GET_STS_LEN_UNIT_VALUE(config->stsLength) * 8;
-		s16 sts_acc_qual;
-
-		/* TODO: Reading TOAST disabled. According to hardware team,
-		 * this needs more tuning. They suggest to use quality only for
-		 * now. See UWB-940 and commit "disable TOAST quality checking
-		 * for STS". */
-
-		ret = dw3000_read_sts_quality(dw, &sts_acc_qual);
+		ret = get_ranging_sts_fom(llhw, info);
 		if (ret)
 			goto error;
-		/* DW3000 only support one STS segment. */
-		info->ranging_sts_fom[0] =
-			clamp(1 + sts_acc_qual * 254 / sts_acc_max, 1, 255);
 	}
-	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM) {
+	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM) {
+		if (!(info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM)) {
+			ret = get_ranging_sts_fom(llhw, info);
+			if (ret)
+				goto error;
+		}
 		if (info->ranging_sts_fom[0])
 			info->ranging_pdoa_fom =
 				get_ranging_pdoa_fom(info->ranging_sts_fom[0]);
@@ -903,6 +923,27 @@ static const char *const *list_calibration(struct mcps802154_llhw *llhw)
 	return dw3000_calib_list_keys(llhw->priv);
 }
 
+/**
+ * vendor_cmd() - Forward vendor commands processing to dw3000 function.
+ *
+ * @llhw: Low-level hardware without MCPS.
+ * @vendor_id: Vendor Identifier on 3 bytes.
+ * @subcmd: Sub-command identifier.
+ * @data: Null or data related with the sub-command.
+ * @data_len: Length of the data
+ *
+ * Return: 0 on success, 1 to request a stop, error on other value.
+ */
+static int vendor_cmd(struct mcps802154_llhw *llhw, u32 vendor_id, u32 subcmd,
+		      void *data, size_t data_len)
+{
+	struct dw3000 *dw = llhw->priv;
+
+	/* There is only NFCC coexitence vendor command for now. */
+	return dw3000_nfcc_coex_vendor_cmd(dw, vendor_id, subcmd, data,
+					   data_len);
+}
+
 static const struct mcps802154_ops dw3000_mcps_ops = {
 	.start = start,
 	.stop = stop,
@@ -929,6 +970,7 @@ static const struct mcps802154_ops dw3000_mcps_ops = {
 	.set_calibration = set_calibration,
 	.get_calibration = get_calibration,
 	.list_calibration = list_calibration,
+	.vendor_cmd = vendor_cmd,
 	MCPS802154_TESTMODE_CMD(dw3000_tm_cmd)
 };
 
@@ -959,7 +1001,7 @@ struct dw3000 *dw3000_mcps_alloc(struct device *dev)
 	llhw->dtu_freq_hz = DW3000_DTU_FREQ;
 	llhw->dtu_rctu = DW3000_RCTU_PER_DTU;
 	llhw->rstu_dtu = DW3000_DTU_PER_RSTU;
-	llhw->anticip_dtu = 16 * (DW3000_DTU_FREQ / 1000);
+	llhw->anticip_dtu = DW3000_ANTICIP_DTU;
 	/* Set time related field that are configuration dependent */
 	dw3000_update_timings(dw);
 	/* Symbol is ~0.994us @ PRF16 or ~1.018us @ PRF64. Use 1. */

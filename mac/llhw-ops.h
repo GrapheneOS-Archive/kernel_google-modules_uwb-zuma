@@ -32,6 +32,7 @@
 
 #include "mcps802154_i.h"
 #include "trace.h"
+#include "nfcc_coex_trace.h"
 
 static inline int llhw_start(struct mcps802154_local *local)
 {
@@ -52,23 +53,25 @@ static inline void llhw_stop(struct mcps802154_local *local)
 
 static inline int llhw_tx_frame(struct mcps802154_local *local,
 				struct sk_buff *skb,
-				const struct mcps802154_tx_frame_info *info)
+				const struct mcps802154_tx_frame_info *info,
+				int next_delay_dtu)
 {
 	int r;
 
-	trace_llhw_tx_frame(local, info);
-	r = local->ops->tx_frame(&local->llhw, skb, info);
+	trace_llhw_tx_frame(local, info, next_delay_dtu);
+	r = local->ops->tx_frame(&local->llhw, skb, info, next_delay_dtu);
 	trace_llhw_return_int(local, r);
 	return r;
 }
 
 static inline int llhw_rx_enable(struct mcps802154_local *local,
-				 const struct mcps802154_rx_info *info)
+				 const struct mcps802154_rx_info *info,
+				 int next_delay_dtu)
 {
 	int r;
 
-	trace_llhw_rx_enable(local, info);
-	r = local->ops->rx_enable(&local->llhw, info);
+	trace_llhw_rx_enable(local, info, next_delay_dtu);
+	r = local->ops->rx_enable(&local->llhw, info, next_delay_dtu);
 	trace_llhw_return_int(local, r);
 	return r;
 }
@@ -103,6 +106,20 @@ static inline int llhw_rx_get_error_frame(struct mcps802154_local *local,
 	trace_llhw_rx_get_error_frame(local, info);
 	r = local->ops->rx_get_error_frame(&local->llhw, info);
 	trace_llhw_return_rx_frame(local, r, info);
+	return r;
+}
+
+static inline int llhw_idle(struct mcps802154_local *local, bool timestamp,
+			    u32 timestamp_dtu)
+{
+	int r;
+
+	if (timestamp)
+		trace_llhw_idle_timestamp(local, timestamp_dtu);
+	else
+		trace_llhw_idle(local);
+	r = local->ops->idle(&local->llhw, timestamp, timestamp_dtu);
+	trace_llhw_return_int(local, r);
 	return r;
 }
 
@@ -308,13 +325,13 @@ static inline int llhw_vendor_cmd(struct mcps802154_local *local, u32 vendor_id,
 {
 	int r;
 
-	trace_llhw_vendor_cmd(local, vendor_id, subcmd);
+	trace_nfcc_coex_llhw_vendor_cmd(local, vendor_id, subcmd);
 	if (local->ops->vendor_cmd)
 		r = local->ops->vendor_cmd(&local->llhw, vendor_id, subcmd,
 					   data, data_len);
 	else
 		r = -EOPNOTSUPP;
-	trace_llhw_return_int(local, r);
+	trace_nfcc_coex_llhw_return_int(local, r);
 	return r;
 }
 

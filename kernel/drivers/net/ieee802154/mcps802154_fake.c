@@ -76,7 +76,8 @@ static void stop(struct mcps802154_llhw *llhw)
 }
 
 static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
-		    const struct mcps802154_tx_frame_info *info)
+		    const struct mcps802154_tx_frame_info *info,
+		    int next_delay_dtu)
 {
 	if (!started) {
 		pr_err("fake_mcps: %s called and not started\n", __func__);
@@ -90,7 +91,7 @@ static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 }
 
 static int rx_enable(struct mcps802154_llhw *llhw,
-		     const struct mcps802154_rx_info *info)
+		     const struct mcps802154_rx_info *info, int next_delay_dtu)
 {
 	if (!started) {
 		pr_err("fake_mcps: %s called and not started\n", __func__);
@@ -397,6 +398,13 @@ static const char *const *list_calibration(struct mcps802154_llhw *llhw)
 	return calib_strings;
 }
 
+static int vendor_cmd(struct mcps802154_llhw *llhw, u32 vendor_id, u32 subcmd,
+		      void *data, size_t data_len)
+{
+	pr_info("fake_mcps: %s called\n", __func__);
+	return 0;
+}
+
 static const struct mcps802154_ops fake_ops = {
 	.start = start,
 	.stop = stop,
@@ -423,6 +431,7 @@ static const struct mcps802154_ops fake_ops = {
 	.set_calibration = set_calibration,
 	.get_calibration = get_calibration,
 	.list_calibration = list_calibration,
+	.vendor_cmd = vendor_cmd,
 };
 
 static int __init fake_init(void)

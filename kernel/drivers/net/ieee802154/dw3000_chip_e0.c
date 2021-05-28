@@ -30,6 +30,8 @@
 int dw3000_d0_softreset(struct dw3000 *dw);
 int dw3000_d0_init(struct dw3000 *dw);
 int dw3000_d0_coex_init(struct dw3000 *dw);
+const struct dw3000_chip_register *dw3000_d0_get_registers(struct dw3000 *dw,
+							   size_t *count);
 
 const u32 *dw3000_e0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel)
 {
@@ -542,4 +544,5 @@ const struct dw3000_chip_ops dw3000_chip_e0_ops = {
 	.get_config_mrxlut_chan = dw3000_e0_get_config_mrxlut_chan,
 	.adc_offset_calibration = dw3000_e0_adc_offset_calibration,
 	.pll_calibration_from_scratch = dw3000_e0_pll_calibration_from_scratch,
+	.get_registers = dw3000_d0_get_registers,
 };

@@ -26,141 +26,170 @@
 #include "dw3000_core.h"
 #include "dw3000_core_reg.h"
 #include "dw3000_ccc.h"
+#include "dw3000_trc.h"
 
-static int dw3000_scratch_ram_read_data(struct dw3000 *dw,
-					struct ccc_msg *buffer, u16 len,
-					u16 offset)
+/**
+ * dw3000_nfcc_coex_read_scratch_ram() - Copy from scratch ram memory to buffer.
+ * @dw: Driver context.
+ * @buffer: Buffer to write.
+ * @len: Number of byte to copy.
+ * @offset: Number of byte to skip.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int
+dw3000_nfcc_coex_read_scratch_ram(struct dw3000 *dw,
+				  struct dw3000_nfcc_coex_buffer *buffer,
+				  u16 len, u16 offset)
 {
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
-		return -EOPNOTSUPP;
-	if (unlikely((len + offset) > DW3000_SCRATCH_RAM_LEN)) {
-		dev_err(dw->dev, "Scratch ram bad address\n");
+	int end_offset = len + offset;
+
+	if (end_offset > DW3000_SCRATCH_RAM_LEN) {
+		trace_dw3000_nfcc_coex_err(dw, "scratch ram bad address");
 		return -EINVAL;
 	}
-	return dw3000_xfer(dw, DW3000_SCRATCH_RAM_ID, offset, len, buffer,
+	return dw3000_xfer(dw, DW3000_SCRATCH_RAM_ID, offset, len, buffer->raw,
 			   DW3000_SPI_RD_BIT);
 }
 
-static int dw3000_scratch_ram_write_data(struct dw3000 *dw, u8 *buffer, u16 len,
-					 u16 offset)
+/**
+ * dw3000_nfcc_coex_read_scratch_ram() - Copy from buffer to scratch ram memory.
+ * @dw: Driver context.
+ * @buffer: Buffer to read.
+ * @len: Number of byte to copy.
+ * @offset: Number of byte to skip.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int
+dw3000_nfcc_coex_write_scratch_ram(struct dw3000 *dw,
+				   const struct dw3000_nfcc_coex_buffer *buffer,
+				   u16 len, u16 offset)
 {
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
-		return -EOPNOTSUPP;
-	if (unlikely((len + offset) > DW3000_SCRATCH_RAM_LEN)) {
-		dev_err(dw->dev, "Scratch ram bad address\n");
+	int end_offset = len + offset;
+	/* TODO: Avoid the cast, which remove the const with better code.
+	 * Idea to dig: define dw3000_xfer with 2 pointers(read/write).
+	 * And develop the idea of full duplex API. */
+	void *raw = (void *)buffer->raw;
+
+	if (end_offset > DW3000_SCRATCH_RAM_LEN) {
+		trace_dw3000_nfcc_coex_err(dw, "scratch ram bad address");
 		return -EINVAL;
 	}
-	return dw3000_xfer(dw, DW3000_SCRATCH_RAM_ID, offset, len, buffer,
+	return dw3000_xfer(dw, DW3000_SCRATCH_RAM_ID, offset, len, raw,
 			   DW3000_SPI_WR_BIT);
 }
 
-static int dw3000_is_spi1_reserved(struct dw3000 *dw, bool *val)
+/**
+ * dw3000_nfcc_coex_is_spi1_reserved() - Get the status of SPI1 reserved status.
+ * @dw: Driver context.
+ * @val: Boolean updated on success.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_nfcc_coex_is_spi1_reserved(struct dw3000 *dw, bool *val)
 {
 	u8 reg;
 	int rc;
 
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
-		return -EOPNOTSUPP;
 	/* Check if SPI1 is reserved by reading SPI_SEM register */
 	rc = dw3000_reg_read8(dw, DW3000_SPI_SEM_ID, 0, &reg);
 	if (rc)
 		return rc;
-	if (reg & DW3000_SPI_SEM_SPI1_RG_BIT_MASK)
-		*val = true;
-	else
-		*val = false;
+
+	*val = reg & DW3000_SPI_SEM_SPI1_RG_BIT_MASK;
 	return 0;
 }
 
-int dw3000_spi1_release(struct dw3000 *dw)
+/**
+ * dw3000_nfcc_coex_release_spi1() - Release the SPI1.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_nfcc_coex_release_spi1(struct dw3000 *dw)
 {
 	int rc;
 	bool is_spi1_enabled;
 
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
-		return -EOPNOTSUPP;
 	rc = dw3000_write_fastcmd(dw, DW3000_CMD_SEMA_REL);
 	if (rc)
 		return rc;
-	rc = dw3000_is_spi1_reserved(dw, &is_spi1_enabled);
+	rc = dw3000_nfcc_coex_is_spi1_reserved(dw, &is_spi1_enabled);
 	if (rc)
 		return rc;
-	if (is_spi1_enabled)
-		rc = -EBUSY;
-	else
-		rc = 0;
-	return rc;
+
+	return is_spi1_enabled ? -EBUSY : 0;
 }
 
-static int dw3000_spi1_reserve(struct dw3000 *dw)
+/**
+ * dw3000_nfcc_coex_reserve_spi1() - Reserve the SPI1.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_nfcc_coex_reserve_spi1(struct dw3000 *dw)
 {
 	int rc;
 	bool is_spi1_reserved;
 
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
-		return -EOPNOTSUPP;
 	rc = dw3000_write_fastcmd(dw, DW3000_CMD_SEMA_REQ);
 	if (rc)
 		return rc;
 	/* Check if the SPI1 is really reserved.
-	 * Indeed, if SPI2 is already reserved, SPI1 could not be reserved.
-	 */
-	rc = dw3000_is_spi1_reserved(dw, &is_spi1_reserved);
+	 * Indeed, if SPI2 is already reserved, SPI1 could not be reserved. */
+	rc = dw3000_nfcc_coex_is_spi1_reserved(dw, &is_spi1_reserved);
 	if (rc)
 		return rc;
-	if (!is_spi1_reserved)
-		rc = -EBUSY;
-	return rc;
+
+	return is_spi1_reserved ? 0 : -EBUSY;
 }
 
-static int dw3000_clear_SPI1MAVAIL_interrupt(struct dw3000 *dw)
-{
-	if (unlikely(__dw3000_chip_version == 0))
-		return -EOPNOTSUPP;
-	return dw3000_clear_dss_status(dw, DW3000_DSS_STAT_SPI1_AVAIL_BIT_MASK);
-}
-
-static int dw3000_clear_SPI2MAVAIL_interrupt(struct dw3000 *dw)
-{
-	if (unlikely(__dw3000_chip_version == 0))
-		return -EOPNOTSUPP;
-	return dw3000_clear_dss_status(dw, DW3000_DSS_STAT_SPI2_AVAIL_BIT_MASK);
-}
-
-static int dw3000_is_SPIxMAVAIL_interrupts_enabled(struct dw3000 *dw, bool *val)
+/**
+ * dw3000_nfcc_coex_is_SPIxMAVAIL_interrupts_enabled() - Is all SPI interrupts enabled?
+ * @dw: Driver context.
+ * @val: Boolean updated on success.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_nfcc_coex_is_SPIxMAVAIL_interrupts_enabled(struct dw3000 *dw,
+							     bool *val)
 {
 	int rc;
 	u8 reg_sem;
 	u32 reg_sys;
 
-	if (unlikely(__dw3000_chip_version == 0))
-		return -EOPNOTSUPP;
 	rc = dw3000_reg_read8(dw, DW3000_SPI_SEM_ID, 1, &reg_sem);
 	if (rc)
 		return rc;
 	rc = dw3000_reg_read32(dw, DW3000_SYS_CFG_ID, 0, &reg_sys);
 	if (rc)
 		return rc;
-	if ((reg_sem & (DW3000_SPI_SEM_SPI1MAVAIL_BIT_MASK >> 8)) &&
-	    (reg_sem & (DW3000_SPI_SEM_SPI2MAVAIL_BIT_MASK >> 8)) &&
-	    (reg_sys & DW3000_SYS_CFG_DS_IE2_BIT_MASK))
-		*val = true;
-	else
-		*val = false;
+
+	*val = reg_sem & ((DW3000_SPI_SEM_SPI1MAVAIL_BIT_MASK |
+			   DW3000_SPI_SEM_SPI1MAVAIL_BIT_MASK) >>
+			  8) &&
+	       reg_sys & DW3000_SYS_CFG_DS_IE2_BIT_MASK;
 	return 0;
 }
 
-int dw3000_SPIxMAVAIL_interrupts_enable(struct dw3000 *dw)
+/**
+ * dw3000_nfcc_coex_enable_SPIxMAVAIL_interrupts() - Enable all SPI available interrupts.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_nfcc_coex_enable_SPIxMAVAIL_interrupts(struct dw3000 *dw)
 {
 	int rc;
 	u8 reg;
 
-	if (unlikely(__dw3000_chip_version == 0))
-		return -EOPNOTSUPP;
-	rc = dw3000_clear_SPI1MAVAIL_interrupt(dw);
+	/* Clear SPI1MAVAIL interrupt. */
+	rc = dw3000_clear_dss_status(dw, DW3000_DSS_STAT_SPI1_AVAIL_BIT_MASK);
 	if (rc)
 		return rc;
-	rc = dw3000_clear_SPI2MAVAIL_interrupt(dw);
+	/* Clear SPI2MAVAIL interrupt. */
+	rc = dw3000_clear_dss_status(dw, DW3000_DSS_STAT_SPI2_AVAIL_BIT_MASK);
 	if (rc)
 		return rc;
 	/* Disable SPIRDY in SYS_MASK. If it is enabled, the IRQ2 will not work.
@@ -191,180 +220,202 @@ int dw3000_SPIxMAVAIL_interrupts_enable(struct dw3000 *dw)
 	return dw3000_reg_write8(dw, DW3000_SPI_SEM_ID, 1, reg);
 }
 
-static int dw3000_SPIxMAVAIL_interrupts_disable(struct dw3000 *dw)
+/**
+ * dw3000_nfcc_coex_disable_SPIxMAVAIL_interrupts() - Disable all SPI available interrupts.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_nfcc_coex_disable_SPIxMAVAIL_interrupts(struct dw3000 *dw)
 {
 	int rc;
 	u8 reg;
 
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
-		return -EOPNOTSUPP;
-	/* Please read the comment in dw3000_SPIxMAVAIL_interrupts_enable() for SPI_SEM access */
+	/* Please read the comment in enable_SPIxMAVAIL_interrupts() for SPI_SEM access. */
 	rc = dw3000_reg_read8(dw, DW3000_SPI_SEM_ID, 1, &reg);
 	if (rc)
 		return rc;
-	/* Reset SPI1MAVAIL and SPI2MAVAIL masks */
+	/* Reset SPI1MAVAIL and SPI2MAVAIL masks. */
 	reg = reg & ~(DW3000_SPI_SEM_SPI1MAVAIL_BIT_MASK >> 8) &
 	      ~(DW3000_SPI_SEM_SPI2MAVAIL_BIT_MASK >> 8);
 	rc = dw3000_reg_write8(dw, DW3000_SPI_SEM_ID, 1, reg);
 	if (rc)
 		return rc;
-	/* Disable the dual SPI interrupt for SPI */
+	/* Disable the dual SPI interrupt for SPI. */
 	return dw3000_reg_modify32(dw, DW3000_SYS_CFG_ID, 0,
 				   (u32)~DW3000_SYS_CFG_DS_IE2_BIT_MASK, 0);
 }
 
-int dw3000_ccc_write(struct dw3000 *dw, u8 *buffer, u16 len)
+int dw3000_nfcc_coex_write_buffer(struct dw3000 *dw,
+				  const struct dw3000_nfcc_coex_buffer *buffer,
+				  u16 len)
 {
 	int rc;
 
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
+	if (!dw->nfcc_coex.enabled)
 		return -EOPNOTSUPP;
-	if (unlikely((len) > DW3000_CCC_SCRATCH_AP_SIZE)) {
-		dev_err(dw->dev, "Writing to NFCC should not exceed %u bytes\n",
-			DW3000_CCC_SCRATCH_AP_SIZE);
+	if (len > DW3000_CCC_SCRATCH_AP_SIZE) {
+		trace_dw3000_nfcc_coex_err(
+			dw, "writing to nfcc exceed SCRATCH_AP_SIZE");
 		return -EINVAL;
 	}
-	rc = dw3000_spi1_reserve(dw);
+	rc = dw3000_nfcc_coex_reserve_spi1(dw);
 	if (rc)
 		return rc;
-	rc = dw3000_scratch_ram_write_data(dw, buffer, len,
-					   DW3000_CCC_SCRATCH_AP_OFFSET);
+	rc = dw3000_nfcc_coex_write_scratch_ram(dw, buffer, len,
+						DW3000_CCC_SCRATCH_AP_OFFSET);
 	if (rc)
 		return rc;
-	dev_dbg(dw->dev, "written %u bytes to CCC scratch RAM", len);
-	print_hex_dump_debug(" >>> ", DUMP_PREFIX_OFFSET, 16, 1, buffer, len,
-			     true);
-	/* Trigger IRQ2 to inform NFCC */
-	return dw3000_spi1_release(dw);
+	dw->nfcc_coex.seqnum++;
+	/* Trigger IRQ2 to inform NFCC. */
+	return dw3000_nfcc_coex_release_spi1(dw);
 }
 
-int dw3000_ccc_read(struct dw3000 *dw, struct ccc_msg *buffer, u16 len)
+int dw3000_nfcc_coex_read_buffer(struct dw3000 *dw,
+				 struct dw3000_nfcc_coex_buffer *buffer,
+				 u16 len)
 {
 	int rc;
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
+
+	if (!dw->nfcc_coex.enabled)
 		return -EOPNOTSUPP;
-	if (unlikely((len) > DW3000_CCC_SCRATCH_NFCC_SIZE)) {
-		dev_err(dw->dev,
-			"Reading from NFCC should not exceed %u bytes\n",
-			DW3000_CCC_SCRATCH_NFCC_SIZE);
+	if (len > DW3000_CCC_SCRATCH_NFCC_SIZE) {
+		trace_dw3000_nfcc_coex_err(
+			dw, "Reading from NFCC exceed SCRATCH_AP_SIZE");
 		return -EINVAL;
 	}
-	rc = dw3000_scratch_ram_read_data(dw, buffer, len,
-					  DW3000_CCC_SCRATCH_NFCC_OFFSET);
-	if (rc) {
-		dev_err(dw->dev, "Error while reading CCC scratch RAM");
-	} else {
-		dev_dbg(dw->dev,
-			"Successfully read %u bytes from CCC scratch RAM", len);
-		print_hex_dump_debug(" <<< ", DUMP_PREFIX_OFFSET, 16, 1, buffer,
-				     len, true);
-	}
+	rc = dw3000_nfcc_coex_read_scratch_ram(dw, buffer, len,
+					       DW3000_CCC_SCRATCH_NFCC_OFFSET);
+	if (rc)
+		trace_dw3000_nfcc_coex_err(
+			dw, "Error while reading NFCC scratch RAM");
 	return rc;
 }
 
-int dw3000_ccc_isr_handle_spi1_avail(struct dw3000 *dw)
+int dw3000_nfcc_coex_handle_spi_ready_isr(struct dw3000 *dw)
 {
-	int rc;
-	struct ccc_msg buffer;
+	int r;
 
-	if (unlikely(dw->ccc.state != DW3000_CCC_ON))
+	if (__dw3000_chip_version == 0 || !dw->nfcc_coex.enabled)
 		return -EOPNOTSUPP;
 
-	rc = dw3000_ccc_read(dw, &buffer, DW3000_CCC_SCRATCH_NFCC_SIZE);
-	/* clear interrupt even on error to avoid isr in loop */
-	rc &= dw3000_clear_SPI1MAVAIL_interrupt(dw);
-	if (rc)
-		return rc;
-
-	if (unlikely(!dw->ccc.process_received_msg_cb)) {
-		dev_err(dw->dev,
-			"CCC : No callback defined to handle received buffer");
-		return -EOPNOTSUPP;
-	}
-
-	return dw->ccc.process_received_msg_cb(
-		dw, &buffer, dw->ccc.process_received_msg_cb_args);
+	/* NFCC was enabled before sleeping. Enable the NFCC mailbox
+	 * interrupt and send the right message to the NFCC. */
+	r = dw3000_nfcc_coex_enable_SPIxMAVAIL_interrupts(dw);
+	if (r)
+		return r;
+	return dw3000_nfcc_coex_write_msg_on_wakeup(dw);
 }
 
-int dw3000_ccc_enable(struct dw3000 *dw, u8 channel, ccc_callback cb,
-		      void *args)
+int dw3000_nfcc_coex_handle_spi1_avail_isr(struct dw3000 *dw)
 {
 	int rc;
+	struct dw3000_nfcc_coex_buffer buffer;
 
-	/* CCC needs a D0 chip or above. C0 does not have 2 SPI interfaces */
-	if (__dw3000_chip_version == 0) {
-		dev_err(dw->dev, "CCC mode is not supported on C0 chip.\n");
+	if (!dw->nfcc_coex.enabled)
+		return -EOPNOTSUPP;
+
+	rc = dw3000_nfcc_coex_read_buffer(dw, &buffer,
+					  DW3000_CCC_SCRATCH_NFCC_SIZE);
+	/* Clear SPI1MAVAIL interrupt on error to avoid isr in loop. */
+	rc &= dw3000_clear_dss_status(dw, DW3000_DSS_STAT_SPI1_AVAIL_BIT_MASK);
+	if (rc)
+		/* FIXME: rc doesn't matches with errno defines. */
+		return rc;
+
+	if (!dw->nfcc_coex.spi_avail_cb) {
+		trace_dw3000_nfcc_coex_err(
+			dw, "No callback defined to handle received buffer");
 		return -EOPNOTSUPP;
 	}
 
-	/* set the channel for CCC and save current config */
-	dw->ccc.original_channel = dw->config.chan;
+	return dw->nfcc_coex.spi_avail_cb(dw, &buffer);
+}
+
+void dw3000_nfcc_coex_init(struct dw3000 *dw)
+{
+	struct dw3000_nfcc_coex *nfcc_coex = &dw->nfcc_coex;
+
+	memset(nfcc_coex, 0, sizeof(*nfcc_coex));
+}
+
+int dw3000_nfcc_coex_enable(struct dw3000 *dw, u8 channel,
+			    dw3000_nfcc_coex_spi_avail_cb cb)
+{
+	int rc;
+
+	trace_dw3000_nfcc_coex_enable(dw, channel);
+
+	/* NFCC needs a D0 chip or above. C0 does not have 2 SPI interfaces. */
+	if (__dw3000_chip_version == 0) {
+		trace_dw3000_nfcc_coex_err(dw, "C0 chip is not supported");
+		return -EOPNOTSUPP;
+	}
+
+	/* Set the channel for NFCC and save current config. */
+	/* FIXME: original_channel lost on second call. */
+	dw->nfcc_coex.original_channel = dw->config.chan;
 	dw->config.chan = channel;
 	rc = dw3000_configure_chan(dw);
 	if (rc) {
-		dev_dbg(dw->dev,
-			"CCC enable: error while setting channel to %u",
-			dw->config.chan);
+		trace_dw3000_nfcc_coex_err(dw, "configure channel fails");
 		return rc;
 	}
-	dev_dbg(dw->dev, "CCC enable: set channel to %u (orig == %u)",
-		dw->config.chan, dw->ccc.original_channel);
 
-	/* disable rx during ccc */
+	/* Disable rx during NFCC. */
 	rc = dw3000_rx_disable(dw);
-	if (rc) {
-		dev_err(dw->dev, "rx disable failed: %d\n", rc);
-	}
+	if (rc)
+		trace_dw3000_nfcc_coex_warn(dw, "rx disable failed");
 
-	rc = dw3000_SPIxMAVAIL_interrupts_enable(dw);
-	if (rc) {
-		dev_err(dw->dev, "SPIxMAVAIL interrupts enable failed: %d\n",
-			rc);
-	}
-	dw->ccc.state = DW3000_CCC_ON;
-	dw->ccc.process_received_msg_cb = cb;
-	dw->ccc.process_received_msg_cb_args = args;
+	rc = dw3000_nfcc_coex_enable_SPIxMAVAIL_interrupts(dw);
+	if (rc)
+		trace_dw3000_nfcc_coex_err(
+			dw, "SPIxMAVAIL interrupts enable failed");
+
+	dw->nfcc_coex.enabled = true;
+	dw->nfcc_coex.spi_avail_cb = cb;
 	return rc;
 }
 
-int dw3000_ccc_disable(struct dw3000 *dw)
+int dw3000_nfcc_coex_disable(struct dw3000 *dw)
 {
 	int rc;
 	bool val = false;
 
-	rc = dw3000_is_SPIxMAVAIL_interrupts_enabled(dw, &val);
+	trace_dw3000_nfcc_coex_disable(dw);
+
+	if (__dw3000_chip_version == 0)
+		return -EOPNOTSUPP;
+
+	rc = dw3000_nfcc_coex_is_SPIxMAVAIL_interrupts_enabled(dw, &val);
 	if (rc) {
-		dev_err(dw->dev,
-			"SPIxMAVAIL interrupts read enable status failed: %d\n",
-			rc);
+		trace_dw3000_nfcc_coex_err(
+			dw, "SPIxMAVAIL interrupts read enable status failed");
 		return rc;
 	}
 	if (val) {
-		rc = dw3000_SPIxMAVAIL_interrupts_disable(dw);
+		rc = dw3000_nfcc_coex_disable_SPIxMAVAIL_interrupts(dw);
 		if (rc) {
-			dev_err(dw->dev,
-				"SPIxMAVAIL interrupts disable failed: %d\n",
-				rc);
+			trace_dw3000_nfcc_coex_err(
+				dw, "SPIxMAVAIL interrupts disable failed");
 			return rc;
 		}
 	}
 
-	if (dw->ccc.original_channel == 5 || dw->ccc.original_channel == 9) {
-		dw->config.chan = dw->ccc.original_channel;
+	if (dw->nfcc_coex.original_channel == 5 ||
+	    dw->nfcc_coex.original_channel == 9) {
+		dw->config.chan = dw->nfcc_coex.original_channel;
 		rc = dw3000_configure_chan(dw);
 		if (rc) {
-			dev_dbg(dw->dev,
-				"CCC disable: error while restoring channel to %u",
-				dw->ccc.original_channel);
+			trace_dw3000_nfcc_coex_err(
+				dw,
+				"ccc_disable error while restoring channel");
 			return rc;
 		}
-		dev_dbg(dw->dev, "CCC disable: restore channel to %u",
-			dw->ccc.original_channel);
 	}
 
-	/* TODO: inform HAL that CCC session is complete */
-	dw->ccc.state = DW3000_CCC_OFF;
-	dw->ccc.process_received_msg_cb = NULL;
-	dw->ccc.process_received_msg_cb_args = NULL;
+	/* TODO: Inform HAL that NFCC session is complete. */
+	dw->nfcc_coex.enabled = false;
+	dw->nfcc_coex.spi_avail_cb = NULL;
 	return rc;
 }

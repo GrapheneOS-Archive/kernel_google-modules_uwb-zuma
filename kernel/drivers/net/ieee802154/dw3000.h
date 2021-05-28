@@ -83,6 +83,8 @@ struct dw3000_isr_data {
 #define DW3000_DTU_PER_RSTU (416 / DW3000_CHIP_PER_DTU)
 #define DW3000_DTU_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_CHIP_PER_DTU)
 
+#define DW3000_ANTICIP_DTU (16 * (DW3000_DTU_FREQ / 1000))
+
 #define DTU_TO_US(x) (int)((s64)(x)*1000000 / DW3000_DTU_FREQ)
 #define US_TO_DTU(x) (int)((s64)(x)*DW3000_DTU_FREQ / 1000000)
 
@@ -247,9 +249,9 @@ struct dw3000_power_control {
  * @stsLength: STS length (see enum dw3000_sts_lengths)
  * @pdoaMode: PDOA mode
  * @ant: Antennas currently connected to RF1 & RF2 ports respectively
+ * @antpair_spacing_mm_q11: Holds selected antennas pair spacing from calibration table
  * @pdoaOffset: Calibrated PDOA offset
  * @rmarkerOffset: Calibrated rmarker offset
- * @baseTxPower: Tx power for 1ms frame
  * @promisc: Promiscuous mode enabled?
  * @hw_addr_filt: HW filter configuration
  */
@@ -267,9 +269,9 @@ struct dw3000_config {
 	enum dw3000_sts_lengths stsLength;
 	u8 pdoaMode;
 	s8 ant[2];
+	int antpair_spacing_mm_q11;
 	s16 pdoaOffset;
 	u32 rmarkerOffset;
-	u32 baseTxPower;
 	bool promisc;
 	struct ieee802154_hw_addr_filt hw_addr_filt;
 };
@@ -278,17 +280,19 @@ struct dw3000_config {
  * struct dw3000_txconfig - Structure holding current TX configuration
  * @PGdly: PG delay
  * @PGcount: PG count
- * @power: TX power
+ * @power: TX power for 1ms frame
  *  31:24     TX_CP_PWR
  *  23:16     TX_SHR_PWR
  *  15:8      TX_PHR_PWR
  *  7:0       TX_DATA_PWR
+ * @smart: TX smart power enabled flag
  * @testmode_enabled: Normal or test mode
  */
 struct dw3000_txconfig {
 	u8 PGdly;
 	u8 PGcount;
 	u32 power;
+	bool smart;
 	bool testmode_enabled;
 };
 
@@ -354,27 +358,6 @@ struct dw3000_power {
 	u32 rx_start;
 };
 
-enum dw3000_ccc_state {
-	DW3000_CCC_OFF,
-	DW3000_CCC_ON,
-};
-
-/**
- * struct dw3000_ccc - CCC coexistance related data
- * @state: CCC state : ON or OFF (may evolve in future versions)
- * @seqnum: sent messages counter
- * @process_received_msg_cb: callback that process incoming TLVs
- * @process_received_msg_cb_args: callback data
- * @original_channel: channel setting to be restored after CCC session
- */
-struct dw3000_ccc {
-	enum dw3000_ccc_state state;
-	uint8_t seqnum;
-	ccc_callback process_received_msg_cb;
-	void *process_received_msg_cb_args;
-	u8 original_channel;
-};
-
 /**
  * struct dw3000_deep_sleep_state - Useful data to restore on wake up
  * @dtu_before_deep_sleep: DTU immediately before enter deep sleep
@@ -391,7 +374,6 @@ struct dw3000_deep_sleep_state {
 	u32 dtu_on_wakeup;
 	u64 time_on_wakeup;
 	u32 dtu_wakeup_offset;
-	u32 ccc_nextslot_dtu;
 };
 
 /**
@@ -411,6 +393,7 @@ struct dw3000_deep_sleep_state {
  * @power: power related statistics and states
  * @deep_sleep_state: state related to the deep sleep
  * @deep_sleep_timer: timer to wake up the chip after deep sleep
+ * @nfcc_coex: NFCC coexistence specific context
  * @chip_dev_id: identified chip device ID
  * @started: interface status
  * @has_lock_pm: power management locked status
@@ -470,6 +453,8 @@ struct dw3000 {
 	/* Deep Sleep management */
 	struct dw3000_deep_sleep_state deep_sleep_state;
 	struct timer_list deep_sleep_timer;
+	/* NFCC coexistence specific context. */
+	struct dw3000_nfcc_coex nfcc_coex;
 	/* Detected chip device ID */
 	u32 chip_dev_id;
 	/* True when MCPS start() operation had been called */
@@ -489,8 +474,6 @@ struct dw3000 {
 	s8 lna_pa_mode;
 	/* Is auto-ack activated? */
 	bool autoack;
-	/* CCC data */
-	struct dw3000_ccc ccc;
 	/* pgf calibration running */
 	bool pgf_cal_running;
 	/* State machine */

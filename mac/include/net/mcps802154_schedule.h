@@ -122,6 +122,21 @@ struct mcps802154_access_frame {
 };
 
 /**
+ * struct mcps802154_region_demand - Access information for on demand
+ * schedulers.
+ */
+struct mcps802154_region_demand {
+	/**
+	 * @timestamp_dtu: Start of the demand.
+	 */
+	u32 timestamp_dtu;
+	/**
+	 * @duration_dtu: Duration of the demand, 0 for endless.
+	 */
+	int duration_dtu;
+};
+
+/**
  * struct mcps802154_access - Single medium access.
  *
  * This structure gives MCPS all the information needed to perform a single
@@ -240,15 +255,15 @@ struct mcps802154_access_vendor_ops {
 	 */
 	int (*handle)(struct mcps802154_access *access);
 	/**
-	 * @rx_frame: Called when a frame reception is signaled.
+	 * @rx_frame: Called when a frame reception is signaled, error if NULL.
 	 */
 	int (*rx_frame)(struct mcps802154_access *access);
 	/**
-	 * @rx_timeout: Called when a reception timeout is signaled.
+	 * @rx_timeout: Called when a reception timeout is signaled, error if NULL.
 	 */
 	int (*rx_timeout)(struct mcps802154_access *access);
 	/**
-	 * @rx_error: Called when a reception error is signaled.
+	 * @rx_error: Called when a reception error is signaled, error if NULL.
 	 */
 	int (*rx_error)(struct mcps802154_access *access,
 			enum mcps802154_rx_error_type error);
@@ -257,7 +272,7 @@ struct mcps802154_access_vendor_ops {
 	 */
 	int (*tx_done)(struct mcps802154_access *access);
 	/**
-	 * @broken: Called when a unrecoverable error is signaled.
+	 * @broken: Called when a unrecoverable error is signaled, error if NULL.
 	 */
 	int (*broken)(struct mcps802154_access *access);
 	/**

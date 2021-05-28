@@ -370,7 +370,7 @@ static void twr_responder_rx_frame(struct mcps802154_access *access,
 		access->frames[TWR_FRAME_REPORT].tx_frame_info.timestamp_dtu =
 			resp_tx_dtu + 2 * local->slot_duration_dtu;
 	} else {
-		int tof_half_rctu;
+		s32 tof_half_rctu;
 		u64 final_rx_timestamp_rctu;
 
 		WARN_ON(frame_idx != TWR_FRAME_FINAL);
@@ -494,7 +494,7 @@ static void twr_rx_frame(struct mcps802154_access *access, int frame_idx,
 				local->initiator.final_tx_timestamp_rctu,
 				resp_rx_timestamp_rctu);
 	} else {
-		int report_tof_x4_rctu;
+		s32 report_tof_x4_rctu;
 
 		WARN_ON(frame_idx != TWR_FRAME_REPORT);
 		if (!twr_frame_report_check(

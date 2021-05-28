@@ -60,6 +60,15 @@ enum dw3000_calibration_prf {
 #define DW3000_DEFAULT_ANT_DELAY 16450
 
 /**
+ * DW3000_DEFAULT_ANT_PAIR_SPACING - antpair spacing default value
+ *
+ * Value is for Monalisa antennas pair where antennas are spaced
+ * 20.8mm.
+ * So default spacing_mm_q11 = 20.8 * 1<<11 = 42598.4
+ */
+#define DW3000_DEFAULT_ANTPAIR_SPACING 42598
+
+/**
  * struct dw3000_channel_calib - per-channel dependent calibration parameters
  * @pll_locking_code: PLL locking code
  */
@@ -100,15 +109,25 @@ struct dw3000_antenna_calib {
 };
 
 /**
+ * struct dw3000_antenna_pair_calib_chan - per-channel antennas pair calibration
+ *  parameters
+ * @pdoa_offset: PDOA offset
+ * @pdoa_lut: PDOA LUT
+ */
+struct dw3000_antenna_pair_calib_chan {
+	s16 pdoa_offset;
+	u32 pdoa_lut[DW3000_CALIBRATION_PDOA_LUT_MAX];
+};
+
+/**
  * struct dw3000_antenna_pair_calib - antenna pair dependent calibration values
  * @ch: table of channels dependent calibration values
+ * @spacing_mm_q11: Distance between antennas in mm in fixed-point
  */
 struct dw3000_antenna_pair_calib {
 	/* antX.antW.chY.* */
-	struct {
-		s16 pdoa_offset;
-		u32 pdoa_lut[DW3000_CALIBRATION_PDOA_LUT_MAX];
-	} ch[DW3000_CALIBRATION_CHANNEL_MAX];
+	struct dw3000_antenna_pair_calib_chan ch[DW3000_CALIBRATION_CHANNEL_MAX];
+	int spacing_mm_q11;
 };
 
 /* Just to ease reading of the following formulas. */
@@ -158,13 +177,11 @@ static inline void dw3000_calib_antpair_to_ant(int ant_pair, u8 *antidx1,
  * @ant: table of antenna dependent calibration values
  * @antpair: table of antenna pair dependent calibration values
  * @ch: table of channel dependent calibration values
- * @smart_tx_power: when true, enables power adjustment based on frame length
  */
 struct dw3000_calibration_data {
 	struct dw3000_antenna_calib ant[ANTMAX];
 	struct dw3000_antenna_pair_calib antpair[ANTPAIR_MAX];
 	struct dw3000_channel_calib ch[DW3000_CALIBRATION_CHANNEL_MAX];
-	bool smart_tx_power;
 };
 
 struct dw3000;

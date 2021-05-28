@@ -94,6 +94,11 @@ struct mcps802154_llhw {
 	 */
 	int anticip_dtu;
 	/**
+	 * @idle_dtu: Duration long enough to prefer entering the idle mode
+	 * rather than trying to find a valid access.
+	 */
+	int idle_dtu;
+	/**
 	 * @flags: Low-level hardware flags, see &enum mcps802154_llhw_flags.
 	 */
 	u32 flags;
@@ -129,6 +134,9 @@ struct mcps802154_llhw {
  * @MCPS802154_TX_FRAME_RANGING:
  *	Enable precise timestamping for the transmitted frame and its response
  *	(RDEV only).
+ * @MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK:
+ *      Request that the ranging clock be kept valid after the transmission of
+ *      this frame (RDEV only).
  * @MCPS802154_TX_FRAME_SP1:
  *	Enable STS for the transmitted frame and its response, mode 1 (STS after
  *	SFD and before PHR, ERDEV only).
@@ -147,10 +155,11 @@ enum mcps802154_tx_frame_info_flags {
 	MCPS802154_TX_FRAME_TIMESTAMP_DTU = BIT(0),
 	MCPS802154_TX_FRAME_CCA = BIT(1),
 	MCPS802154_TX_FRAME_RANGING = BIT(2),
-	MCPS802154_TX_FRAME_SP1 = BIT(3),
-	MCPS802154_TX_FRAME_SP2 = BIT(4),
-	MCPS802154_TX_FRAME_SP3 = BIT(3) | BIT(4),
-	MCPS802154_TX_FRAME_STS_MODE_MASK = BIT(3) | BIT(4),
+	MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK = BIT(3),
+	MCPS802154_TX_FRAME_SP1 = BIT(4),
+	MCPS802154_TX_FRAME_SP2 = BIT(5),
+	MCPS802154_TX_FRAME_SP3 = BIT(4) | BIT(5),
+	MCPS802154_TX_FRAME_STS_MODE_MASK = BIT(4) | BIT(5),
 };
 
 /**
@@ -191,6 +200,9 @@ struct mcps802154_tx_frame_info {
  *	Enable automatic acknowledgment.
  * @MCPS802154_RX_INFO_RANGING:
  *	Enable precise timestamping for the received frame (RDEV only).
+ * @MCPS802154_RX_INFO_KEEP_RANGING_CLOCK:
+ *      Request that the ranging clock be kept valid after the reception of the
+ *      frame (RDEV only).
  * @MCPS802154_RX_INFO_SP1:
  *	Enable STS for the received frame, mode 1 (STS after SFD and before PHR,
  *	ERDEV only).
@@ -209,10 +221,11 @@ enum mcps802154_rx_info_flags {
 	MCPS802154_RX_INFO_TIMESTAMP_DTU = BIT(0),
 	MCPS802154_RX_INFO_AACK = BIT(1),
 	MCPS802154_RX_INFO_RANGING = BIT(2),
-	MCPS802154_RX_INFO_SP1 = BIT(3),
-	MCPS802154_RX_INFO_SP2 = BIT(4),
-	MCPS802154_RX_INFO_SP3 = BIT(3) | BIT(4),
-	MCPS802154_RX_INFO_STS_MODE_MASK = BIT(3) | BIT(4),
+	MCPS802154_RX_INFO_KEEP_RANGING_CLOCK = BIT(3),
+	MCPS802154_RX_INFO_SP1 = BIT(4),
+	MCPS802154_RX_INFO_SP2 = BIT(5),
+	MCPS802154_RX_INFO_SP3 = BIT(4) | BIT(5),
+	MCPS802154_RX_INFO_STS_MODE_MASK = BIT(4) | BIT(5),
 };
 
 /**
@@ -325,6 +338,11 @@ struct mcps802154_rx_frame_info {
 	 */
 	int ranging_pdoa_rad_q11;
 	/**
+	 * @ranging_pdoa_spacing_mm_q11: Spacing between antennas, unit is mm
+	 * multiplied by 2048 (RDEV only).
+	 */
+	int ranging_pdoa_spacing_mm_q11;
+	/**
 	 * @ranging_sts_timestamp_diffs_rctu: For each SRMARKERx, difference
 	 * between the measured timestamp and the expected timestamp relative to
 	 * RMARKER in ranging count time unit (ERDEV only). When STS mode is
@@ -415,19 +433,27 @@ struct mcps802154_ops {
 	 * as specified in info. Receiver should be disabled automatically
 	 * unless a frame is being received.
 	 *
+	 * The &next_delay_dtu parameter gives the expected delay between the
+	 * start of the transmitted frame and the next action.
+	 *
 	 * Return: 0, -ETIME if frame can not be sent at specified timestamp,
 	 * -EBUSY if a reception is happening right now, or any other error.
 	 */
 	int (*tx_frame)(struct mcps802154_llhw *llhw, struct sk_buff *skb,
-			const struct mcps802154_tx_frame_info *info);
+			const struct mcps802154_tx_frame_info *info,
+			int next_delay_dtu);
 	/**
 	 * @rx_enable: Enable receiver.
+	 *
+	 * The &next_delay_dtu parameter gives the expected delay between the
+	 * start of the received frame or timeout event and the next action.
 	 *
 	 * Return: 0, -ETIME if receiver can not be enabled at specified
 	 * timestamp, or any other error.
 	 */
 	int (*rx_enable)(struct mcps802154_llhw *llhw,
-			 const struct mcps802154_rx_info *info);
+			 const struct mcps802154_rx_info *info,
+			 int next_delay_dtu);
 	/**
 	 * @rx_disable: Disable receiver, or a programmed receiver enabling,
 	 * unless a frame reception is happening right now.
@@ -457,13 +483,37 @@ struct mcps802154_ops {
 	int (*rx_get_error_frame)(struct mcps802154_llhw *llhw,
 				  struct mcps802154_rx_frame_info *info);
 	/**
+	 * @idle: Put the device into idle mode without time limit or until the
+	 * given timestamp.  The driver should call &mcps802154_timer_expired()
+	 * before the given timestamp so that an action can be programmed at the
+	 * given timestamp.
+	 *
+	 * The &mcps802154_timer_expired() function must not be called
+	 * immediately from this callback, but should be scheduled to be called
+	 * later.
+	 *
+	 * If the driver is late, the regular handling of late actions will take
+	 * care of the situation.
+	 *
+	 * Return: 0 or error.
+	 */
+	int (*idle)(struct mcps802154_llhw *llhw, bool timestamp,
+		    u32 timestamp_dtu);
+	/**
 	 * @reset: Reset device after an unrecoverable error.
 	 *
 	 * Return: 0 or error.
 	 */
 	int (*reset)(struct mcps802154_llhw *llhw);
 	/**
-	 * @get_current_timestamp_dtu: Get current timestamp in device time unit.
+	 * @get_current_timestamp_dtu: Get current timestamp in device time
+	 * unit.
+	 *
+	 * If the device is currently in a low power state, the eventual wake up
+	 * delay should be added to the returned timestamp.
+	 *
+	 * If the current timestamp can not be determined precisely, it should
+	 * return a pessimistic value, i.e. rounded up.
 	 *
 	 * Return: 0 or error.
 	 */
@@ -721,6 +771,14 @@ void mcps802154_tx_done(struct mcps802154_llhw *llhw);
  * @llhw: Low-level device pointer.
  */
 void mcps802154_broken(struct mcps802154_llhw *llhw);
+
+/**
+ * mcps802154_timer_expired() - Signal that a programmed timer expired.
+ * @llhw: Low-level device pointer.
+ *
+ * To be called before the timestamp given to &mcps802154_ops.idle() callback.
+ */
+void mcps802154_timer_expired(struct mcps802154_llhw *llhw);
 
 #ifdef CONFIG_MCPS802154_TESTMODE
 /**

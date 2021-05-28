@@ -123,7 +123,7 @@ int fira_aead_encrypt(struct fira_aead *aead, struct sk_buff *skb,
 	return r;
 }
 
-bool fira_aead_decrypt_scf_check(const struct fira_aead *aead, u8 scf)
+bool fira_aead_decrypt_scf_check(u8 scf)
 {
 	return scf == (IEEE802154_SCF_SECLEVEL_ENC_MIC64 |
 		       IEEE802154_SCF_NO_FRAME_COUNTER);

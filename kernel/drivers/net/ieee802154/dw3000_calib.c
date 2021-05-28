@@ -28,7 +28,7 @@
 #define CHAN_PRF_PARAMS (4 * DW3000_CALIBRATION_PRF_MAX)
 #define ANT_CHAN_PARAMS (CHAN_PRF_PARAMS * DW3000_CALIBRATION_CHANNEL_MAX)
 #define ANT_OTHER_PARAMS (3) /* port, selector_gpio... */
-#define ANTPAIR_CHAN_PARAMS (2 * DW3000_CALIBRATION_CHANNEL_MAX)
+#define ANTPAIR_CHAN_PARAMS (2 * DW3000_CALIBRATION_CHANNEL_MAX + 1)
 #define OTHER_PARAMS (3) /* xtal_trim, temperature_reference, smart_tx_power */
 
 #define MAX_CALIB_KEYS ((ANTMAX * (ANT_CHAN_PARAMS + ANT_OTHER_PARAMS)) + \
@@ -36,13 +36,12 @@
 			(DW3000_CALIBRATION_CHANNEL_MAX) +		\
 			OTHER_PARAMS)
 
-#define CAL_OFFSET(m) offsetof(struct dw3000, calib_data.m)
-#define CAL_SIZE(m) sizeof_field(struct dw3000, calib_data.m)
-#define CAL_INFO(m) { .offset = CAL_OFFSET(m), .length = CAL_SIZE(m) }
+#define DW_OFFSET(m) offsetof(struct dw3000, m)
+#define DW_SIZE(m) sizeof_field(struct dw3000, m)
+#define DW_INFO(m) { .offset = DW_OFFSET(m), .length = DW_SIZE(m) }
 
-#define OTP_OFFSET(m) offsetof(struct dw3000, otp_data.m)
-#define OTP_SIZE(m) sizeof_field(struct dw3000, otp_data.m)
-#define OTP_INFO(m) { .offset = OTP_OFFSET(m), .length = OTP_SIZE(m) }
+#define CAL_INFO(m) DW_INFO(calib_data.m)
+#define OTP_INFO(m) DW_INFO(otp_data.m)
 
 #define PRF_CAL_INFO(b,x)			\
 	CAL_INFO(b.prf[x].ant_delay),		\
@@ -63,7 +62,8 @@
 	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[0].pdoa_offset),	\
 	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[0].pdoa_lut),	\
 	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[1].pdoa_offset),	\
-	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[1].pdoa_lut)
+	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].ch[1].pdoa_lut),    \
+	CAL_INFO(antpair[ANTPAIR_IDX(x, y)].spacing_mm_q11)
 
 static const struct {
 	unsigned int offset;
@@ -87,8 +87,8 @@ static const struct {
 	/* chY.* */
 	CAL_INFO(ch[0].pll_locking_code),
 	CAL_INFO(ch[1].pll_locking_code),
-	/* other */
-	CAL_INFO(smart_tx_power),
+	/* other with direct access in struct dw3000 */
+	DW_INFO(txconfig.smart),
 	/* other with defaults from OTP */
 	OTP_INFO(xtal_trim),
 	OTP_INFO(tempP)
@@ -115,7 +115,8 @@ static const struct {
 
 #define ANTPAIR_CAL_LABEL(x,y)			\
 	PDOA_CAL_LABEL(x, y, 5),		\
-	PDOA_CAL_LABEL(x, y, 9)
+	PDOA_CAL_LABEL(x, y, 9),		\
+	"ant" #x ".ant" #y ".spacing_mm_q11"
 
 /**
  * dw3000_calib_keys - calibration parameters keys table
@@ -236,12 +237,13 @@ int dw3000_calib_update_config(struct dw3000 *dw)
 	antpair_calib = &dw->calib_data.antpair[antpair];
 	/* Update PDOA offset */
 	config->pdoaOffset = antpair_calib->ch[chanidx].pdoa_offset;
+	/* Update antpair spacing */
+	config->antpair_spacing_mm_q11 = antpair_calib->spacing_mm_q11;
 
 	/* Smart TX power */
-	config->baseTxPower = txconfig->power;
 	/* When deactivated, reset register to default value (if change occurs
 	   while already started) */
-	if (!dw->calib_data.smart_tx_power && dw->started)
-		dw3000_set_tx_power_register(dw, config->baseTxPower);
+	if (!txconfig->smart && dw->started)
+		dw3000_set_tx_power_register(dw, txconfig->power);
 	return 0;
 }

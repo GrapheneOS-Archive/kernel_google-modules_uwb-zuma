@@ -28,11 +28,69 @@
 #include "dw3000.h"
 #include "dw3000_ccc.h"
 
-int dw3000_ccc_write(struct dw3000 *dw, u8 *buffer, u16 len);
-int dw3000_ccc_read(struct dw3000 *dw, struct ccc_msg *buffer, u16 len);
-int dw3000_ccc_enable(struct dw3000 *dw, u8 channel, ccc_callback cb,
-		      void *args);
-int dw3000_ccc_disable(struct dw3000 *dw);
-int dw3000_ccc_isr_handle_spi1_avail(struct dw3000 *dw);
+/**
+ * dw3000_nfcc_coex_write_buffer() - Write buffer into scratch memory.
+ * @dw: Driver context.
+ * @buffer: buffer to write in scratch memory.
+ * @len: byte length of the buffer.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_write_buffer(struct dw3000 *dw,
+				  const struct dw3000_nfcc_coex_buffer *buffer,
+				  u16 len);
+
+/**
+ * dw3000_nfcc_coex_read_buffer() - Read buffer from scratch memory.
+ * @dw: Driver context.
+ * @buffer: buffer fill with content of the scratch memory.
+ * @len: byte length of the buffer.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_read_buffer(struct dw3000 *dw,
+				 struct dw3000_nfcc_coex_buffer *buffer,
+				 u16 len);
+
+/**
+ * dw3000_nfcc_coex_handle_spi_ready_isr() - Handle SPI ready interrupt.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_handle_spi_ready_isr(struct dw3000 *dw);
+
+/**
+ * dw3000_nfcc_coex_handle_spi1_avail_isr() - Handle SPI1 available interrupt.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_handle_spi1_avail_isr(struct dw3000 *dw);
+
+/**
+ * dw3000_nfcc_coex_init() - Initialize NFCC coexistence context.
+ * @dw: Driver context.
+ */
+void dw3000_nfcc_coex_init(struct dw3000 *dw);
+
+/**
+ * dw3000_nfcc_coex_enable() - Enable NFCC coexistence.
+ * @dw: Driver context.
+ * @channel: Channel number (5 or 9).
+ * @cb: Callback to use on spi available interrupt.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_enable(struct dw3000 *dw, u8 channel,
+			    dw3000_nfcc_coex_spi_avail_cb cb);
+
+/**
+ * dw3000_nfcc_coex_disable() - Disable NFCC coexistence.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_nfcc_coex_disable(struct dw3000 *dw);
 
 #endif /* __DW3000_CCC_MAILBOX_H */

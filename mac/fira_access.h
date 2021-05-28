@@ -30,9 +30,40 @@
 
 #include <net/mcps802154_schedule.h>
 
+struct fira_local;
+struct fira_session;
+
+/**
+ * fira_get_access() - Get access for a given region at the given timestamp.
+ * @region: Region.
+ * @next_timestamp_dtu: Next access opportunity.
+ * @next_in_region_dtu: Unused.
+ * @region_duration_dtu: Unused.
+ *
+ * Return: The access.
+ */
 struct mcps802154_access *fira_get_access(struct mcps802154_region *region,
 					  u32 next_timestamp_dtu,
 					  int next_in_region_dtu,
 					  int region_duration_dtu);
+
+/**
+ * fira_compute_access() - Get access for a given session.
+ * @local: FiRa context.
+ * @session: Session.
+ *
+ * Return: The access.
+ */
+struct mcps802154_access *fira_compute_access(struct fira_local *local,
+					      struct fira_session *session);
+
+/**
+ * fira_get_demand() - Get access information for a given session.
+ * @local: FiRa context.
+ * @session: Session.
+ * @demand: Access information.
+ */
+void fira_get_demand(struct fira_local *local, struct fira_session *session,
+		     struct mcps802154_region_demand *demand);
 
 #endif /* FIRA_ACCESS_H */

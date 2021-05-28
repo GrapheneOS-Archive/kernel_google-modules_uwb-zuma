@@ -11,5 +11,10 @@ ifdef CONFIG_ARCH_QCOM
 ifeq ($(call kernel_version_ge,4,20,0),1)
 obj-$(CONFIG_QCOM_SPI_LOWLATENCY) += spi-geni-qcom-lowlatency.o
 endif
+ifdef CONFIG_ARCH_MSM8998
+# Build spi-qsd-qcom-lowlatency.ko only on AOSP msm kernel like:
+# https://android.googlesource.com/kernel/msm/+/refs/heads/android-msm-wahoo-4.4-android11
+obj-$(CONFIG_QCOM_SPI_LOWLATENCY) += spi-qsd-qcom-lowlatency.o
+endif
 endif
 endif

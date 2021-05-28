@@ -92,6 +92,8 @@ int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
 
 	trace_ca_set_scheduler(local, name);
 
+	if (local->started)
+		return -EBUSY;
 	/* Open new scheduler. */
 	scheduler = mcps802154_scheduler_open(local, name, params_attr, extack);
 	if (!scheduler)

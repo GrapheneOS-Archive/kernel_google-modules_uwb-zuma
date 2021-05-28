@@ -359,7 +359,6 @@ void dw3000_isr(struct dw3000 *dw);
 void dw3000_wakeup_timer(struct timer_list *timer);
 int dw3000_go_to_deep_sleep_and_wakeup_after_ms(struct dw3000 *dw,
 						int delay_ms);
-int dw3000_SPIxMAVAIL_interrupts_enable(struct dw3000 *dw);
 /* Preamble length related information. */
 struct dw3000_plen_info {
 	/* Preamble length in symbols. */

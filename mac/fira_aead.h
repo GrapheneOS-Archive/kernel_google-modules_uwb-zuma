@@ -55,12 +55,11 @@ int fira_aead_encrypt(struct fira_aead *aead, struct sk_buff *skb,
 /**
  * fira_aead_decrypt_scf_check() - Check security control field before
  * decryption.
- * @aead: Context.
  * @scf: Security control field.
  *
  * Return: true if good.
  */
-bool fira_aead_decrypt_scf_check(const struct fira_aead *aead, u8 scf);
+bool fira_aead_decrypt_scf_check(u8 scf);
 
 /**
  * fira_aead_decrypt() - Decrypt payload.

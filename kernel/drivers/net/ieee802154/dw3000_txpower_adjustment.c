@@ -455,9 +455,9 @@ int dw3000_adjust_tx_power(struct dw3000 *dw, int payload_bytes)
 
 	adjusted_tx_power = adjust_tx_power(
 		DTU_TO_US(dw3000_frame_duration_dtu(dw, payload_bytes, true)),
-		dw->config.baseTxPower, dw->config.chan);
+		dw->txconfig.power, dw->config.chan);
 
-	trace_dw3000_adjust_tx_power(dw, payload_bytes, dw->config.baseTxPower,
+	trace_dw3000_adjust_tx_power(dw, payload_bytes, dw->txconfig.power,
 				     adjusted_tx_power);
 
 	return dw3000_set_tx_power_register(dw, adjusted_tx_power);

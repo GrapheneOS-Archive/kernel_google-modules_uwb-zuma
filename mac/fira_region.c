@@ -179,9 +179,9 @@ nla_put_failure:
 	return -EMSGSIZE;
 }
 
-void fira_report(struct fira_local *local)
+void fira_report(struct fira_local *local, struct fira_session *session,
+		 bool add_measurements)
 {
-	struct fira_session *session = local->current_session;
 	struct sk_buff *msg;
 	struct nlattr *data, *measurements, *measurement;
 	int block_duration_ms, i, r;
@@ -208,19 +208,29 @@ void fira_report(struct fira_local *local)
 			block_duration_ms))
 		goto nla_put_failure;
 
-	measurements = nla_nest_start(msg, FIRA_RANGING_DATA_ATTR_MEASUREMENTS);
-	if (!measurements)
-		goto nla_put_failure;
-
-	for (i = 0; i < local->n_ranging_info; i++) {
-		measurement = nla_nest_start(msg, 1);
-		if (fira_report_measurement(local, msg,
-					    &local->ranging_info[i]))
+	if (session->stop_request) {
+		if (nla_put_u8(msg, FIRA_RANGING_DATA_ATTR_STOPPED,
+			       FIRA_RANGING_DATA_ATTR_STOPPED_REQUEST))
 			goto nla_put_failure;
-		nla_nest_end(msg, measurement);
 	}
 
-	nla_nest_end(msg, measurements);
+	if (add_measurements) {
+		measurements = nla_nest_start(
+			msg, FIRA_RANGING_DATA_ATTR_MEASUREMENTS);
+		if (!measurements)
+			goto nla_put_failure;
+
+		for (i = 0; i < local->n_ranging_info; i++) {
+			measurement = nla_nest_start(msg, 1);
+			if (fira_report_measurement(local, msg,
+						    &local->ranging_info[i]))
+				goto nla_put_failure;
+			nla_nest_end(msg, measurement);
+		}
+
+		nla_nest_end(msg, measurements);
+	}
+
 	nla_nest_end(msg, data);
 
 	r = mcps802154_region_event(local->llhw, msg);

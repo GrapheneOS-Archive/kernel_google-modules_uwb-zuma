@@ -340,6 +340,100 @@ TRACE_EVENT(dw3000_adjust_tx_power,
 		__entry->adjusted_power)
 );
 
+TRACE_EVENT(dw3000_nfcc_coex_clock_sync_frame_payload_put,
+	TP_PROTO(struct dw3000 *dw, u32 session_time0),
+	TP_ARGS(dw, session_time0),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u32, session_time0)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->session_time0 = session_time0;
+	),
+	TP_printk(DW_PR_FMT ", session_time0=0x%08x", DW_PR_ARG,
+		  __entry->session_time0)
+);
+
+TRACE_EVENT(dw3000_nfcc_coex_req_time_interval_frame_payload_put,
+	TP_PROTO(struct dw3000 *dw, u32 start_dtu, u32 end_dtu),
+	TP_ARGS(dw, start_dtu, end_dtu),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u32, start_dtu)
+		__field(u32, end_dtu)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->start_dtu = start_dtu;
+		__entry->end_dtu = end_dtu;
+	),
+	TP_printk(DW_PR_FMT ", start_dtu=0x%08x, end_dtu=0x%08x", DW_PR_ARG,
+		__entry->start_dtu, __entry->end_dtu)
+);
+
+TRACE_EVENT(dw3000_nfcc_coex_clk_offset_frame_payload_put,
+	TP_PROTO(struct dw3000 *dw, u32 offset_dtu),
+	TP_ARGS(dw, offset_dtu),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u32, offset_dtu)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->offset_dtu = offset_dtu;
+	),
+	TP_printk(DW_PR_FMT ", offset_dtu=0x%08x", DW_PR_ARG,
+		  __entry->offset_dtu)
+);
+
+TRACE_EVENT(dw3000_nfcc_coex_err,
+	TP_PROTO(struct dw3000 *dw, const char *err),
+	TP_ARGS(dw, err),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__string(err, err)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__assign_str(err, err);
+	),
+	TP_printk(DW_PR_FMT ", err=\"%s\"", DW_PR_ARG, __get_str(err))
+);
+
+TRACE_EVENT(dw3000_nfcc_coex_warn,
+	TP_PROTO(struct dw3000 *dw, const char *warn),
+	TP_ARGS(dw, warn),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__string(warn, warn)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__assign_str(warn, warn);
+	),
+	TP_printk(DW_PR_FMT ", warn=\"%s\"", DW_PR_ARG, __get_str(warn))
+);
+
+TRACE_EVENT(dw3000_nfcc_coex_enable,
+	TP_PROTO(struct dw3000 *dw, int channel),
+	TP_ARGS(dw, channel),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(int, channel)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->channel = channel;
+	),
+	TP_printk(DW_PR_FMT ", channel=%d", DW_PR_ARG, __entry->channel)
+);
+
+DEFINE_EVENT(dw_only_evt, dw3000_nfcc_coex_disable,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
 /*************************************************************
  *		dw3000 optional functions traces	     *
  *************************************************************/

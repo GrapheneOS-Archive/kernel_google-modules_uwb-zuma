@@ -108,7 +108,8 @@ void fira_frame_header_put(const struct fira_local *local,
 		*p++ = FIRA_IE_HEADER_PADDING;
 	put_unaligned_le32(session->id, p);
 	p += FIRA_IE_HEADER_SESSION_ID_LEN;
-	put_unaligned_le32(session->sts_index + slot->index, p);
+	put_unaligned_le32(
+		fira_session_get_round_sts_index(session) + slot->index, p);
 }
 
 static u8 *fira_frame_common_payload_put(struct sk_buff *skb, unsigned int len,
@@ -174,7 +175,7 @@ void fira_frame_measurement_report_payload_put(const struct fira_local *local,
 	const struct fira_ranging_info *ranging_info =
 		&local->ranging_info[slot->ranging_index];
 	u8 *p;
-	int hopping_mode = 0;
+	int hopping_mode = session->params.round_hopping;
 	int round_index_present = 1;
 	int n_reply_time = local->n_ranging_valid;
 	int i;
@@ -301,9 +302,8 @@ void fira_frame_result_report_payload_put(const struct fira_local *local,
 bool fira_frame_header_check(const struct fira_local *local,
 			     struct sk_buff *skb,
 			     struct mcps802154_ie_get_context *ie_get,
-			     u32 *sts_index)
+			     u32 *sts_index, u32 *session_id)
 {
-	const struct fira_session *session = local->current_session;
 	u16 fc = (IEEE802154_FC_TYPE_DATA | IEEE802154_FC_SECEN |
 		  IEEE802154_FC_INTRA_PAN | IEEE802154_FC_NO_SEQ |
 		  IEEE802154_FC_IE_PRESENT |
@@ -319,7 +319,6 @@ bool fira_frame_header_check(const struct fira_local *local,
 				   IEEE802154_SCF_LEN) ||
 	    get_unaligned_le16(p) != fc ||
 	    !fira_aead_decrypt_scf_check(
-		    &session->crypto.aead,
 		    p[IEEE802154_FC_LEN + IEEE802154_SHORT_ADDR_LEN]))
 		return false;
 
@@ -331,7 +330,7 @@ bool fira_frame_header_check(const struct fira_local *local,
 
 		if (ie_get->id == IEEE802154_IE_HEADER_VENDOR_ID &&
 		    ie_get->len >= FIRA_IE_VENDOR_OUI_LEN) {
-			u32 vendor, session_id;
+			u32 vendor;
 
 			vendor = get_unaligned_le24(p);
 			p += FIRA_IE_VENDOR_OUI_LEN;
@@ -342,10 +341,8 @@ bool fira_frame_header_check(const struct fira_local *local,
 			if (ie_get->len != FIRA_IE_HEADER_LEN)
 				return false;
 			p += FIRA_IE_HEADER_PADDING_LEN;
-			session_id = get_unaligned_le32(p);
+			*session_id = get_unaligned_le32(p);
 			p += FIRA_IE_HEADER_SESSION_ID_LEN;
-			if (session_id != local->current_session->id)
-				return false;
 			*sts_index = get_unaligned_le32(p);
 			p += FIRA_IE_HEADER_STS_INDEX_LEN;
 			fira_header_seen = true;
@@ -483,6 +480,7 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 						const struct fira_slot *slot,
 						u8 *p, unsigned int ie_len)
 {
+	struct fira_session *session = local->current_session;
 	struct fira_ranging_info *ranging_info =
 		&local->ranging_info[slot->ranging_index];
 	u8 control;
@@ -504,13 +502,14 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 							    n_reply_time))
 		return false;
 
+	session->hopping_sequence_generation = hopping_mode &&
+					       !round_index_present;
 	if (round_index_present) {
 		int next_round_index;
 
 		next_round_index = get_unaligned_le16(p);
 		p += sizeof(u16);
-		if (next_round_index != 0)
-			return false;
+		session->next_round_index = next_round_index;
 	}
 
 	/* Remote_round_trip = first_round_trip + first_reply - my_reply. */
@@ -708,10 +707,10 @@ int fira_frame_encrypt(struct fira_local *local, const struct fira_slot *slot,
 				 local->src_short_addr, slot->index);
 }
 
-int fira_frame_decrypt(struct fira_local *local, const struct fira_slot *slot,
-		       struct sk_buff *skb, unsigned int header_len)
+int fira_frame_decrypt(struct fira_local *local, struct fira_session *session,
+		       const struct fira_slot *slot, struct sk_buff *skb,
+		       unsigned int header_len)
 {
-	struct fira_session *session = local->current_session;
 	__le16 src_short_addr;
 
 	if (slot->tx_controlee_index == -1)
@@ -729,25 +728,41 @@ int fira_frame_header_check_decrypt(struct fira_local *local,
 				    const struct fira_slot *slot,
 				    struct sk_buff *skb,
 				    struct mcps802154_ie_get_context *ie_get,
-				    u32 *allow_resync_sts_index)
+				    u32 *allow_resync_sts_index,
+				    struct fira_session **allow_resync_session)
 {
 	struct fira_session *session = local->current_session;
 	u32 sts_index;
+	u32 session_id;
 	u8 *header;
 	unsigned int header_len;
+	bool active;
 
 	header = skb->data;
 
-	if (!fira_frame_header_check(local, skb, ie_get, &sts_index))
+	if (!fira_frame_header_check(local, skb, ie_get, &sts_index,
+				     &session_id))
 		return -EBADMSG;
+
+	if (allow_resync_session && session_id != session->id) {
+		session = fira_session_get(local, session_id, &active);
+		if (!session ||
+		    session->params.device_type != FIRA_DEVICE_TYPE_CONTROLEE ||
+		    !active || session->synchronised)
+			return -EBADMSG;
+		*allow_resync_session = session;
+	} else if (session_id != session->id) {
+		return -EBADMSG;
+	}
 
 	if (allow_resync_sts_index) {
 		*allow_resync_sts_index = sts_index - slot->index;
-	} else if (sts_index != session->sts_index + slot->index) {
+	} else if (sts_index !=
+		   fira_session_get_round_sts_index(session) + slot->index) {
 		return -EBADMSG;
 	}
 
 	header_len = skb->data - header;
 
-	return fira_frame_decrypt(local, slot, skb, header_len);
+	return fira_frame_decrypt(local, session, slot, skb, header_len);
 }
