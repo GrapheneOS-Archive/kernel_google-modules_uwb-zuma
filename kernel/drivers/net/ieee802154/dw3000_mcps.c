@@ -487,8 +487,7 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 		info->flags |= MCPS802154_RX_FRAME_INFO_AACK;
 	/* In case of PDoA. */
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA) {
-		info->ranging_pdoa_rad_q11 =
-			dw3000_read_pdoa(dw) - config->pdoaOffset;
+		info->ranging_pdoa_rad_q11 = dw3000_read_pdoa(dw);
 		info->ranging_pdoa_spacing_mm_q11 =
 			config->antpair_spacing_mm_q11;
 	}
