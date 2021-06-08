@@ -289,8 +289,8 @@ void fira_frame_result_report_payload_put(const struct fira_local *local,
 		}
 	}
 	if (aoa_elevation_present) {
-		put_unaligned_le16(ranging_info->local_aoa_elevation.aoa_2pi,
-				   p);
+		put_unaligned_le16(
+			ranging_info->local_aoa_elevation.aoa_2pi * 2, p);
 		p += sizeof(u16);
 		if (aoa_fom_present) {
 			*p = ranging_info->local_aoa_elevation.aoa_fom;
@@ -635,8 +635,7 @@ fira_frame_result_report_fill_ranging_info(struct fira_local *local,
 	}
 	if (aoa_elevation_present) {
 		ranging_info->remote_aoa_elevation_present = true;
-		ranging_info->remote_aoa_elevation_pi =
-			get_unaligned_le16(p) * 2;
+		ranging_info->remote_aoa_elevation_pi = get_unaligned_le16(p);
 		p += sizeof(s16);
 	}
 	if (aoa_fom_present) {
