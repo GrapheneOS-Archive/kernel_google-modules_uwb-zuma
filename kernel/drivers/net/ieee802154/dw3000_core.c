@@ -4572,11 +4572,19 @@ static int dw3000_config_antenna_gpio(struct dw3000 *dw, int gpio)
 {
 	int rc = 0;
 	u32 modemask;
+	u32 modegpio;
 	u16 dirmask;
+
+	if (gpio < 4)
+		modegpio = 2 << (DW3000_GPIO_MODE_MSGP0_MODE_BIT_LEN * gpio);
+	else if (gpio > 6)
+		modegpio = 1 << (DW3000_GPIO_MODE_MSGP0_MODE_BIT_LEN * gpio);
+	else
+		modegpio = 0;
 	/* Configure selected GPIO for GPIO mode */
 	modemask = DW3000_GPIO_MODE_MSGP0_MODE_BIT_MASK
 		   << (DW3000_GPIO_MODE_MSGP0_MODE_BIT_LEN * gpio);
-	rc = dw3000_set_gpio_mode(dw, modemask, 0);
+	rc = dw3000_set_gpio_mode(dw, modemask, modegpio);
 	if (rc)
 		return rc;
 	/* Configure selected GPIO for output direction */
