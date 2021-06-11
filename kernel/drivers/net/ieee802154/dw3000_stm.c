@@ -29,19 +29,24 @@
 #include "dw3000.h"
 #include "dw3000_core.h"
 
-#if ((KERNEL_VERSION(5, 9, 0) > LINUX_VERSION_CODE) && \
-     (KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE))
+#if (KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE)
 #include <uapi/linux/sched/types.h>
 #endif
-static inline void dw3000_set_fifo_sched(struct task_struct *p)
+
+static inline int dw3000_set_sched_attr(struct task_struct *p)
 {
 #if (KERNEL_VERSION(5, 9, 0) > LINUX_VERSION_CODE)
 	struct sched_param sched_par = { .sched_priority = MAX_RT_PRIO - 2 };
 	/* Increase thread priority */
-	sched_setscheduler(p, SCHED_FIFO, &sched_par);
+	return sched_setscheduler(p, SCHED_FIFO, &sched_par);
 #else
-	/* Priority must be set by user-space now. */
-	sched_set_fifo(p);
+	struct sched_attr attr = {
+		.sched_policy = SCHED_FIFO,
+		.sched_priority = MAX_USER_RT_PRIO / 2,
+		.sched_flags = SCHED_FLAG_UTIL_CLAMP_MIN,
+		.sched_util_min = 50
+	};
+	return sched_setattr_nocheck(p, &attr);
 #endif
 }
 
@@ -270,6 +275,8 @@ int dw3000_event_thread(void *data)
 int dw3000_state_init(struct dw3000 *dw, unsigned int cpu)
 {
 	struct dw3000_state *stm = &dw->stm;
+	int rc;
+
 	/* Clear memory */
 	memset(stm, 0, sizeof(*stm));
 
@@ -286,8 +293,11 @@ int dw3000_state_init(struct dw3000 *dw, unsigned int cpu)
 	}
 	kthread_bind(stm->mthread, cpu);
 
-	/* Increase thread priority */
-	dw3000_set_fifo_sched(stm->mthread);
+	/* Increase thread priority and hint scheduler */
+	rc = dw3000_set_sched_attr(stm->mthread);
+	if (rc)
+		dev_err(dw->dev, "dw3000_set_sched_attr failed: %d\n", rc);
+
 	return 0;
 }
 
