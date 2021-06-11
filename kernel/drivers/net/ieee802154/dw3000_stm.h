@@ -67,7 +67,7 @@ void dw3000_enqueue_irq(struct dw3000 *dw);
 int dw3000_enqueue_generic(struct dw3000 *dw, struct dw3000_stm_command *cmd);
 void dw3000_enqueue_timer(struct dw3000 *dw, struct dw3000_stm_command *cmd);
 
-int dw3000_state_init(struct dw3000 *dw, unsigned int cpu);
+int dw3000_state_init(struct dw3000 *dw, int cpu);
 int dw3000_state_start(struct dw3000 *dw);
 int dw3000_state_stop(struct dw3000 *dw);
 

@@ -32,8 +32,8 @@
 #include "dw3000_stm.h"
 #include "dw3000_mcps.h"
 
-static int dw3000_thread_cpu;
-module_param_named(cpu, dw3000_thread_cpu, uint, 0444);
+static int dw3000_thread_cpu = -1;
+module_param_named(cpu, dw3000_thread_cpu, int, 0444);
 MODULE_PARM_DESC(cpu, "CPU on which the DW state machine's thread will run");
 
 int dw3000_qos_latency = FREQ_QOS_MIN_DEFAULT_VALUE;

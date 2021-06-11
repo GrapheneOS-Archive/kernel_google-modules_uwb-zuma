@@ -272,7 +272,7 @@ int dw3000_event_thread(void *data)
 }
 
 /* Prepare state machine */
-int dw3000_state_init(struct dw3000 *dw, unsigned int cpu)
+int dw3000_state_init(struct dw3000 *dw, int cpu)
 {
 	struct dw3000_state *stm = &dw->stm;
 	int rc;
@@ -291,7 +291,8 @@ int dw3000_state_init(struct dw3000 *dw, unsigned int cpu)
 	if (IS_ERR(stm->mthread)) {
 		return PTR_ERR(stm->mthread);
 	}
-	kthread_bind(stm->mthread, cpu);
+	if (cpu >= 0)
+		kthread_bind(stm->mthread, cpu);
 
 	/* Increase thread priority and hint scheduler */
 	rc = dw3000_set_sched_attr(stm->mthread);
