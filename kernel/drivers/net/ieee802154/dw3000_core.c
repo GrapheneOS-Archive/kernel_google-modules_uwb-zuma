@@ -3775,6 +3775,7 @@ int dw3000_set_pdoa(struct dw3000 *dw, u8 mode)
 		 << DW3000_SYS_CFG_PDOA_MODE_BIT_OFFSET));
 	if (rc)
 		return rc;
+	trace_dw3000_set_pdoa(dw, mode);
 	config->pdoaMode = mode;
 	/* Re-configure the device with new PDOA mode */
 	/* TODO: Changing both PDOA & STS will result in the following called twice */
@@ -3816,6 +3817,7 @@ s16 dw3000_read_pdoa(struct dw3000 *dw)
 		/* Phase difference of the 2 POAs. */
 		pdoa = val & (DW3000_CIA_TDOA_1_PDOA_RX_PDOA_BIT_MASK >> 16);
 	}
+	trace_dw3000_read_pdoa(dw, pdoa);
 	if (pdoa & b12_sign_extend_test)
 		pdoa |= b12_sign_extend_mask;
 	pdoa -= dw->config.pdoaOffset;

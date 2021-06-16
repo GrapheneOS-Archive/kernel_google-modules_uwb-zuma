@@ -464,6 +464,38 @@ TRACE_EVENT(dw3000_tm_cmd,
 );
 #endif
 
+
+
+TRACE_EVENT(dw3000_set_pdoa,
+	TP_PROTO(struct dw3000 *dw, u32 mode),
+	TP_ARGS(dw, mode),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u32, mode)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->mode = mode;
+		),
+	TP_printk(DW_PR_FMT " Set PDoA mode to %d", DW_PR_ARG,
+		  __entry->mode)
+	);
+
+TRACE_EVENT(dw3000_read_pdoa,
+	TP_PROTO(struct dw3000 *dw, u32 pdoa),
+	TP_ARGS(dw, pdoa),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u32, pdoa)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->pdoa = pdoa;
+		),
+	TP_printk(DW_PR_FMT " pdoa=0x%08x", DW_PR_ARG,
+		  __entry->pdoa)
+	);
+
 /* clang-format on */
 #endif /* !__DW3000_TRACE || TRACE_HEADER_MULTI_READ */
 
