@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,11 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * 802.15.4 mac common part sublayer, FProc states: Multi.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #include <linux/errno.h>
@@ -33,6 +29,19 @@
 static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 					       struct mcps802154_access *access,
 					       size_t frame_idx);
+
+static int
+mcps802154_fproc_multi_restore_hw_addr_filt(struct mcps802154_local *local,
+					    struct mcps802154_access *access)
+{
+	struct ieee802154_hw_addr_filt hw_addr_filt;
+
+	hw_addr_filt.pan_id = local->pib.mac_pan_id;
+	hw_addr_filt.short_addr = local->pib.mac_short_addr;
+	hw_addr_filt.ieee_addr = local->pib.mac_extended_addr;
+	return llhw_set_hw_addr_filt(local, &hw_addr_filt,
+				     access->hw_addr_filt_changed);
+}
 
 /**
  * mcps802154_fproc_multi_next() - Continue with the next frame, or next
@@ -61,6 +70,15 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 				mcps802154_fproc_broken_handle(local);
 		}
 	} else {
+		if (access->hw_addr_filt_changed) {
+			r = mcps802154_fproc_multi_restore_hw_addr_filt(local,
+									access);
+			if (r) {
+				mcps802154_fproc_access_done(local);
+				mcps802154_fproc_broken_handle(local);
+				return;
+			}
+		}
 		/* Next access. */
 		if (access->duration_dtu) {
 			u32 next_access_dtu =
@@ -88,7 +106,8 @@ static void mcps802154_fproc_multi_rx_rx_frame(struct mcps802154_local *local)
 	};
 	r = llhw_rx_get_frame(local, &skb, &info);
 	if (!r)
-		access->ops->rx_frame(access, frame_idx, skb, &info);
+		access->ops->rx_frame(access, frame_idx, skb, &info,
+				      MCPS802154_RX_ERROR_NONE);
 
 	if (r && r != -EBUSY) {
 		mcps802154_fproc_access_done(local);
@@ -104,8 +123,8 @@ static void mcps802154_fproc_multi_rx_rx_timeout(struct mcps802154_local *local)
 	struct mcps802154_access *access = local->fproc.access;
 	size_t frame_idx = local->fproc.frame_idx;
 
-	/* TODO: better way to signal timeout. */
-	access->ops->rx_frame(access, frame_idx, NULL, NULL);
+	access->ops->rx_frame(access, frame_idx, NULL, NULL,
+			      MCPS802154_RX_ERROR_TIMEOUT);
 
 	/* Next. */
 	mcps802154_fproc_multi_next(local, access, frame_idx);
@@ -117,9 +136,12 @@ mcps802154_fproc_multi_rx_rx_error(struct mcps802154_local *local,
 {
 	struct mcps802154_access *access = local->fproc.access;
 	size_t frame_idx = local->fproc.frame_idx;
+	struct mcps802154_rx_frame_info info = {
+		.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU,
+	};
 
-	/* TODO: better way to signal error. */
-	access->ops->rx_frame(access, frame_idx, NULL, NULL);
+	llhw_rx_get_error_frame(local, &info);
+	access->ops->rx_frame(access, frame_idx, NULL, &info, error);
 
 	/* Next. */
 	mcps802154_fproc_multi_next(local, access, frame_idx);
@@ -141,7 +163,8 @@ mcps802154_fproc_multi_rx_schedule_change(struct mcps802154_local *local)
 			/* Wait for RX result. */
 			return;
 
-		access->ops->rx_frame(access, frame_idx, NULL, NULL);
+		access->ops->rx_frame(access, frame_idx, NULL, NULL,
+				      MCPS802154_RX_ERROR_TIMEOUT);
 		if (r) {
 			mcps802154_fproc_access_done(local);
 			mcps802154_fproc_broken_handle(local);
@@ -260,6 +283,7 @@ int mcps802154_fproc_multi_handle(struct mcps802154_local *local,
 				  struct mcps802154_access *access)
 {
 	int i = 1;
+	int r;
 
 	if (access->n_frames == 0 || !access->frames)
 		return -EINVAL;
@@ -268,6 +292,12 @@ int mcps802154_fproc_multi_handle(struct mcps802154_local *local,
 		/* Only first Rx can be without timeout. */
 		if (!frame->is_tx && frame->rx.info.timeout_dtu == -1)
 			return -EINVAL;
+	}
+	if (access->hw_addr_filt_changed) {
+		r = llhw_set_hw_addr_filt(local, &access->hw_addr_filt,
+					  access->hw_addr_filt_changed);
+		if (r)
+			return r;
 	}
 	return mcps802154_fproc_multi_handle_frame(local, access, 0);
 }

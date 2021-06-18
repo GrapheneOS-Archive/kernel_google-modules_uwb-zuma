@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,11 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * FiRa sessions management.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #include "fira_session.h"
@@ -77,8 +73,13 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	if (!session)
 		return NULL;
 
+	/* Notify session init before setting default parameters*/
+	session->state = SESSION_STATE_INIT;
+	fira_session_notify_state_change(local, session_id, SESSION_STATE_INIT);
+
 	session->id = session_id;
 	session->params.ranging_round_usage = FIRA_RANGING_ROUND_USAGE_DSTWR;
+	session->params.short_addr = IEEE802154_ADDR_SHORT_BROADCAST;
 	session->params.controller_short_addr = IEEE802154_ADDR_SHORT_BROADCAST;
 	session->params.initiation_time_ms =
 		local->llhw->anticip_dtu / (local->llhw->dtu_freq_hz / 1000);
@@ -88,8 +89,10 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 					     (local->llhw->dtu_freq_hz / 1000);
 	session->params.round_duration_slots =
 		FIRA_ROUND_DURATION_SLOTS_DEFAULT;
-	session->params.priority = FIRA_PRIORITY_DEFAULT;
 	session->params.round_hopping = false;
+	session->params.priority = FIRA_PRIORITY_DEFAULT;
+	session->params.result_report_phase = true;
+	session->params.max_number_of_measurements = 0;
 	session->params.rframe_config = FIRA_RFRAME_CONFIG_SP3;
 	session->params.preamble_duration = FIRA_PREAMBULE_DURATION_64;
 	session->params.sfd_id = FIRA_SFD_ID_2;
@@ -258,7 +261,10 @@ static void fira_session_update(struct fira_local *local,
 				struct fira_session *session,
 				u32 next_timestamp_dtu)
 {
-	s32 diff_dtu = session->block_start_dtu - next_timestamp_dtu;
+	s32 diff_dtu = session->block_start_dtu +
+		       fira_session_get_round_slot(session) *
+			       session->params.slot_duration_dtu -
+		       next_timestamp_dtu;
 
 	if (diff_dtu < 0) {
 		int block_duration_dtu = session->params.block_duration_dtu;
@@ -269,12 +275,15 @@ static void fira_session_update(struct fira_local *local,
 		add_blocks =
 			(-diff_dtu + block_duration_dtu) / block_duration_dtu;
 		session->block_start_dtu += add_blocks * block_duration_dtu;
-		session->block_index += add_blocks;
-		session->sts_index += add_blocks * block_duration_slots;
-		if (add_blocks != 1)
-			session->hopping_sequence_generation =
-				session->params.round_hopping;
-		fira_session_round_hopping(session);
+
+		if (session->n_cm_sent) {
+			session->block_index += add_blocks;
+			session->sts_index += add_blocks * block_duration_slots;
+			if (add_blocks != 1)
+				session->hopping_sequence_generation =
+					session->params.round_hopping;
+			fira_session_round_hopping(session);
+		}
 	}
 }
 
@@ -297,7 +306,7 @@ fira_session_find_next(struct fira_local *local, u32 next_timestamp_dtu,
 			continue;
 		*bounded = true;
 		fira_session_update(local, session, next_timestamp_dtu);
-		fira_get_demand(local, session, &demand);
+		fira_session_get_demand(local, session, &demand);
 		access_timestamp_dtu = demand.timestamp_dtu;
 		access_duration_dtu = demand.duration_dtu;
 		if (!selected_session ||
@@ -305,7 +314,8 @@ fira_session_find_next(struct fira_local *local, u32 next_timestamp_dtu,
 			  local->llhw->anticip_dtu - selected_timestamp_dtu) <=
 			    0 ||
 		    ((s32)(access_timestamp_dtu - selected_timestamp_dtu -
-			   selected_duration_dtu) < 0 &&
+			   selected_duration_dtu - local->llhw->anticip_dtu) <
+			     0 &&
 		     (session->params.priority >
 			      selected_session->params.priority ||
 		      (session->params.priority ==
@@ -324,7 +334,7 @@ fira_session_find_next(struct fira_local *local, u32 next_timestamp_dtu,
 		    session->synchronised)
 			continue;
 		fira_session_update(local, session, next_timestamp_dtu);
-		fira_get_demand(local, session, &demand);
+		fira_session_get_demand(local, session, &demand);
 		access_timestamp_dtu = demand.timestamp_dtu;
 		access_duration_dtu = demand.duration_dtu;
 		if (!selected_session) {
@@ -364,11 +374,12 @@ fira_session_send_collision_reports(struct fira_local *local,
 			     FIRA_DEVICE_TYPE_CONTROLEE &&
 		     !session->synchronised))
 			continue;
-		fira_get_demand(local, session, &demand);
+		fira_session_get_demand(local, session, &demand);
 		if (demand.timestamp_dtu < selected_end_dtu) {
 			fira_compute_access(local, session);
 			for (i = 0; i < local->n_ranging_info; i++) {
-				local->ranging_info[i].failed = true;
+				local->ranging_info[i].status =
+					FIRA_STATUS_RANGING_TX_FAILED;
 			}
 			fira_report(local, session, true);
 		}
@@ -444,5 +455,8 @@ void fira_session_access_done(struct fira_local *local,
 		/* Reset to max value as it will be recomputed on session start
 		 * with fira_session_is_ready call. */
 		session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
+		/* Reset data parameters. */
+		session->params.data_payload_seq = 0;
+		session->params.data_payload_len = 0;
 	}
 }

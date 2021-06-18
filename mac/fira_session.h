@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,11 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * FiRa sessions management.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #ifndef NET_MCPS802154_FIRA_SESSION_H
@@ -31,6 +27,15 @@
 #include "fira_region.h"
 #include "fira_crypto.h"
 #include "fira_round_hopping_crypto_impl.h"
+
+enum fira_session_state {
+	SESSION_STATE_INIT = 0x00,
+	SESSION_STATE_DEINIT = 0x01,
+	SESSION_STATE_ACTIVE = 0x02,
+	SESSION_STATE_IDLE = 0x03,
+	// RFU 0x04 - 0xff
+	// UCI_SESSION_STATE_ERROR = 0xff,
+};
 
 struct fira_controlees_array {
 	struct fira_controlee data[FIRA_CONTROLEES_MAX];
@@ -43,6 +48,7 @@ struct fira_session_params {
 	enum fira_device_type device_type;
 	enum fira_ranging_round_usage ranging_round_usage;
 	enum fira_multi_node_mode multi_node_mode;
+	__le16 short_addr;
 	__le16 controller_short_addr;
 	/* Timings parameters. */
 	int initiation_time_ms;
@@ -52,6 +58,8 @@ struct fira_session_params {
 	/* Behaviour parameters. */
 	bool round_hopping;
 	int priority;
+	bool result_report_phase;
+	int max_number_of_measurements;
 	/* Radio. */
 	int channel_number;
 	int preamble_code_index;
@@ -79,6 +87,10 @@ struct fira_session_params {
 	u8 rx_antenna_pair_elevation;
 	u8 tx_antenna_selection;
 	u8 rx_antenna_switch;
+	u32 data_vendor_oui;
+	u8 data_payload[FIRA_DATA_PAYLOAD_SIZE_MAX];
+	u32 data_payload_seq;
+	int data_payload_len;
 };
 
 /**
@@ -89,6 +101,10 @@ struct fira_session {
 	 * @id: Session identifier.
 	 */
 	u32 id;
+	/**
+	 * @state: Session state.
+	 */
+	enum fira_session_state state;
 	/**
 	 * @entry: Entry in list of sessions.
 	 */
@@ -162,6 +178,14 @@ struct fira_session {
 	 * @last_access_duration_dtu: Duration of the last computed access.
 	 */
 	u32 last_access_duration_dtu;
+	/**
+	 * @data_payload_seq_sent: Sequence number of last sent data.
+	 */
+	u32 data_payload_seq_sent;
+	/**
+	 * @n_cm_sent: Number of control message sent
+	 */
+	int n_cm_sent;
 };
 
 /**
