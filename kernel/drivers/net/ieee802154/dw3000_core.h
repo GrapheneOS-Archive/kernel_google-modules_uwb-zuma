@@ -338,7 +338,8 @@ int dw3000_tx_setcwtone(struct dw3000 *dw, bool on);
 
 int dw3000_config_antenna_gpios(struct dw3000 *dw);
 int dw3000_set_tx_antenna(struct dw3000 *dw, int antidx);
-int dw3000_set_rx_antennas(struct dw3000 *dw, int antpairidx);
+int dw3000_set_rx_antennas(struct dw3000 *dw, int antpairidx,
+			   bool pdoa_enabled);
 
 s16 dw3000_read_pdoa(struct dw3000 *dw);
 int dw3000_read_sts_timestamp(struct dw3000 *dw, u64 *sts_ts);

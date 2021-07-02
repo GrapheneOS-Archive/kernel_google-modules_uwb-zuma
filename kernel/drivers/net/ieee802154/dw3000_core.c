@@ -2247,6 +2247,7 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 	bool rx_delayed = true;
 	int delay_dtu = 0;
 	int rc;
+	bool pdoa_enabled;
 	u8 sts_mode;
 
 	trace_dw3000_mcps_rx_enable(dw, info->flags, info->timeout_dtu);
@@ -2289,15 +2290,14 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 	/* All operation below require the DW chip is in IDLE_PLL state */
 
 	/* Enable STS */
+	pdoa_enabled = !!(info->flags & MCPS802154_RX_INFO_RANGING_PDOA);
 	sts_mode = FIELD_GET(MCPS802154_RX_INFO_STS_MODE_MASK, info->flags);
-	rc = dw3000_set_sts_pdoa(
-		dw, sts_mode,
-		sts_to_pdoa(sts_mode,
-			    info->flags & MCPS802154_RX_INFO_RANGING_PDOA));
+	rc = dw3000_set_sts_pdoa(dw, sts_mode,
+				 sts_to_pdoa(sts_mode, pdoa_enabled));
 	if (unlikely(rc))
 		goto fail;
 	/* Ensure correct RX antenna are selected. */
-	rc = dw3000_set_rx_antennas(dw, info->ant_pair_id);
+	rc = dw3000_set_rx_antennas(dw, info->ant_pair_id, pdoa_enabled);
 	if (unlikely(rc))
 		goto fail;
 
@@ -5425,10 +5425,11 @@ int dw3000_set_tx_antenna(struct dw3000 *dw, int antidx)
  * dw3000_set_rx_antennas() - Set GPIOs to use selected antennas for RX
  * @dw: The DW device.
  * @ant_pair: The antennas pair to use
+ * @pdoa_enabled: True if PDoA is enabled
  *
  * Return: zero on success, else a negative error code.
  */
-int dw3000_set_rx_antennas(struct dw3000 *dw, int ant_pair)
+int dw3000_set_rx_antennas(struct dw3000 *dw, int ant_pair, bool pdoa_enabled)
 {
 	struct dw3000_config *config = &dw->config;
 	struct dw3000_antenna_calib *ant_calib;
@@ -5450,23 +5451,25 @@ int dw3000_set_rx_antennas(struct dw3000 *dw, int ant_pair)
 		changed++;
 	}
 	/* Retrieve second antenna GPIO configuration from calibration data */
-	ant_calib = &dw->calib_data.ant[antidx2];
-	if (port == ant_calib->port) {
-		/* Specified RX antenna must be on different port */
-		dev_warn(
-			dw->dev,
-			"Bad antennas selected or bad configuration ant1=%d (port=%d), ant2=%d (port=%d)\n",
-			antidx1, port, antidx2, ant_calib->port);
-		return -EINVAL;
-	}
-	port = ant_calib->port;
-	if (antidx2 != config->ant[port]) {
-		/* Set GPIO state according config for this first antenna */
-		rc = dw3000_set_antenna_gpio(dw, ant_calib);
-		if (rc)
-			return rc;
-		config->ant[port] = antidx2;
-		changed++;
+	if (pdoa_enabled) {
+		ant_calib = &dw->calib_data.ant[antidx2];
+		if (port == ant_calib->port) {
+			/* Specified RX antenna must be on different port */
+			dev_warn(
+				dw->dev,
+				"Bad antennas selected or bad configuration ant1=%d (port=%d), ant2=%d (port=%d)\n",
+				antidx1, port, antidx2, ant_calib->port);
+			return -EINVAL;
+		}
+		port = ant_calib->port;
+		if (antidx2 != config->ant[port]) {
+			/* Set GPIO state according config for this first antenna */
+			rc = dw3000_set_antenna_gpio(dw, ant_calib);
+			if (rc)
+				return rc;
+			config->ant[port] = antidx2;
+			changed++;
+		}
 	}
 	/* Switching antenna require changing some calibration parameters */
 	if (changed)
