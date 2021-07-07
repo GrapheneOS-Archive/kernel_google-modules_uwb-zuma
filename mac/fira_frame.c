@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,11 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
+ *
+ * FiRa ranging, frame composition and parsing.
+ *
  */
 
 #include "fira_frame.h"
@@ -133,47 +137,6 @@ void fira_frame_control_payload_put(const struct fira_local *local,
 	u8 *p;
 	int i;
 
-	if (session->params.max_number_of_measurements != 0 &&
-	    session->n_cm_sent > session->params.max_number_of_measurements) {
-		/*
-		 * When the number of measurements is exceed, just
-		 * send a stop control message.
-		 */
-		n_mngt = session->params.current_controlees.size;
-
-		p = fira_frame_common_payload_put(
-			skb,
-			FIRA_IE_PAYLOAD_CONTROL_LEN(n_mngt),
-			FIRA_MESSAGE_ID_CONTROL);
-
-		*p++ = n_mngt;
-		*p++ = 0;
-		*p++ = 0;
-
-		for (i = 0 ; i < n_mngt; i++) {
-			__le16 short_addr =
-				session->params.current_controlees
-				.data[i].short_addr;
-			u32 mngt =
-				FIELD_PREP(FIRA_MNGT_SHORT_ADDR, short_addr) |
-				FIELD_PREP(FIRA_MNGT_STOP, 1);
-
-			put_unaligned_le32(mngt, p);
-			p += sizeof(u32);
-		}
-		{
-			/*
-			 * Borrowed from fira_session_stop, this is
-			 * ugly and break const.
-			 */
-			struct fira_session *s = local->current_session;
-
-			s->stop_request = true;
-			fira_session_access_done((struct fira_local *)local, s);
-		}
-		return;
-	}
-
 	n_mngt = local->access.n_frames - 1;
 
 	p = fira_frame_common_payload_put(skb,
@@ -249,7 +212,7 @@ void fira_frame_measurement_report_payload_put(const struct fira_local *local,
 	/* Retrieve first measurement. */
 	for (i = 0; i < local->n_ranging_info; i++) {
 		ranging_info = &local->ranging_info[i];
-		if (!ranging_info->status)
+		if (!ranging_info->failed)
 			break;
 	}
 	/* Add first round trip measurement. */
@@ -262,7 +225,7 @@ void fira_frame_measurement_report_payload_put(const struct fira_local *local,
 	/* Retrieve reply measurement. */
 	for (; i < local->n_ranging_info; i++) {
 		ranging_info = &local->ranging_info[i];
-		if (ranging_info->status)
+		if (ranging_info->failed)
 			continue;
 		put_unaligned_le16(
 			session->params.current_controlees.data[i].short_addr,
@@ -336,28 +299,6 @@ void fira_frame_result_report_payload_put(const struct fira_local *local,
 	}
 }
 
-void fira_frame_rframe_payload_put(struct fira_local *local,
-				   struct sk_buff *skb)
-{
-	struct fira_session *session = local->current_session;
-	struct fira_session_params *params = &local->current_session->params;
-	u8 *p;
-
-	if (params->data_payload_len == 0)
-		return;
-
-	p = mcps802154_ie_put_payload_ie(skb, IEEE802154_IE_PAYLOAD_VENDOR_GID,
-					 FIRA_IE_VENDOR_OUI_LEN +
-						 params->data_payload_len);
-	WARN_RETURN_VOID_ON(!p);
-
-	put_unaligned_le24(params->data_vendor_oui, p);
-	p += FIRA_IE_VENDOR_OUI_LEN;
-	memcpy(p, params->data_payload, params->data_payload_len);
-	params->data_payload_len = 0;
-	session->data_payload_seq_sent = params->data_payload_seq;
-}
-
 bool fira_frame_header_check(const struct fira_local *local,
 			     struct sk_buff *skb,
 			     struct mcps802154_ie_get_context *ie_get,
@@ -379,9 +320,6 @@ bool fira_frame_header_check(const struct fira_local *local,
 	    get_unaligned_le16(p) != fc ||
 	    !fira_aead_decrypt_scf_check(
 		    p[IEEE802154_FC_LEN + IEEE802154_SHORT_ADDR_LEN]))
-		return false;
-
-	if (fira_aead_decrypt_prepare(skb))
 		return false;
 
 	for (r = mcps802154_ie_get(skb, ie_get); r == 0 && !ie_get->in_payload;
@@ -592,7 +530,7 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 	/* Reply time not found. */
 	if (i == n_reply_time)
 		return false;
-	/* Subtract my_reply. */
+	/* Substract my_reply. */
 	remote_round_trip_rctu -= remote_reply_rctu;
 
 	rx_initiation_rctu =
@@ -607,9 +545,9 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 	local_round_trip_rctu = mcps802154_difference_timestamp_rctu(
 		local->llhw, rx_final_rctu, tx_response_rctu);
 	tof_rctu =
-		div64_s64((s64)remote_round_trip_rctu * local_round_trip_rctu -
-				  (s64)remote_reply_rctu * local_reply_rctu,
-			  (s64)remote_round_trip_rctu + local_round_trip_rctu +
+		div64_u64((u64)remote_round_trip_rctu * local_round_trip_rctu -
+				  (u64)remote_reply_rctu * local_reply_rctu,
+			  (u64)remote_round_trip_rctu + local_round_trip_rctu +
 				  remote_reply_rctu + local_reply_rctu);
 	ranging_info->tof_rctu = tof_rctu;
 	ranging_info->tof_present = true;
@@ -753,50 +691,6 @@ bool fira_frame_result_report_payload_check(
 	}
 
 	return r >= 0 && fira_payload_seen;
-}
-
-bool fira_frame_rframe_payload_check(struct fira_local *local,
-				     const struct fira_slot *slot,
-				     struct sk_buff *skb,
-				     struct mcps802154_ie_get_context *ie_get)
-{
-	struct fira_ranging_info *ranging_info =
-		&local->ranging_info[slot->ranging_index];
-	struct fira_session_params *params = &local->current_session->params;
-	bool rframe_payload_seen = false;
-	int r;
-	u8 *p;
-
-	for (r = mcps802154_ie_get(skb, ie_get); r == 0;
-	     r = mcps802154_ie_get(skb, ie_get)) {
-		p = skb->data;
-		skb_pull(skb, ie_get->len);
-
-		if (ie_get->id == IEEE802154_IE_PAYLOAD_VENDOR_GID &&
-		    ie_get->len >= FIRA_IE_VENDOR_OUI_LEN) {
-			u32 vendor;
-			unsigned int data_len;
-
-			vendor = get_unaligned_le24(p);
-			p += FIRA_IE_VENDOR_OUI_LEN;
-			if (vendor != params->data_vendor_oui)
-				continue;
-
-			if (ie_get->len < FIRA_IE_VENDOR_OUI_LEN + 1)
-				continue;
-
-			if (rframe_payload_seen)
-				return false;
-
-			data_len = ie_get->len - FIRA_IE_VENDOR_OUI_LEN;
-			memcpy(&ranging_info->data_payload, p, data_len);
-			ranging_info->data_payload_len = data_len;
-
-			rframe_payload_seen = true;
-		}
-	}
-
-	return r >= 0;
 }
 
 int fira_frame_encrypt(struct fira_local *local, const struct fira_slot *slot,

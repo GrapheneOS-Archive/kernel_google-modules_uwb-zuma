@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,11 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
+ *
+ * 802.15.4 mac common part sublayer, frame processing.
+ *
  */
 #include <linux/module.h>
 
@@ -72,7 +76,8 @@ void mcps802154_fproc_access(struct mcps802154_local *local,
 
 	switch (access->method) {
 	case MCPS802154_ACCESS_METHOD_NOTHING:
-		r = mcps802154_fproc_nothing_handle(local, access);
+		mcps802154_fproc_nothing_handle(local);
+		r = 0;
 		break;
 	case MCPS802154_ACCESS_METHOD_IMMEDIATE_RX:
 		r = mcps802154_fproc_rx_handle(local, access);
@@ -115,8 +120,9 @@ void mcps802154_fproc_access_done(struct mcps802154_local *local)
 {
 	struct mcps802154_access *access = local->fproc.access;
 
-	if (access->common_ops->access_done)
-		access->common_ops->access_done(access);
+	/* access_done handler is declared in common and unamed structure of
+	 * all type of access ops */
+	access->ops->access_done(access);
 	local->fproc.access = NULL;
 }
 
@@ -219,16 +225,3 @@ void mcps802154_broken(struct mcps802154_llhw *llhw)
 	mutex_unlock(&local->fsm_lock);
 }
 EXPORT_SYMBOL(mcps802154_broken);
-
-void mcps802154_timer_expired(struct mcps802154_llhw *llhw)
-{
-	struct mcps802154_local *local = llhw_to_local(llhw);
-
-	mutex_lock(&local->fsm_lock);
-	trace_llhw_event_timer_expired(local);
-	if (local->fproc.state->timer_expired)
-		local->fproc.state->timer_expired(local);
-	trace_llhw_event_done(local);
-	mutex_unlock(&local->fsm_lock);
-}
-EXPORT_SYMBOL(mcps802154_timer_expired);

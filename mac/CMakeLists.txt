@@ -1,10 +1,17 @@
 cmake_minimum_required(VERSION 3.13)
 
-add_library(mac OBJECT
+project(mac)
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../tools/cmake)
+
+option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
+option(ENABLE_MAC_UTEST "Enable mac utest" OFF)
+
+enable_testing()
+
+add_library(mac
 	ca.c
 	default_region.c
 	endless_scheduler.c
-	on_demand_scheduler.c
 	nfcc_coex_session.c
 	nfcc_coex_access.c
 	nfcc_coex_region.c
@@ -45,3 +52,14 @@ target_compile_options(mac PRIVATE
 	-Wno-unused-const-variable
 	-Wno-unused-value
 	-Werror)
+
+if(ENABLE_TEST_COVERAGE)
+	include(Coverage)
+	target_coverage(mac)
+endif()
+include(Sanitize)
+target_sanitize(mac)
+
+if(ENABLE_MAC_UTEST)
+	add_subdirectory(utest)
+endif()

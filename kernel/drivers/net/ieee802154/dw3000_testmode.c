@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,8 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
  */
 
 #include <linux/slab.h>
@@ -29,7 +30,7 @@
 #include "dw3000_trc.h"
 #include "dw3000_testmode.h"
 #include "dw3000_testmode_nl.h"
-#include "dw3000_nfcc_coex_testmode.h"
+#include "dw3000_ccc.h"
 
 static const struct nla_policy dw3000_tm_policy[DW3000_TM_ATTR_MAX + 1] = {
 	[DW3000_TM_ATTR_CMD] = { .type = NLA_U32 },
@@ -577,8 +578,7 @@ static int do_tm_cmd_deep_sleep(struct dw3000 *dw, const void *in, void *out)
 		return -EINVAL;
 	delay = nla_get_u32(
 		params->nl_attr[DW3000_TM_ATTR_DEEP_SLEEP_DELAY_MS]);
-	dw->deep_sleep_state.next_operational_state = DW3000_OP_STATE_IDLE_PLL;
-	return dw3000_deep_sleep_and_wakeup(dw, delay * 1000);
+	return dw3000_go_to_deep_sleep_and_wakeup_after_ms(dw, delay);
 }
 
 int dw3000_tm_cmd(struct mcps802154_llhw *llhw, void *data, int len)

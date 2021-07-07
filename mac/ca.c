@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,11 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
+ *
+ * 802.15.4 mac common part sublayer, channel access.
+ *
  */
 
 #include <linux/errno.h>
@@ -27,14 +31,6 @@
 #include "mcps802154_i.h"
 #include "schedulers.h"
 #include "trace.h"
-
-struct mcps802154_access_common_ops idle_access_ops = {};
-
-static int mcps802154_ca_trace_int(struct mcps802154_local *local, const int r)
-{
-	trace_ca_return_int(local, r);
-	return r;
-}
 
 static void mcps802154_ca_close_scheduler(struct mcps802154_local *local)
 {
@@ -82,11 +78,6 @@ void mcps802154_ca_stop(struct mcps802154_local *local)
 	local->fproc.state->schedule_change(local);
 }
 
-void mcps802154_ca_notify_stop(struct mcps802154_local *local)
-{
-	mcps802154_scheduler_notify_stop(local->ca.scheduler);
-}
-
 void mcps802154_ca_close(struct mcps802154_local *local)
 {
 	mcps802154_ca_close_scheduler(local);
@@ -102,16 +93,16 @@ int mcps802154_ca_set_scheduler(struct mcps802154_local *local,
 	trace_ca_set_scheduler(local, name);
 
 	if (local->started)
-		return mcps802154_ca_trace_int(local, -EBUSY);
+		return -EBUSY;
 	/* Open new scheduler. */
 	scheduler = mcps802154_scheduler_open(local, name, params_attr, extack);
 	if (!scheduler)
-		return mcps802154_ca_trace_int(local, -EINVAL);
+		return -EINVAL;
 	/* Close previous scheduler and set the new one. */
 	mcps802154_ca_close_scheduler(local);
 	local->ca.scheduler = scheduler;
 
-	return mcps802154_ca_trace_int(local, 0);
+	return 0;
 }
 
 int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
@@ -120,7 +111,6 @@ int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
 					   struct netlink_ext_ack *extack)
 {
 	struct mcps802154_scheduler *scheduler;
-	int r;
 
 	trace_ca_set_scheduler_parameters(local, name);
 
@@ -128,10 +118,10 @@ int mcps802154_ca_scheduler_set_parameters(struct mcps802154_local *local,
 
 	/* Check scheduler is the correct one. */
 	if (!scheduler || strcmp(scheduler->ops->name, name))
-		return mcps802154_ca_trace_int(local, -EINVAL);
+		return -EINVAL;
 
-	r = mcps802154_scheduler_set_parameters(scheduler, params_attr, extack);
-	return mcps802154_ca_trace_int(local, r);
+	return mcps802154_scheduler_set_parameters(scheduler, params_attr,
+						   extack);
 }
 
 int mcps802154_ca_scheduler_set_region_parameters(
@@ -140,7 +130,6 @@ int mcps802154_ca_scheduler_set_region_parameters(
 	const struct nlattr *params_attr, struct netlink_ext_ack *extack)
 {
 	struct mcps802154_scheduler *scheduler;
-	int r;
 
 	trace_ca_scheduler_set_region_parameters(local, scheduler_name,
 						 region_id, region_name);
@@ -149,10 +138,9 @@ int mcps802154_ca_scheduler_set_region_parameters(
 	/* Check scheduler is the correct one. */
 	if (!scheduler || strcmp(scheduler->ops->name, scheduler_name) ||
 	    !region_name)
-		return mcps802154_ca_trace_int(local, -EINVAL);
-	r = mcps802154_scheduler_set_region_parameters(
+		return -EINVAL;
+	return mcps802154_scheduler_set_region_parameters(
 		scheduler, region_id, region_name, params_attr, extack);
-	return mcps802154_ca_trace_int(local, r);
 }
 
 int mcps802154_ca_scheduler_call(struct mcps802154_local *local,
@@ -161,16 +149,14 @@ int mcps802154_ca_scheduler_call(struct mcps802154_local *local,
 				 const struct genl_info *info)
 {
 	struct mcps802154_scheduler *scheduler;
-	int r;
 
 	trace_ca_scheduler_call(local, scheduler_name, call_id);
 
 	scheduler = local->ca.scheduler;
 	/* Check scheduler is the correct one. */
 	if (!scheduler || strcmp(scheduler->ops->name, scheduler_name))
-		return mcps802154_ca_trace_int(local, -EINVAL);
-	r = mcps802154_scheduler_call(scheduler, call_id, params_attr, info);
-	return mcps802154_ca_trace_int(local, r);
+		return -EINVAL;
+	return mcps802154_scheduler_call(scheduler, call_id, params_attr, info);
 }
 
 int mcps802154_ca_scheduler_call_region(struct mcps802154_local *local,
@@ -181,7 +167,6 @@ int mcps802154_ca_scheduler_call_region(struct mcps802154_local *local,
 					const struct genl_info *info)
 {
 	struct mcps802154_scheduler *scheduler;
-	int r;
 
 	trace_ca_scheduler_call_region(local, scheduler_name, region_id,
 				       region_name, call_id);
@@ -190,10 +175,9 @@ int mcps802154_ca_scheduler_call_region(struct mcps802154_local *local,
 	/* Check scheduler is the correct one. */
 	if (!scheduler || strcmp(scheduler->ops->name, scheduler_name) ||
 	    !region_name)
-		return mcps802154_ca_trace_int(local, -EINVAL);
-	r = mcps802154_scheduler_call_region(scheduler, region_id, region_name,
-					     call_id, params_attr, info);
-	return mcps802154_ca_trace_int(local, r);
+		return -EINVAL;
+	return mcps802154_scheduler_call_region(
+		scheduler, region_id, region_name, call_id, params_attr, info);
 }
 
 /**
@@ -226,7 +210,7 @@ static int mcps802154_ca_next_region(struct mcps802154_local *local,
 			int r = mcps802154_schedule_update(local,
 							   next_timestamp_dtu);
 			if (r)
-				return r;
+				return -EOPNOTSUPP;
 			return 1;
 		}
 
@@ -236,27 +220,6 @@ static int mcps802154_ca_next_region(struct mcps802154_local *local,
 	return changed;
 }
 
-/**
- * mcps802154_ca_idle() - Fill and return an idle access.
- * @local: MCPS private data.
- * @timestamp_dtu: Start of idle period.
- * @duration_dtu: Duration of idle period, or 0 for endless.
- *
- * Return: Pointer to access allocated inside the context.
- */
-struct mcps802154_access *mcps802154_ca_idle(struct mcps802154_local *local,
-					     u32 timestamp_dtu,
-					     int duration_dtu)
-{
-	struct mcps802154_access *access = &local->ca.idle_access;
-
-	access->method = MCPS802154_ACCESS_METHOD_NOTHING;
-	access->common_ops = &idle_access_ops;
-	access->timestamp_dtu = timestamp_dtu;
-	access->duration_dtu = duration_dtu;
-	return access;
-}
-
 struct mcps802154_access *
 mcps802154_ca_get_access(struct mcps802154_local *local, u32 next_timestamp_dtu)
 {
@@ -264,7 +227,6 @@ mcps802154_ca_get_access(struct mcps802154_local *local, u32 next_timestamp_dtu)
 	struct mcps802154_schedule_region *sched_region;
 	struct mcps802154_region *region;
 	struct mcps802154_access *access;
-	u32 idle_timestamp_dtu, region_start_timestamp_dtu;
 	int next_in_region_dtu, region_duration_dtu;
 	int r, changed;
 
@@ -276,72 +238,54 @@ mcps802154_ca_get_access(struct mcps802154_local *local, u32 next_timestamp_dtu)
 		mcps802154_schedule_clear(local);
 		local->ca.reset = false;
 	}
-
-	/* Do not examine accesses later than this date. */
-	idle_timestamp_dtu = next_timestamp_dtu + local->llhw.idle_dtu;
-	while (1) {
-		/* Need a schedule. */
-		if (!sched->n_regions) {
-			r = mcps802154_schedule_update(local,
-						       next_timestamp_dtu);
-			if (r)
-				return NULL;
-			changed = 1;
-		} else {
-			/* Need a region. */
-			changed = mcps802154_ca_next_region(local,
-							    next_timestamp_dtu);
-			if (changed < 0)
-				return NULL;
-		}
-		sched_region = &sched->regions[sched->current_index];
-		region = sched_region->region;
-		region_start_timestamp_dtu =
-			sched->start_timestamp_dtu + sched_region->start_dtu;
-		region_duration_dtu = sched_region->duration_dtu;
-
-		/* If the region has changed, access date may be postponed. */
-		if (changed) {
-			if (is_before_dtu(next_timestamp_dtu,
-					  region_start_timestamp_dtu))
-				next_timestamp_dtu = region_start_timestamp_dtu;
-		}
-
-		/* Get access. */
-		if (region_duration_dtu)
-			next_in_region_dtu =
-				next_timestamp_dtu - region_start_timestamp_dtu;
-		else
-			next_in_region_dtu = 0;
-		trace_region_get_access(local, region, next_timestamp_dtu,
-					next_in_region_dtu,
-					region_duration_dtu);
-		access = region->ops->get_access(region, next_timestamp_dtu,
-						 next_in_region_dtu,
-						 region_duration_dtu);
-		if (access)
-			return access;
-
-		/* If no access is found, look for next region, or wait. */
-		if (region_duration_dtu) {
-			u32 region_end_timestamp_dtu =
-				region_start_timestamp_dtu +
-				region_duration_dtu;
-
-			if (is_before_dtu(idle_timestamp_dtu,
-					  region_end_timestamp_dtu)) {
-				return mcps802154_ca_idle(
-					local, next_timestamp_dtu,
-					region_end_timestamp_dtu -
-						next_timestamp_dtu);
-			}
-
-			/* Continue after the current region. */
-			next_timestamp_dtu = region_end_timestamp_dtu;
-		} else {
-			return mcps802154_ca_idle(local, next_timestamp_dtu, 0);
-		}
+	/* Need a schedule. */
+	if (!sched->n_regions) {
+		r = mcps802154_schedule_update(local, next_timestamp_dtu);
+		if (r)
+			return NULL;
+		changed = 1;
+	} else {
+	get_region:
+		/* Need a region. */
+		changed = mcps802154_ca_next_region(local, next_timestamp_dtu);
+		if (changed < 0)
+			return NULL;
 	}
+
+	sched_region = &sched->regions[sched->current_index];
+	region = sched_region->region;
+	/* If the region has changed, access date may be postponed. */
+	if (changed) {
+		u32 region_start_timestamp_dtu =
+			sched->start_timestamp_dtu + sched_region->start_dtu;
+		if (is_before_dtu(next_timestamp_dtu,
+				  region_start_timestamp_dtu))
+			next_timestamp_dtu = region_start_timestamp_dtu;
+	}
+	region_duration_dtu = sched_region->duration_dtu;
+	/* Get access. */
+	if (region_duration_dtu)
+		next_in_region_dtu = next_timestamp_dtu -
+				     sched->start_timestamp_dtu -
+				     sched_region->start_dtu;
+	else
+		next_in_region_dtu = 0;
+	trace_region_get_access(local, region, next_timestamp_dtu,
+				next_in_region_dtu, region_duration_dtu);
+	access = region->ops->get_access(region, next_timestamp_dtu,
+					 next_in_region_dtu,
+					 region_duration_dtu);
+
+	/* If no access is granted, look for next region.
+	 * This is only accepted when we are in the middle of a region. */
+	if (!access && next_in_region_dtu) {
+		next_timestamp_dtu = next_timestamp_dtu +
+				     sched_region->duration_dtu -
+				     next_in_region_dtu;
+		goto get_region;
+	}
+
+	return access;
 }
 
 void mcps802154_ca_may_reschedule(struct mcps802154_local *local)

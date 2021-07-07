@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,12 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
+ *
+ * 802.15.4 mac common part sublayer, ping-pong data path regions for factory
+ * tests.
+ *
  */
 #include <asm/unaligned.h>
 #include <linux/slab.h>
@@ -158,8 +163,7 @@ void ping_pong_frame_header_put(struct sk_buff *skb, __le16 pan_id, __le16 dst,
 
 static void ping_pong_resp_rx_frame(struct mcps802154_access *access,
 				    int frame_idx, struct sk_buff *skb,
-				    const struct mcps802154_rx_frame_info *info,
-				    enum mcps802154_rx_error_type error)
+				    const struct mcps802154_rx_frame_info *info)
 {
 	struct ping_pong_local *local = access_to_ping_pong_local(access);
 	struct mcps802154_nl_ranging_request *request =
@@ -218,10 +222,16 @@ static void ping_pong_tx_return(struct mcps802154_access *access, int frame_idx,
 	kfree_skb(skb);
 }
 
+static void ping_pong_access_done(struct mcps802154_access *access)
+{
+	/* Nothing. */
+}
+
 struct mcps802154_access_ops ping_pong_resp_access_ops = {
 	.rx_frame = ping_pong_resp_rx_frame,
 	.tx_get_frame = ping_pong_resp_tx_get_frame,
 	.tx_return = ping_pong_tx_return,
+	.access_done = ping_pong_access_done,
 };
 
 static struct mcps802154_access *
@@ -243,16 +253,13 @@ ping_pong_resp_get_access(struct mcps802154_region *region,
 		start_dtu;
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL].rx.info.timeout_dtu = -1;
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL].rx.info.flags =
-		MCPS802154_RX_INFO_TIMESTAMP_DTU | MCPS802154_RX_INFO_RANGING |
-		MCPS802154_RX_INFO_KEEP_RANGING_CLOCK;
+		MCPS802154_RX_INFO_TIMESTAMP_DTU;
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL].rx.frame_info_flags_request =
 		MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU;
 
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP].is_tx = true;
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP].tx_frame_info.flags =
-		MCPS802154_TX_FRAME_TIMESTAMP_DTU |
-		MCPS802154_TX_FRAME_RANGING |
-		MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK;
+		MCPS802154_TX_FRAME_TIMESTAMP_DTU;
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP]
 		.tx_frame_info.rx_enable_after_tx_dtu = 0;
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP]
@@ -260,7 +267,7 @@ ping_pong_resp_get_access(struct mcps802154_region *region,
 
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL].is_tx = false;
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL].rx.info.flags =
-		MCPS802154_RX_INFO_TIMESTAMP_DTU | MCPS802154_RX_INFO_RANGING;
+		MCPS802154_RX_INFO_TIMESTAMP_DTU;
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL].rx.info.timeout_dtu = 0;
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL]
 		.rx.frame_info_flags_request = 0;
@@ -277,8 +284,7 @@ static struct mcps802154_region_ops ping_pong_region_resp_ops = {
 static void
 ping_pong_init_idle_rx_frame(struct mcps802154_access *access, int frame_idx,
 			     struct sk_buff *skb,
-			     const struct mcps802154_rx_frame_info *info,
-			     enum mcps802154_rx_error_type error)
+			     const struct mcps802154_rx_frame_info *info)
 {
 	if (!skb)
 		return;
@@ -287,6 +293,7 @@ ping_pong_init_idle_rx_frame(struct mcps802154_access *access, int frame_idx,
 
 struct mcps802154_access_ops ping_pong_init_idle_access_ops = {
 	.rx_frame = ping_pong_init_idle_rx_frame,
+	.access_done = ping_pong_access_done,
 };
 
 static struct mcps802154_access *
@@ -312,8 +319,7 @@ static struct mcps802154_region_ops ping_pong_region_init_idle_ops = {
 static void
 ping_pong_init_active_rx_frame(struct mcps802154_access *access, int frame_idx,
 			       struct sk_buff *skb,
-			       const struct mcps802154_rx_frame_info *info,
-			       enum mcps802154_rx_error_type error)
+			       const struct mcps802154_rx_frame_info *info)
 {
 	struct ping_pong_local *local = access_to_ping_pong_local(access);
 	u32 final_timestamp_dtu;
@@ -374,12 +380,10 @@ static void ping_pong_init_active_access_done(struct mcps802154_access *access)
 }
 
 struct mcps802154_access_ops ping_pong_init_active_access_ops = {
-	.common = {
-		.access_done = ping_pong_init_active_access_done,
-	},
 	.rx_frame = ping_pong_init_active_rx_frame,
 	.tx_get_frame = ping_pong_init_active_tx_get_frame,
 	.tx_return = ping_pong_tx_return,
+	.access_done = ping_pong_init_active_access_done,
 };
 
 static struct mcps802154_access *
@@ -406,9 +410,7 @@ ping_pong_init_active_get_access(struct mcps802154_region *region,
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL].tx_frame_info.timestamp_dtu =
 		start_dtu;
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL].tx_frame_info.flags =
-		MCPS802154_TX_FRAME_TIMESTAMP_DTU |
-		MCPS802154_TX_FRAME_RANGING |
-		MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK;
+		MCPS802154_TX_FRAME_TIMESTAMP_DTU;
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL]
 		.tx_frame_info.rx_enable_after_tx_dtu = 0;
 	access->frames[TWR_FACTORY_TEST_FRAME_POLL]
@@ -422,8 +424,7 @@ ping_pong_init_active_get_access(struct mcps802154_region *region,
 		TWR_FACTORY_TEST_T_REPLY1_RCTU / local->llhw->dtu_rctu;
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP].rx.info.timeout_dtu = 0;
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP].rx.info.flags =
-		MCPS802154_RX_INFO_TIMESTAMP_DTU | MCPS802154_RX_INFO_RANGING |
-		MCPS802154_RX_INFO_KEEP_RANGING_CLOCK;
+		MCPS802154_RX_INFO_TIMESTAMP_DTU;
 	access->frames[TWR_FACTORY_TEST_FRAME_RESP].rx.frame_info_flags_request =
 		MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
 		MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU;
@@ -435,7 +436,7 @@ ping_pong_init_active_get_access(struct mcps802154_region *region,
 			     TWR_FACTORY_TEST_T_REPLY2_RCTU) /
 				    local->llhw->dtu_rctu;
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL].tx_frame_info.flags =
-		MCPS802154_TX_FRAME_TIMESTAMP_DTU | MCPS802154_TX_FRAME_RANGING;
+		MCPS802154_TX_FRAME_TIMESTAMP_DTU;
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL]
 		.tx_frame_info.rx_enable_after_tx_dtu = 0;
 	access->frames[TWR_FACTORY_TEST_FRAME_FINAL]

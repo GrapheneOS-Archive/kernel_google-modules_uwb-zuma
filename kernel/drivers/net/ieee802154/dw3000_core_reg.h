@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,8 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
  */
 #ifndef __DW3000_CORE_REG_H
 #define __DW3000_CORE_REG_H
@@ -2053,7 +2054,7 @@
 
 /* DW3000 scratch ram */
 #define DW3000_SCRATCH_RAM_ID 0x160000
-#define DW3000_SCRATCH_RAM_LEN 127
+#define DW3000_SCRATCH_RAM_LEN (127U)
 
 /* Double buffer diagnostic register set */
 #define DW3000_DB_DIAG_SET_1 0x180000

@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,11 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
+ *
+ * 802.15.4 mac common part sublayer, default data path regions.
+ *
  */
 #include <linux/slab.h>
 #include <linux/errno.h>
@@ -60,8 +64,7 @@ access_to_dlocal(const struct mcps802154_access *access)
 
 static void simple_rx_frame(struct mcps802154_access *access, int frame_idx,
 			    struct sk_buff *skb,
-			    const struct mcps802154_rx_frame_info *info,
-			    enum mcps802154_rx_error_type error)
+			    const struct mcps802154_rx_frame_info *info)
 {
 	struct mcps802154_default_local *dlocal = access_to_dlocal(access);
 	struct mcps802154_local *local = llhw_to_local(dlocal->llhw);
@@ -105,10 +108,16 @@ static void simple_tx_return(struct mcps802154_access *access, int frame_idx,
 	}
 }
 
+static void simple_access_done(struct mcps802154_access *access)
+{
+	/* Nothing. */
+}
+
 struct mcps802154_access_ops simple_access_ops = {
 	.rx_frame = simple_rx_frame,
 	.tx_get_frame = simple_tx_get_frame,
 	.tx_return = simple_tx_return,
+	.access_done = simple_access_done,
 };
 
 static struct mcps802154_access *

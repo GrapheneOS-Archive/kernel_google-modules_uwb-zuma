@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,13 +18,17 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
+ *
+ * 802.15.4 mac common part sublayer, FProc states: Nothing.
+ *
  */
 
 #include "mcps802154_i.h"
-#include "llhw-ops.h"
 
-static void mcps802154_fproc_nothing_access(struct mcps802154_local *local)
+static void
+mcps802154_fproc_nothing_schedule_change(struct mcps802154_local *local)
 {
 	mcps802154_fproc_access_done(local);
 	mcps802154_fproc_access_now(local);
@@ -32,21 +36,10 @@ static void mcps802154_fproc_nothing_access(struct mcps802154_local *local)
 
 static const struct mcps802154_fproc_state mcps802154_fproc_nothing = {
 	.name = "nothing",
-	.timer_expired = mcps802154_fproc_nothing_access,
-	.schedule_change = mcps802154_fproc_nothing_access,
+	.schedule_change = mcps802154_fproc_nothing_schedule_change,
 };
 
-int mcps802154_fproc_nothing_handle(struct mcps802154_local *local,
-				    struct mcps802154_access *access)
+void mcps802154_fproc_nothing_handle(struct mcps802154_local *local)
 {
-	int r;
-
-	r = llhw_idle(local, access->duration_dtu != 0,
-		      access->timestamp_dtu + access->duration_dtu);
-	if (r)
-		return r;
-
 	mcps802154_fproc_change_state(local, &mcps802154_fproc_nothing);
-
-	return 0;
 }

@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2020 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,8 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -205,16 +206,6 @@ static int rx_get_error_frame(struct mcps802154_llhw *llhw,
 	return 0;
 }
 
-static int idle(struct mcps802154_llhw *llhw, bool timestamp, u32 timestamp_dtu)
-{
-	if (!started) {
-		pr_err("fake_mcps: %s called and not started\n", __func__);
-		return -EIO;
-	}
-	pr_info("fake_mcps: %s called\n", __func__);
-	return 0;
-}
-
 static int reset(struct mcps802154_llhw *llhw)
 {
 	if (!started) {
@@ -234,6 +225,28 @@ static int get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
 	}
 	pr_info("fake_mcps: %s called\n", __func__);
 	*timestamp_dtu = 0;
+	return 0;
+}
+
+static u64 timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
+				 u32 timestamp_dtu)
+{
+	if (!started) {
+		pr_err("fake_mcps: %s called and not started\n", __func__);
+		return -EIO;
+	}
+	pr_info("fake_mcps: %s called\n", __func__);
+	return 0;
+}
+
+static u32 timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
+				 u64 timestamp_rctu)
+{
+	if (!started) {
+		pr_err("fake_mcps: %s called and not started\n", __func__);
+		return -EIO;
+	}
+	pr_info("fake_mcps: %s called\n", __func__);
 	return 0;
 }
 
@@ -400,9 +413,10 @@ static const struct mcps802154_ops fake_ops = {
 	.rx_disable = rx_disable,
 	.rx_get_frame = rx_get_frame,
 	.rx_get_error_frame = rx_get_error_frame,
-	.idle = idle,
 	.reset = reset,
 	.get_current_timestamp_dtu = get_current_timestamp_dtu,
+	.timestamp_dtu_to_rctu = timestamp_dtu_to_rctu,
+	.timestamp_rctu_to_dtu = timestamp_rctu_to_dtu,
 	.tx_timestamp_dtu_to_rmarker_rctu = tx_timestamp_dtu_to_rmarker_rctu,
 	.difference_timestamp_rctu = difference_timestamp_rctu,
 	.compute_frame_duration_dtu = compute_frame_duration_dtu,

@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020-2021 Qorvo US, Inc.
+ * Copyright (c) 2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,8 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo. Please contact Qorvo to inquire about licensing terms.
+ * Qorvo.
+ * Please contact Qorvo to inquire about licensing terms.
  */
 #include "dw3000.h"
 #include "dw3000_core.h"
@@ -534,28 +535,6 @@ int dw3000_e0_pll_calibration_from_scratch(struct dw3000 *dw)
 	return rc;
 }
 
-/**
- * dw3000_e0_get_dgc_dec() - Read DGC_DBG register content
- * @dw: The DW device.
- * @value: Pointer to store DGC DECISION value.
- *
- * Return: zero on succes, else a negative error code.
- */
-static int dw3000_e0_get_dgc_dec(struct dw3000 *dw, u8 *value)
-{
-	int rc;
-	u32 dgc_dbg;
-
-	rc = dw3000_reg_read32(dw, DW3000_E0_DGC_DBG_ID, 0, &dgc_dbg);
-	if (unlikely(rc))
-		return rc;
-
-	/* DGC_DECISION is on bits 28 to 30 of DGC_CFG, cf 8.2.4.2 of DW3700
-	 * User Manual, store it to right the rssi stats entry */
-	*value = (u8)((dgc_dbg & 0x70000000) >> 0x1c);
-	return 0;
-}
-
 const struct dw3000_chip_ops dw3000_chip_e0_ops = {
 	.softreset = dw3000_d0_softreset,
 	.init = dw3000_e0_init,
@@ -563,7 +542,6 @@ const struct dw3000_chip_ops dw3000_chip_e0_ops = {
 	.coex_gpio = dw3000_e0_coex_gpio,
 	.prog_ldo_and_bias_tune = dw3000_e0_prog_ldo_and_bias_tune,
 	.get_config_mrxlut_chan = dw3000_e0_get_config_mrxlut_chan,
-	.get_dgc_dec = dw3000_e0_get_dgc_dec,
 	.adc_offset_calibration = dw3000_e0_adc_offset_calibration,
 	.pll_calibration_from_scratch = dw3000_e0_pll_calibration_from_scratch,
 	.get_registers = dw3000_d0_get_registers,
