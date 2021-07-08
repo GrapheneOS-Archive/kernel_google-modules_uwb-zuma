@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,8 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 #include "dw3000.h"
 #include "dw3000_txpower_adjustment.h"
@@ -29,7 +28,8 @@
 #define ANT_CHAN_PARAMS (CHAN_PRF_PARAMS * DW3000_CALIBRATION_CHANNEL_MAX)
 #define ANT_OTHER_PARAMS (3) /* port, selector_gpio... */
 #define ANTPAIR_CHAN_PARAMS (2 * DW3000_CALIBRATION_CHANNEL_MAX + 1)
-#define OTHER_PARAMS (3) /* xtal_trim, temperature_reference, smart_tx_power */
+#define OTHER_PARAMS (6) /* xtal_trim, temperature_reference, smart_tx_power,
+			    spi_pid, dw3000_pid, auto_sleep_margin */
 
 #define MAX_CALIB_KEYS ((ANTMAX * (ANT_CHAN_PARAMS + ANT_OTHER_PARAMS)) + \
 			(ANTPAIR_MAX * ANTPAIR_CHAN_PARAMS) +		\
@@ -89,9 +89,12 @@ static const struct {
 	CAL_INFO(ch[1].pll_locking_code),
 	/* other with direct access in struct dw3000 */
 	DW_INFO(txconfig.smart),
+	DW_INFO(auto_sleep_margin_us),
+	DW_INFO(spi_pid),
+	DW_INFO(dw3000_pid),
 	/* other with defaults from OTP */
 	OTP_INFO(xtal_trim),
-	OTP_INFO(tempP)
+	OTP_INFO(tempP),
 };
 
 #define PRF_CAL_LABEL(a,c,p)				\
@@ -118,8 +121,8 @@ static const struct {
 	PDOA_CAL_LABEL(x, y, 9),		\
 	"ant" #x ".ant" #y ".spacing_mm_q11"
 
-/**
- * dw3000_calib_keys - calibration parameters keys table
+/*
+ * calibration parameters keys table
  */
 static const char *const dw3000_calib_keys[MAX_CALIB_KEYS + 1] = {
 	/* antX */
@@ -139,6 +142,9 @@ static const char *const dw3000_calib_keys[MAX_CALIB_KEYS + 1] = {
 	"ch9.pll_locking_code",
 	/* other */
 	"smart_tx_power",
+	"auto_sleep_margin",
+	"spi_pid",
+	"dw3000_pid",
 	/* other (OTP) */
 	"xtal_trim",
 	"temperature_reference",
@@ -243,7 +249,12 @@ int dw3000_calib_update_config(struct dw3000 *dw)
 	/* Smart TX power */
 	/* When deactivated, reset register to default value (if change occurs
 	   while already started) */
-	if (!txconfig->smart && dw->started)
+	if (!txconfig->smart && dw3000_is_active(dw))
 		dw3000_set_tx_power_register(dw, txconfig->power);
+
+	/* Update idle_dtu in case auto_sleep_margin_us changed */
+	dw->llhw->idle_dtu = dw->auto_sleep_margin_us > 0 ?
+				     US_TO_DTU(dw->auto_sleep_margin_us) :
+				     DW3000_DTU_FREQ;
 	return 0;
 }

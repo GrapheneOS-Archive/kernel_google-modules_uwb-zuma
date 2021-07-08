@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2021 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,10 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * NFCC coexistence, access.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #include "nfcc_coex_access.h"
@@ -56,7 +53,7 @@ static int nfcc_coex_vendor_cmd(struct mcps802154_llhw *llhw, u32 subcmd,
 	return llhw_vendor_cmd(local, qorvo_oui, subcmd, data, data_len);
 }
 
-void nfcc_coex_access_done(struct mcps802154_access *access)
+static void nfcc_coex_access_done(struct mcps802154_access *access)
 {
 	struct nfcc_coex_local *local = access_to_local(access);
 	struct nfcc_coex_session *session = &local->session;
@@ -74,11 +71,11 @@ void nfcc_coex_access_done(struct mcps802154_access *access)
 		nfcc_coex_report(local);
 		break;
 	default:
-		break;
+		WARN_UNREACHABLE_DEFAULT();
 	}
 }
 
-int nfcc_coex_handle(struct mcps802154_access *access)
+static int nfcc_coex_handle(struct mcps802154_access *access)
 {
 	struct nfcc_coex_local *local = access_to_local(access);
 	struct nfcc_coex_session *session = &local->session;
@@ -125,22 +122,12 @@ static int nfcc_coex_tx_done(struct mcps802154_access *access)
 }
 
 struct mcps802154_access_vendor_ops nfcc_coex_ops = {
-	.access_done = nfcc_coex_access_done,
+	.common = {
+		.access_done = nfcc_coex_access_done,
+	},
 	.handle = nfcc_coex_handle,
 	.tx_done = nfcc_coex_tx_done,
 };
-
-static struct mcps802154_access *
-nfcc_coex_access_nothing(struct nfcc_coex_local *local)
-{
-	struct mcps802154_access *access = &local->access;
-
-	access->method = MCPS802154_ACCESS_METHOD_NOTHING;
-	access->vendor_ops = &nfcc_coex_ops;
-	access->duration_dtu = 0;
-
-	return access;
-}
 
 static struct mcps802154_access *
 nfcc_coex_access_controller(struct nfcc_coex_local *local,
@@ -174,7 +161,7 @@ struct mcps802154_access *nfcc_coex_get_access(struct mcps802154_region *region,
 
 	if (!session) {
 		local->state = NFCC_COEX_STATE_UNUSED;
-		return nfcc_coex_access_nothing(local);
+		return NULL;
 	} else {
 		local->state = NFCC_COEX_STATE_ACCESSING;
 		return nfcc_coex_access_controller(local, session);

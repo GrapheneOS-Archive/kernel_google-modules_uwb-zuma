@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2021 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,8 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 #ifndef __DW3000_CHIP_E0_H
 #define __DW3000_CHIP_E0_H
@@ -41,6 +40,8 @@ enum dw3000_timer_mode { DW3000_SINGLE_MODE = 0, DW3000_REPEAT_MODE };
 #define DW3000_E0_PLL_CALIBRATION_FROM_SCRATCH_DELAY_US (400)
 
 #define DW3000_TIMER_FREQ 38400000
+
+#define DW3000_E0_DGC_DBG_ID 0x30054
 
 enum dw3000_timer_period {
 	/* 38.4 MHz */

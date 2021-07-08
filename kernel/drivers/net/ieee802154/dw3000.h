@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,8 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 #ifndef __DW3000_H
 #define __DW3000_H
@@ -34,7 +33,8 @@
 #include "dw3000_stm.h"
 #include "dw3000_calib.h"
 #include "dw3000_testmode_nl.h"
-#include "dw3000_ccc.h"
+#include "dw3000_nfcc_coex.h"
+#include "dw3000_debugfs.h"
 
 #undef BIT_MASK
 #ifndef DEBUG
@@ -60,8 +60,7 @@ enum dw3000_spi_crc_mode {
 
 /* ISR data */
 struct dw3000_isr_data {
-	u32 status; /* initial value of register as ISR is entered */
-	u16 status_hi; /* initial value of register as ISR is entered, 2 hi bytes */
+	u64 status; /* initial value of register as ISR is entered */
 	u16 datalength; /* length of frame */
 	u64 ts_rctu; /* frame timestamp in RCTU unit */
 	u8 dss_stat; /* value of the dual-SPI semaphore events */
@@ -69,24 +68,31 @@ struct dw3000_isr_data {
 };
 
 /* Time units and conversion factor */
+#define DW3000_DTU_PER_SYS_POWER 4
+
 #define DW3000_CHIP_FREQ 499200000
-#define DW3000_CHIP_PER_DTU 2
+#define DW3000_CHIP_PER_SYS 2
+#define DW3000_CHIP_PER_DTU \
+	(DW3000_CHIP_PER_SYS * (1 << DW3000_DTU_PER_SYS_POWER))
 #define DW3000_CHIP_PER_DLY 512
-#define DW3000_DTU_FREQ (DW3000_CHIP_FREQ / DW3000_CHIP_PER_DTU)
 #define DW3000_RCTU_PER_CHIP 128
 #define DW3000_RCTU_PER_DTU (DW3000_RCTU_PER_CHIP * DW3000_CHIP_PER_DTU)
+#define DW3000_RCTU_PER_SYS (DW3000_RCTU_PER_CHIP * DW3000_CHIP_PER_SYS)
 #define DW3000_RCTU_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_RCTU_PER_CHIP)
-#define DW3000_NSEC_PER_DTU (1000000000 / DW3000_DTU_FREQ)
+
+#define DW3000_DTU_FREQ (DW3000_CHIP_FREQ / DW3000_CHIP_PER_DTU)
 
 /* 6.9.1.5 in 4z, for HRP UWB PHY:
    416 chips = 416 / (499.2 * 10^6) ~= 833.33 ns */
 #define DW3000_DTU_PER_RSTU (416 / DW3000_CHIP_PER_DTU)
 #define DW3000_DTU_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_CHIP_PER_DTU)
+#define DW3000_SYS_PER_DLY (DW3000_CHIP_PER_DLY / DW3000_CHIP_PER_SYS)
 
 #define DW3000_ANTICIP_DTU (16 * (DW3000_DTU_FREQ / 1000))
 
 #define DTU_TO_US(x) (int)((s64)(x)*1000000 / DW3000_DTU_FREQ)
-#define US_TO_DTU(x) (int)((s64)(x)*DW3000_DTU_FREQ / 1000000)
+#define US_TO_DTU(x) (u32)((s64)(x)*DW3000_DTU_FREQ / 1000000)
+#define NS_TO_DTU(x) (u32)((s64)(x) * (DW3000_DTU_FREQ / 100000) / 10000)
 
 #define DW3000_RX_ENABLE_STARTUP_DLY 16
 #define DW3000_RX_ENABLE_STARTUP_DTU                          \
@@ -99,7 +105,20 @@ enum d3000_dgc_load_location {
 	DW3000_DGC_LOAD_FROM_OTP
 };
 
-/* DW3000 OTP */
+/**
+ * struct dw3000_otp_data - data read from OTP memory of DW3000 device
+ * @partID: device part ID
+ * @lotID: device lot ID
+ * @ldo_tune_lo: tuned value used by chip specific prog_ldo_and_bias_tune
+ * @ldo_tune_hi: tuned value used by chip specific prog_ldo_and_bias_tune
+ * @bias_tune: tuned value used by chip specific prog_ldo_and_bias_tune
+ * @dgc_addr: dgc_addr value used by chip specific prog_ldo_and_bias_tune
+ * @xtal_trim: tuned value used by dw3000_prog_xtrim
+ * @vBatP: vBatP
+ * @tempP: tempP
+ * @rev: OTP revision
+ * @mode: Saved last OTP read mode to avoid multiple read
+ */
 struct dw3000_otp_data {
 	u32 partID;
 	u32 lotID;
@@ -111,16 +130,18 @@ struct dw3000_otp_data {
 	u8 vBatP;
 	u8 tempP;
 	u8 rev;
+	int mode;
 };
 
 /**
  * enum dw3000_ciagdiag_reg_select - CIA diagnostic register selector config.
+ * @DW3000_CIA_DIAG_REG_SELECT_WITHOUT_STS: without STS
+ * @DW3000_CIA_DIAG_REG_SELECT_WITH_STS: with STS
+ * @DW3000_CIA_DIAG_REG_SELECT_WITH_PDAO_M3: PDOA mode 3
+ *
  * According to DW3000's configuration, we must read some values
  * (e.g: channel impulse response power, preamble accumulation count)
- * in different registers in the CIA interface:
- * 0: without STS
- * 1: with STS
- * 2: PDOA mode 3
+ * in different registers in the CIA interface.
  */
 enum dw3000_ciagdiag_reg_select {
 	DW3000_CIA_DIAG_REG_SELECT_WITHOUT_STS = 0,
@@ -298,10 +319,10 @@ struct dw3000_txconfig {
 
 enum operational_state {
 	DW3000_OP_STATE_OFF = 0,
+	DW3000_OP_STATE_DEEP_SLEEP,
+	DW3000_OP_STATE_SLEEP,
 	DW3000_OP_STATE_WAKE_UP,
 	DW3000_OP_STATE_INIT_RC,
-	DW3000_OP_STATE_SLEEP,
-	DW3000_OP_STATE_DEEP_SLEEP,
 	DW3000_OP_STATE_IDLE_RC,
 	DW3000_OP_STATE_IDLE_PLL,
 	DW3000_OP_STATE_TX_WAIT,
@@ -360,20 +381,46 @@ struct dw3000_power {
 
 /**
  * struct dw3000_deep_sleep_state - Useful data to restore on wake up
- * @dtu_before_deep_sleep: DTU immediately before enter deep sleep
- * @time_before_deep_sleep: time in ns immediately before enter deep sleep
- * @dtu_on_wakeup: DTU immediately after the PLL lock on the wake up
- * @time_on_wakeup: time in ns immediately after the PLL lock on the wake up
- * @dtu_wakeup_offset: Offset in DTU to add to the current DTU to have the DTU
- * @ccc_nextslot_dtu: Time in DTU of the next CCC slot before deep sleep
- * as if the system had not gone into DEEP SLEEP mode.
+ * @next_operational_state: operational state to enter after DEEP SLEEP mode
+ * @config_changed: bitfield of configuration changed during DEEP-SLEEP
+ * @tx_skb: saved frame to transmit for deferred TX
+ * @tx_info: saved info to use for deferred TX
+ * @rx_info: saved parameter for deferred RX
+ * @regbackup: registers backup to detect diff
+ * @compare_work: deferred registers backup compare work
  */
 struct dw3000_deep_sleep_state {
-	u32 dtu_before_deep_sleep;
-	u64 time_before_deep_sleep;
-	u32 dtu_on_wakeup;
-	u64 time_on_wakeup;
-	u32 dtu_wakeup_offset;
+	enum operational_state next_operational_state;
+	unsigned long config_changed;
+	struct sk_buff *tx_skb;
+	union {
+		struct mcps802154_tx_frame_info tx_info;
+		struct mcps802154_rx_info rx_info;
+	};
+#ifdef CONFIG_DW3000_DEBUG
+	void *regbackup;
+	struct work_struct compare_work;
+#endif
+};
+
+/** enum dw3000_rctu_conv_state - DTU to RCTU conversion state
+ * @UNALIGNED: need to redo all
+ * @ALIGNED: aligned to DTU but not synced yet with RCTU
+ * @ALIGNED_SYNCED: all done
+ *
+ */
+enum dw3000_rctu_conv_state { UNALIGNED = 0, ALIGNED, ALIGNED_SYNCED };
+
+/**
+ * struct dw3000_rctu_conv - DTU to RCTU conversion data
+ * @state: current state of converter
+ * @alignment_rmarker_dtu:  alignment DTU value
+ * @synced_rmarker_rctu: rmarker RCTU value
+ */
+struct dw3000_rctu_conv {
+	enum dw3000_rctu_conv_state state;
+	u32 alignment_rmarker_dtu;
+	u64 synced_rmarker_rctu;
 };
 
 /**
@@ -391,11 +438,23 @@ struct dw3000_deep_sleep_state {
  * @calib_data: calibration data
  * @stats: statistics
  * @power: power related statistics and states
+ * @rctu_conv: RCTU converter
+ * @time_zero_ns: initial time in ns to convert ktime to/from DTU
+ * @dtu_sync: synchro DTU immediately after wakeup
+ * @sys_time_sync: device SYS_TIME immediately after wakeup
+ * @sleep_enter_dtu: DTU when entered sleep
  * @deep_sleep_state: state related to the deep sleep
  * @deep_sleep_timer: timer to wake up the chip after deep sleep
+ * @timer_expired_work: work to call timer expired callback
+ * @call_timer_expired: should mcps802154_timer_expired be called?
+ * @auto_sleep_margin_us: configurable automatic deep sleep margin
+ * @need_ranging_clock: true if next operation need ranging clock
+ *			and deep sleep cannot be used
  * @nfcc_coex: NFCC coexistence specific context
  * @chip_dev_id: identified chip device ID
- * @started: interface status
+ * @chip_idx: index of current chip in supported devices array
+ * @of_max_speed_hz: saved SPI max speed from device tree
+ * @iface_is_started: interface status
  * @has_lock_pm: power management locked status
  * @reset_gpio: GPIO to use for hard reset
  * @regulator: Power supply
@@ -409,6 +468,11 @@ struct dw3000_deep_sleep_state {
  * @pgf_cal_running: true if pgf calibration is running
  * @stm: High-priority thread state machine
  * @rx: received skbuff and associated spinlock
+ * @current_operational_state: internal operational state of the chip
+ * @operational_state_wq: Wait queue for operational state
+ * @debugfs: debugfs informations
+ * @spi_pid: PID of the SPI controller pump messages
+ * @dw3000_pid: PID the dw3000 state machine thread
  * @msg_mutex: mutex protecting @msg_readwrite_fdx
  * @msg_readwrite_fdx: pre-computed generic register read/write SPI message
  * @msg_fast_command: pre-computed fast command SPI message
@@ -419,13 +483,13 @@ struct dw3000_deep_sleep_state {
  * @msg_read_rx_timestamp_a: pre-computed SPI message
  * @msg_read_rx_timestamp_b: pre-computed SPI message
  * @msg_read_sys_status: pre-computed SPI message
- * @msg_read_sys_status_hi: pre-computed SPI message
+ * @msg_read_all_sys_status: pre-computed SPI message
  * @msg_read_sys_time: pre-computed SPI message
  * @msg_write_sys_status: pre-computed SPI message
+ * @msg_write_all_sys_status: pre-computed SPI message
  * @msg_read_dss_status: pre-computed SPI message
  * @msg_write_dss_status: pre-computed SPI message
  * @msg_write_spi_collision_status: pre-computed SPI message
- * @current_operational_state: internal operational state of the chip
  */
 struct dw3000 {
 	/* SPI device */
@@ -450,15 +514,28 @@ struct dw3000 {
 	/* Statistics */
 	struct dw3000_stats stats;
 	struct dw3000_power power;
-	/* Deep Sleep management */
+	/* Time conversion */
+	struct dw3000_rctu_conv rctu_conv;
+	s64 time_zero_ns;
+	u32 dtu_sync;
+	u32 sys_time_sync;
+	u32 sleep_enter_dtu;
+	/* Deep Sleep & MCPS Idle management */
 	struct dw3000_deep_sleep_state deep_sleep_state;
-	struct timer_list deep_sleep_timer;
+	struct hrtimer deep_sleep_timer;
+	struct work_struct timer_expired_work;
+	bool call_timer_expired;
+	bool need_ranging_clock;
+	int auto_sleep_margin_us;
 	/* NFCC coexistence specific context. */
 	struct dw3000_nfcc_coex nfcc_coex;
-	/* Detected chip device ID */
+	/* Chip type management */
 	u32 chip_dev_id;
+	u32 chip_idx;
+	/* Saved SPI max speed from device tree */
+	u32 of_max_speed_hz;
 	/* True when MCPS start() operation had been called */
-	bool started;
+	atomic_t iface_is_started;
 	/* SPI controller power-management */
 	bool has_lock_pm;
 	/* Control GPIOs */
@@ -482,26 +559,61 @@ struct dw3000 {
 	struct dw3000_rx rx;
 	/* Internal operational state of the chip */
 	enum operational_state current_operational_state;
+	/* Wait queue for operational state */
+	wait_queue_head_t operational_state_wq;
+	/* Debugfs settings */
+	struct dw3000_debugfs debugfs;
+	/* PID of the SPI controller pump messages */
+	pid_t spi_pid;
+	/* PID the dw3000 state machine thread */
+	pid_t dw3000_pid;
 
 	/* Insert new fields before this line */
 
 	/* Shared message protected by a mutex */
 	struct mutex msg_mutex;
-	struct spi_message *msg_readwrite_fdx;
 	/* Precomputed spi_messages */
+	struct spi_message *msg_readwrite_fdx;
 	struct spi_message *msg_fast_command;
 	struct spi_message *msg_read_rdb_status;
 	struct spi_message *msg_read_rx_timestamp;
 	struct spi_message *msg_read_rx_timestamp_a;
 	struct spi_message *msg_read_rx_timestamp_b;
 	struct spi_message *msg_read_sys_status;
-	struct spi_message *msg_read_sys_status_hi;
+	struct spi_message *msg_read_all_sys_status;
 	struct spi_message *msg_read_sys_time;
 	struct spi_message *msg_write_sys_status;
+	struct spi_message *msg_write_all_sys_status;
 	struct spi_message *msg_read_dss_status;
 	struct spi_message *msg_write_dss_status;
 	struct spi_message *msg_write_spi_collision_status;
 	struct dw3000_power_control regulators;
 };
+
+/**
+ * dw3000_is_active() - Return if DW is in active state (UP and running)
+ * @dw: The DW device.
+ *
+ * Allow to know if DW is in active state (dw3000_enable() called successfully)
+ * Used to avoid modification of registers while DW is in use.
+ * The chip can be in DEEP_SLEEP state and interface still up & running
+ *
+ * Return: true is DW is in active state
+ */
+static inline bool dw3000_is_active(struct dw3000 *dw)
+{
+	return atomic_read(&dw->iface_is_started);
+}
+
+/**
+ * nfcc_coex_to_dw() - Help function to retrieve dw3000 context from nfcc_coex.
+ * @nfcc_coex: NFCC coexistence context.
+ *
+ * Returns: DW3000 device context.
+ */
+static inline struct dw3000 *nfcc_coex_to_dw(struct dw3000_nfcc_coex *nfcc_coex)
+{
+	return container_of(nfcc_coex, struct dw3000, nfcc_coex);
+}
 
 #endif /* __DW3000_H */
