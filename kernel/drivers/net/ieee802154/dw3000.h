@@ -540,6 +540,8 @@ struct dw3000 {
 	bool has_lock_pm;
 	/* Control GPIOs */
 	int reset_gpio;
+	/* power_state */
+	bool is_powered;
 	/* Chips per PAC unit. */
 	int chips_per_pac;
 	/* Preamble timeout in PAC unit. */

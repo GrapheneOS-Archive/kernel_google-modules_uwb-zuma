@@ -1647,7 +1647,8 @@ static inline int dw3000_rx_stats_inc(struct dw3000 *dw,
 	return rc;
 }
 
-static int dw3000_power_supply(struct dw3000 *dw, struct dw3000_power_control *power, int onoff)
+static int dw3000_power_supply(struct dw3000 *dw,
+			       struct dw3000_power_control *power, int onoff)
 {
 	int rc;
 
@@ -1669,7 +1670,9 @@ static int dw3000_power_supply(struct dw3000 *dw, struct dw3000_power_control *p
 		else
 			rc = regulator_disable(power->regulator_2p5);
 	}
-
+	/* Ensure RESET is asserted at least the required time */
+	usleep_range(DW3000_HARD_RESET_DELAY_US,
+		     DW3000_HARD_RESET_DELAY_US + 500);
 	return rc;
 }
 
@@ -1738,12 +1741,18 @@ int dw3000_poweron(struct dw3000 *dw)
 	int timeout;
 	int rc;
 
+	if (dw->is_powered) {
+		dev_info(dw->dev, "device already powered on\n");
+		return 0;
+	}
+
 	rc = dw3000_power_supply(dw, &dw->regulators, true);
 	if (rc) {
 		dev_err(dw->dev, "Could not enable regulator\n");
 		return rc;
 	}
 
+	dw->is_powered = true;
 	/* HW may rely only on regulator, so exit without error if no GPIO */
 	if (!gpio_is_valid(dw->reset_gpio))
 		goto stats;
@@ -1784,11 +1793,18 @@ int dw3000_poweroff(struct dw3000 *dw)
 	struct dw3000_local_data *local = &dw->data;
 	int rc;
 
+	if (!dw->is_powered) {
+		dev_info(dw->dev, "device already powered off\n");
+		return 0;
+	}
+
 	rc = dw3000_power_supply(dw, &dw->regulators, false);
 	if (rc) {
 		dev_err(dw->dev, "Could not disable regulator\n");
 		return rc;
 	}
+
+	dw->is_powered = false;
 
 	/* Clear security registers related cache */
 	memset(local->sts_key, 0, AES_KEYSIZE_128);
