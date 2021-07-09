@@ -102,8 +102,9 @@ static void fira_access_setup_frame(struct fira_local *local,
 				flags |= MCPS802154_TX_FRAME_SP3;
 			else
 				flags |= MCPS802154_TX_FRAME_SP1;
-			if (!is_last_rframe)
-				flags |= MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK;
+		}
+		if (slot->message_id == FIRA_MESSAGE_ID_CONTROL || is_rframe) {
+			flags |= MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK;
 		}
 		*frame = (struct mcps802154_access_frame){
 			.is_tx = true,
@@ -135,6 +136,7 @@ static void fira_access_setup_frame(struct fira_local *local,
 					MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM;
 			}
 		}
+
 		*frame = (struct mcps802154_access_frame){
 			.is_tx = false,
 			.rx = {
@@ -679,7 +681,6 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 
 	for (i = 0; i < access->n_frames; i++) {
 		bool is_tx;
-		int delta_dtu = 0;
 
 		s = &local->slots[i];
 		frame = &local->frames[i];
@@ -687,11 +688,8 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 
 		is_tx = s->tx_controlee_index == -1;
 
-		if (i && is_tx)
-			delta_dtu = 4 * local->llhw->rstu_dtu;
-
 		fira_access_setup_frame(local, session, frame, sts_params, s,
-					frame_dtu + delta_dtu, is_tx);
+					frame_dtu, is_tx);
 
 		frame_dtu += session->params.slot_duration_dtu;
 	}
@@ -741,7 +739,7 @@ fira_access_controlee(struct fira_local *local, struct fira_session *session)
 			.info = {
 				.timestamp_dtu = access->timestamp_dtu,
 				.timeout_dtu = access->duration_dtu ? access->duration_dtu : -1,
-				.flags = 0,//MCPS802154_RX_INFO_TIMESTAMP_DTU,
+				.flags = MCPS802154_RX_INFO_KEEP_RANGING_CLOCK,
 				.ant_pair_id = s->rx_ant_pair,
 			},
 			.frame_info_flags_request
