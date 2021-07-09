@@ -24,6 +24,7 @@
 #include "fira_access.h"
 #include "fira_session.h"
 #include "fira_frame.h"
+#include "fira_trace.h"
 
 #include <asm/unaligned.h>
 #include <linux/bitops.h>
@@ -424,6 +425,10 @@ static void fira_rx_frame(struct mcps802154_access *access, int frame_idx,
 	if (skb)
 		kfree_skb(skb);
 
+	trace_region_fira_rx_message_type(
+		session, slot->message_id,
+		local->ranging_info[slot->ranging_index].status);
+
 	/* Controlee: Stop round on error.
 	   Controller: Stop when all ranging fails. */
 	if (local->ranging_info[slot->ranging_index].status)
@@ -441,6 +446,8 @@ static struct sk_buff *fira_tx_get_frame(struct mcps802154_access *access,
 	struct sk_buff *skb;
 	int rframe = local->current_session->params.rframe_config;
 
+	trace_region_fira_tx_message_type(local->current_session,
+					  slot->message_id);
 	if (rframe == FIRA_RFRAME_CONFIG_SP3 &&
 	    slot->message_id <= FIRA_MESSAGE_ID_RFRAME_MAX)
 		return NULL;
