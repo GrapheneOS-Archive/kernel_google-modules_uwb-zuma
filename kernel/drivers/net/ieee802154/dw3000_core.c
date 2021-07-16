@@ -3652,6 +3652,9 @@ static int dw3000_configmrxlut(struct dw3000 *dw)
 	if (!lut)
 		return -EINVAL;
 	/* Update LUT registers */
+	rc = dw3000_reg_write32(dw, DW3000_DGC_CFG_ID, 0x0, 0x19c7f1e5);
+	if (rc)
+		return rc;
 	rc = dw3000_reg_write32(dw, DW3000_DGC_LUT_0_CFG_ID, 0x0, lut[0]);
 	if (rc)
 		return rc;
@@ -3676,6 +3679,7 @@ static int dw3000_configmrxlut(struct dw3000 *dw)
 	rc = dw3000_reg_write32(dw, DW3000_DGC_CFG0_ID, 0x0, DW3000_DGC_CFG0);
 	if (rc)
 		return rc;
+
 	return dw3000_reg_write32(dw, DW3000_DGC_CFG1_ID, 0x0, DW3000_DGC_CFG1);
 }
 
@@ -4231,7 +4235,6 @@ static int dw3000_configure(struct dw3000 *dw)
 	int pac_symb = _plen_info[config->txPreambLength - 1].pac_symb;
 	int sfd_symb = dw3000_get_sfd_symb(dw);
 	int rc;
-
 	/* Clear the sleep mode ALT_GEAR bit */
 	dw->data.sleep_mode &= (~(DW3000_ALT_GEAR | DW3000_SEL_GEAR3));
 	dw->data.max_frames_len = config->phrMode ? DW3000_EXT_FRAME_LEN :
@@ -4280,6 +4283,8 @@ static int dw3000_configure(struct dw3000 *dw)
 	/* Calibrate ADC offset, if needed, after DGC configuration and after PLL lock.
 	 * If this calibration is executed before the PLL lock, the PLL lock failed.
 	 */
+
+	dw3000_configmrxlut(dw);
 	if (dw->chip_ops->adc_offset_calibration)
 		rc = dw->chip_ops->adc_offset_calibration(dw);
 	/* Update configuration dependent timings */

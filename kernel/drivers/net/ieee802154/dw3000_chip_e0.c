@@ -36,12 +36,12 @@ const u32 *dw3000_e0_get_config_mrxlut_chan(struct dw3000 *dw, u8 channel)
 {
 	/* Lookup table default values for channel 5 */
 	static const u32 dw3000_e0_configmrxlut_ch5[DW3000_CONFIGMRXLUT_MAX] = {
-		0x380fd, 0x3887d, 0x38c7d, 0x38dfd, 0x39d7d, 0x39dfd, 0x39ffd
+		0x3803e, 0x3876e, 0x397fe, 0x38efe, 0x39c7e, 0x39dfe, 0x39ff6
 	};
 
 	/* Lookup table default values for channel 9 */
 	static const u32 dw3000_e0_configmrxlut_ch9[DW3000_CONFIGMRXLUT_MAX] = {
-		0x540fe, 0x547be, 0x5597e, 0x55e3e, 0x55dbe, 0x55dfe, 0x55ffe
+		0x5407e, 0x547be, 0x54d36, 0x55e36, 0x55f36, 0x55df6, 0x55ffe
 	};
 
 	switch (channel) {
@@ -370,6 +370,8 @@ int dw3000_e0_adc_offset_calibration(struct dw3000 *dw)
 {
 	int rc, i;
 	u32 switch_control_reg_backup;
+	u32 sys_enable_lo;
+	u32 sys_enable_hi;
 	u32 agc_reg_backup;
 	u32 dgc_reg_backup;
 	u32 dgc_lut0_reg_backup;
@@ -383,16 +385,20 @@ int dw3000_e0_adc_offset_calibration(struct dw3000 *dw)
 			       &switch_control_reg_backup);
 	if (rc)
 		return rc;
+
 	rc = dw3000_reg_read32(dw, DW3000_AGC_CFG_ID, 0, &agc_reg_backup);
 	if (rc)
 		return rc;
+
 	rc = dw3000_reg_read32(dw, DW3000_DGC_CFG_ID, 0, &dgc_reg_backup);
 	if (rc)
 		return rc;
+
 	rc = dw3000_reg_read32(dw, DW3000_DGC_LUT_0_CFG_ID, 0,
 			       &dgc_lut0_reg_backup);
 	if (rc)
 		return rc;
+
 	if (dw->config.chan == 5) {
 		rc = dw3000_reg_read32(dw, DW3000_DGC_LUT_6_CFG_ID, 0,
 				       &dgc_lutn_reg_backup);
@@ -437,6 +443,24 @@ int dw3000_e0_adc_offset_calibration(struct dw3000 *dw)
 			(u8)~DW3000_DGC_CFG_RX_TUNE_EN_BIT_MASK);
 	if (rc)
 		return rc;
+
+	rc = dw3000_reg_read32(dw, DW3000_SYS_ENABLE_HI_ID, 0, &sys_enable_hi);
+	if (rc)
+		return rc;
+
+	rc = dw3000_reg_read32(dw, DW3000_SYS_ENABLE_LO_ID, 0, &sys_enable_lo);
+	if (rc)
+		return rc;
+
+	rc = dw3000_reg_write32(dw, DW3000_SYS_ENABLE_HI_ID, 0, 0);
+	if (rc)
+		return rc;
+
+	rc = dw3000_reg_write32(dw, DW3000_SYS_ENABLE_LO_ID, 0, 0);
+	if (rc)
+		return rc;
+
+
 	/* Step 3a: Enable RX (may need further work) */
 	{
 		/* Ensure coex is disable to have immediate RX */
@@ -495,6 +519,14 @@ int dw3000_e0_adc_offset_calibration(struct dw3000 *dw)
 	if (rc)
 		return rc;
 	/* Step 4: restore initial register values */
+	rc = dw3000_reg_write32(dw, DW3000_SYS_ENABLE_HI_ID, 0, sys_enable_hi);
+	if (rc)
+		return rc;
+
+	rc = dw3000_reg_write32(dw, DW3000_SYS_ENABLE_LO_ID, 0, sys_enable_lo);
+	if (rc)
+		return rc;
+
 	rc = dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0,
 				switch_control_reg_backup);
 	if (rc)
