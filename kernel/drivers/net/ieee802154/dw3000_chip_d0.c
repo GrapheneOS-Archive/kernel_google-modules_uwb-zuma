@@ -24,6 +24,7 @@
 #include "dw3000_core.h"
 #include "dw3000_core_reg.h"
 #include "dw3000_nfcc_coex_core.h"
+#include "dw3000_trc.h"
 
 int dw3000_c0_get_dgc_dec(struct dw3000 *dw, u8 *value);
 
@@ -169,6 +170,7 @@ static int dw3000_d0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 			udelay(delay_us);
 	}
 	offset = DW3000_GPIO_OUT_GOP0_BIT_LEN * dw->coex_gpio;
+	trace_dw3000_coex_gpio(dw, state, delay_us, 0, dw->coex_status);
 	dw3000_set_gpio_out(dw, !state << offset, state << offset);
 	return 0;
 }

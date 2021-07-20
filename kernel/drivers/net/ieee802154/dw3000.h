@@ -461,7 +461,10 @@ struct dw3000_rctu_conv {
  * @chips_per_pac: chips per PAC unit
  * @pre_timeout_pac: preamble timeout in PAC unit
  * @coex_delay_us: WiFi coexistence GPIO delay in us
+ * @coex_interval_us: Minimum interval between two operations in us
+ *		      under which WiFi coexistence GPIO is kept active
  * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
+ * @coex_status: WiFi coexistence GPIO status, 1 if activated
  * @lna_pa_mode: LNA/PA configuration to use
  * @autoack: auto-ack status, true if activated
  * @ccc: CCC related data
@@ -548,7 +551,9 @@ struct dw3000 {
 	int pre_timeout_pac;
 	/* WiFi coexistence GPIO and delay */
 	unsigned coex_delay_us;
+	unsigned coex_interval_us;
 	s8 coex_gpio;
+	int coex_status;
 	/* LNA/PA mode */
 	s8 lna_pa_mode;
 	/* Is auto-ack activated? */

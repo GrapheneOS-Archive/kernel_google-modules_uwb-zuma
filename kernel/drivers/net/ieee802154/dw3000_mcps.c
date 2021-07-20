@@ -33,6 +33,7 @@
 #include "dw3000_testmode.h"
 #include "dw3000_trc.h"
 #include "dw3000_nfcc_coex_mcps.h"
+#include "dw3000_coex.h"
 
 static inline u32 timestamp_rctu_to_dtu(struct dw3000 *dw, u64 timestamp_rctu);
 static inline u64 timestamp_rctu_to_rmarker_rctu(struct dw3000 *dw,
@@ -242,6 +243,8 @@ static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
 	/* Reset ranging clock requirement */
 	dw->need_ranging_clock = false;
 	dw3000_reset_rctu_conv_state(dw);
+	/* Release Wifi coexistence. */
+	dw3000_coex_stop(dw);
 	trace_dw3000_return_int(dw, ret);
 	return ret;
 }
@@ -489,6 +492,8 @@ static int do_idle(struct dw3000 *dw, const void *in, void *out)
 			goto eof;
 		}
 	} else if (dw->auto_sleep_margin_us < 0) {
+		/* Release Wifi coexistence. */
+		dw3000_coex_stop(dw);
 		/* Deep-sleep is completly disable, so do nothing here! */
 		rc = 0;
 		goto eof;

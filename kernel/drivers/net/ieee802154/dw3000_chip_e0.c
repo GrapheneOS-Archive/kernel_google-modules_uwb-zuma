@@ -170,7 +170,8 @@ static int dw3000_e0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 		rc = dw3000_timer_set_expiration(dw, DW3000_TIMER0, expire);
 		if (rc)
 			return rc;
-		trace_dw3000_coex_gpio(dw, state, delay_us, expire);
+		trace_dw3000_coex_gpio(dw, state, delay_us, expire,
+				       dw->coex_status);
 		return dw3000_timer_start(dw, DW3000_TIMER0);
 	}
 	if (!state) {
@@ -191,7 +192,7 @@ static int dw3000_e0_coex_gpio(struct dw3000 *dw, bool state, int delay_us)
 		return rc;
 	/* Update GPIO output state */
 	offset = DW3000_GPIO_OUT_GOP0_BIT_LEN * dw->coex_gpio;
-	trace_dw3000_coex_gpio(dw, state, delay_us, 0);
+	trace_dw3000_coex_gpio(dw, state, delay_us, 0, dw->coex_status);
 	return dw3000_set_gpio_out(dw, !state << offset, state << offset);
 }
 

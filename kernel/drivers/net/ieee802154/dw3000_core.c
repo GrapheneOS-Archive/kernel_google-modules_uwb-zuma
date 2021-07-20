@@ -3105,8 +3105,6 @@ static int dw3000_rx_frame(struct dw3000 *dw,
 	u8 *buffer;
 	int rc;
 
-	/* Release Wifi coexistence. */
-	dw3000_coex_stop(dw);
 	/* Read frame data into skb */
 	if (len) {
 		/* Allocate new skb (including space for FCS added by ieee802154_rx) */
@@ -6280,8 +6278,6 @@ static inline int dw3000_isr_handle_tx_event(struct dw3000 *dw,
 				   cur_dtu_time + dw->data.w4r_time *
 							  DW3000_DTU_PER_DLY);
 	}
-	/* Release Wifi coexistence */
-	dw3000_coex_stop(dw);
 	/* Report completion to MCPS 802.15.4 stack */
 	mcps802154_tx_done(dw->llhw);
 	/* Clear TXFRS status to not handle it a second time. */

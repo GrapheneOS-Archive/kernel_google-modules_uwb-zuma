@@ -28,6 +28,8 @@
 #define COEX_TIME_US (dw->coex_delay_us)
 #define COEX_MARGIN_US 20
 
+static inline int dw3000_coex_stop(struct dw3000 *dw);
+
 /**
  * dw3000_coex_gpio - change the state of the GPIO used for WiFi coexistence
  * @dw: the DW device
@@ -43,7 +45,13 @@
  */
 static inline int dw3000_coex_gpio(struct dw3000 *dw, int state, int delay_us)
 {
-	return dw->chip_ops->coex_gpio(dw, state, delay_us);
+	int ret;
+
+	ret = dw->chip_ops->coex_gpio(dw, state, delay_us);
+	if (!ret)
+		dw->coex_status = state;
+
+	return ret;
 }
 
 /**
@@ -78,6 +86,14 @@ static inline int dw3000_coex_start(struct dw3000 *dw, bool *trx_delayed,
 		else
 			delay_us = time_difference_us - delay_us;
 	}
+	trace_dw3000_coex_gpio_start(dw, delay_us, dw->coex_status,
+				     dw->coex_interval_us,
+				     dw->need_ranging_clock);
+	if (dw->coex_status) {
+		if (delay_us < dw->coex_interval_us || dw->need_ranging_clock)
+			return 0; /* Nothing more to do */
+		dw3000_coex_stop(dw);
+	}
 	/* Set coexistence gpio on chip */
 	return dw3000_coex_gpio(dw, true, delay_us);
 }
@@ -91,6 +107,11 @@ static inline int dw3000_coex_start(struct dw3000 *dw, bool *trx_delayed,
 static inline int dw3000_coex_stop(struct dw3000 *dw)
 {
 	if (dw->coex_gpio < 0)
+		return 0;
+
+	trace_dw3000_coex_gpio_stop(dw, dw->coex_status,
+				    dw->need_ranging_clock);
+	if (!dw->coex_status)
 		return 0;
 	/* Reset coex GPIO on chip */
 	return dw3000_coex_gpio(dw, false, 0);
@@ -118,6 +139,7 @@ static inline int dw3000_coex_init(struct dw3000 *dw)
 		dev_err(dw->dev,
 			"WiFi coexistence configuration has failed (%d)\n", rc);
 	}
+	dw->coex_status = false;
 	return rc;
 }
 
