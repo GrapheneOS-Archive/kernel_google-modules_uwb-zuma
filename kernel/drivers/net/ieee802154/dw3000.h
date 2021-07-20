@@ -99,12 +99,6 @@ struct dw3000_isr_data {
 	(DW3000_RX_ENABLE_STARTUP_DLY * DW3000_CHIP_PER_DLY / \
 	 DW3000_CHIP_PER_DTU)
 
-/* Enum used for selecting location to load DGC data from. */
-enum d3000_dgc_load_location {
-	DW3000_DGC_LOAD_FROM_SW = 0,
-	DW3000_DGC_LOAD_FROM_OTP
-};
-
 /**
  * struct dw3000_otp_data - data read from OTP memory of DW3000 device
  * @partID: device part ID
@@ -149,34 +143,39 @@ enum dw3000_ciagdiag_reg_select {
 	DW3000_CIA_DIAG_REG_SELECT_WITH_PDAO_M3 = 2,
 };
 
-/* DW3000 data & register cache */
+/**
+ * struct dw3000_local_data - Local data and register cache
+ * @spicrc: current SPI crc mode
+ * @dgc_otp_set: true if DGC info is programmed into OTP
+ * @ciadiag_enabled: CIA diagnostic on/off
+ * @dblbuffon: double buffering mode
+ * @max_frames_len: current configured max frame length
+ * @sleep_mode: bitfield for work to be done on wakeup
+ * @ststhreshold: current computed STS threshold
+ * @ciadiag_reg_select: CIA diagnostic register selector according to DW3000's
+ *  config
+ * @tx_fctrl: Transmit frame control
+ * @rx_timeout_pac: Preamble detection timeout period in units of PAC size
+ *  symbols
+ * @w4r_time: Wait-for-response time (RX after TX delay)
+ * @ack_time: Auto ack turnaroud time
+ * @sts_key: STS Key
+ * @sts_iv: STS IV
+ */
 struct dw3000_local_data {
 	enum dw3000_spi_crc_mode spicrc;
-	/* Flag to check if DC values are programmed in OTP.
-	   See d3000_dgc_load_location. */
-	u8 dgc_otp_set;
-	u8 otprev;
-	u8 dblbuffon;
-	u16 max_frames_len;
-	u16 sleep_mode;
-	s16 ststhreshold;
-	/* CIA diagnostic on/off */
-	bool ciadiag_enabled;
-	/* CIA diagnostic double buffering option */
-	u8 ciadiag_opt;
-	/* CIA diagnostic register selector according to DW3000's config */
+	bool dgc_otp_set : 1;
+	bool ciadiag_enabled : 1;
 	enum dw3000_ciagdiag_reg_select ciadiag_reg_select;
-	/* Transmit frame control */
-	u32 tx_fctrl;
-	/* Preamble detection timeout period in units of PAC size symbols */
-	u16 rx_timeout_pac;
-	/* Wait-for-response time (RX after TX delay) */
-	u32 w4r_time;
-	/* Auto ack turnaroud time */
+	u8 dblbuffon;
 	u8 ack_time;
-	/* STS Key */
+	u16 sleep_mode;
+	u16 max_frames_len;
+	s16 ststhreshold;
+	u16 rx_timeout_pac;
+	u32 tx_fctrl;
+	u32 w4r_time;
 	u8 sts_key[AES_KEYSIZE_128];
-	/* STS IV */
 	u8 sts_iv[AES_BLOCK_SIZE];
 };
 

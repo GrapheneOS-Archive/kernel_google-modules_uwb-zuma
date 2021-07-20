@@ -133,7 +133,7 @@ static int dw3000_c0_prog_ldo_and_bias_tune(struct dw3000 *dw)
 		if (rc)
 			return rc;
 	}
-	local->dgc_otp_set = DW3000_DGC_LOAD_FROM_SW;
+	local->dgc_otp_set = false;
 	return 0;
 }
 

@@ -1524,7 +1524,6 @@ static int dw3000_configure_ciadiag(struct dw3000 *dw, bool on,
 	rc = dw3000_reg_write8(dw, DW3000_RDB_DIAG_MODE_ID, 0, opt);
 	if (unlikely(rc))
 		return rc;
-	data->ciadiag_opt = opt;
 skip_opt:
 	data->ciadiag_enabled = on;
 	return rc;
@@ -3688,21 +3687,10 @@ int dw3000_configure_dgc(struct dw3000 *dw)
 	if ((config->rxCode >= 9) && (config->rxCode <= 24)) {
 		struct dw3000_local_data *local = &dw->data;
 		int rc;
-		/**
-		 * Load RX LUTs:
-		 * If the OTP has DGC info programmed into it, do a manual kick
-		 * from OTP.
-		 */
-		if (local->dgc_otp_set != DW3000_DGC_LOAD_FROM_OTP) {
-			/**
-			 * Else we manually program hard-coded values into the
-			 * DGC registers.
-			 */
-			rc = dw3000_configmrxlut(dw);
-			if (rc)
-				return rc;
-			local->sleep_mode &= ~DW3000_LOADDGC;
-		} else {
+		/* Load RX LUTs */
+		if (local->dgc_otp_set) {
+			/* If the OTP has DGC info programmed into it, do a
+			 * manual kick from OTP. */
 			u16 dgc_sel = (config->chan == 5 ? 0 : 1)
 				      << DW3000_NVM_CFG_DGC_SEL_BIT_OFFSET;
 			rc = dw3000_reg_modify16(
@@ -3713,8 +3701,14 @@ int dw3000_configure_dgc(struct dw3000 *dw)
 				return rc;
 			/* Configure kick bits for when waking up. */
 			local->sleep_mode |= DW3000_LOADDGC;
+		} else {
+			/* Else we manually program hard-coded values into the
+			 * DGC registers. */
+			rc = dw3000_configmrxlut(dw);
+			if (rc)
+				return rc;
+			local->sleep_mode &= ~DW3000_LOADDGC;
 		}
-
 		return dw3000_reg_modify16(
 			dw, DW3000_DGC_CFG_ID, 0x0,
 			(u16)~DW3000_DGC_CFG_THR_64_BIT_MASK,
@@ -3723,6 +3717,20 @@ int dw3000_configure_dgc(struct dw3000 *dw)
 		return dw3000_reg_and8(dw, DW3000_DGC_CFG_ID, 0x0,
 				       (u8)~DW3000_DGC_CFG_RX_TUNE_EN_BIT_MASK);
 	}
+}
+
+static int dw3000_restore_dgc(struct dw3000 *dw)
+{
+	struct dw3000_config *config = &dw->config;
+	int rc = 0;
+	/* Only enable DGC for PRF 64. */
+	if ((config->rxCode >= 9) && (config->rxCode <= 24)) {
+		struct dw3000_local_data *local = &dw->data;
+		/* Load RX LUTs only if not already loaded from OTP */
+		if (!local->dgc_otp_set)
+			rc = dw3000_configmrxlut(dw);
+	}
+	return rc;
 }
 
 /**
@@ -3801,7 +3809,8 @@ static int dw3000_setdwstate(struct dw3000 *dw, enum operational_state state)
 		 */
 		rc = dw3000_reg_or16(
 			dw, DW3000_AON_DIG_CFG_ID, 0,
-			DW3000_AON_DIG_CFG_ONW_AONDLD_MASK |
+			dw->data.sleep_mode |
+				DW3000_AON_DIG_CFG_ONW_AONDLD_MASK |
 				DW3000_AON_DIG_CFG_ONW_GO2IDLE_MASK);
 		if (rc)
 			return rc;
@@ -6001,6 +6010,10 @@ static inline int dw3000_isr_handle_spi_ready(struct dw3000 *dw,
 
 	/* PGF calibration */
 	rc = dw3000_pgf_cal(dw, 1);
+	if (rc)
+		return rc;
+	/* DGC LUT */
+	rc = dw3000_restore_dgc(dw);
 	if (rc)
 		return rc;
 	/* Calibrate ADC offset, if needed, after DGC configuration and after PLL lock.
