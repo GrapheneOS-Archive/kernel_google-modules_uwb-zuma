@@ -44,43 +44,6 @@ static struct mcps802154_access *
 fira_access_controlee(struct fira_local *local, struct fira_session *session);
 
 /**
- * phase_to_rad_fp() - compute the angle(AoA) from phase(PDOA) with fixed-point.
- * @pdoa_rad_q11: phase of arrival in fixed-point.
- * @spacing_mm_q11: spacing between antenna in mm in fixed-point.
- *
- * Return: Angle of Arrival in fixed-point too.
- */
-static s16 phase_to_rad_fp(s16 pdoa_rad_q11, int spacing_mm_q11)
-{
-	/**
-	 * Speed of light in air.
-	 * static const long long speed_of_light_m_per_s = 299702547ull;
-	 * static const long long freq_hz = 6.5e9;
-	 * Constant to amplify/decrease value A and B, and so decrease
-	 * error added by fixed-point.
-	 *  Through N, A and B are closed to INT16_MAX.
-	 * static const int N = 762;
-	 * static const long long num = N * K * speed_of_light_m_per_s;
-	 * static const double dem = freq_hz * 2.0 * M_PI;
-	 * static const s16 A = num / dem;
-	 * s16 B = N * spacing_mm_q11 / 1000;
-	 *
-	 * To be sure to have a optimize code, inline A declaration.
-	 * A = 11452
-	 *
-	 * A will change with CHAN index.
-	 * B is calculated using given antenna spacing that come from the mcps
-	 * driver from the calibration table.
-	 */
-	static const s16 A = 11452;
-	s16 B = (s16)(762 * spacing_mm_q11 / 1000);
-	s16 x = div_fp(mult_fp(pdoa_rad_q11, A), B);
-	/* Saturate between -1 to +1 for asyn. */
-	x = x > K ? K : x < -K ? -K : x;
-	return asin_fp(x);
-}
-
-/**
  * fira_access_setup_frame() - Fill an access frame from a FiRa slot.
  * @local: FiRa context.
  * @session: Session.
@@ -229,8 +192,8 @@ static void fira_rx_frame_ranging(struct fira_local *local,
 		bool pdoa_fom_info_present =
 			info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM;
 		s16 local_pdoa_q11 = info->ranging_pdoa_rad_q11;
-		s16 local_aoa_q11 = phase_to_rad_fp(
-			local_pdoa_q11, info->ranging_pdoa_spacing_mm_q11);
+		s16 local_aoa_q11 = info->ranging_aoa_rad_q11;
+
 		if (params->rx_antenna_pair_azimuth == slot->rx_ant_pair) {
 			local_aoa = &ranging_info->local_aoa_azimuth;
 		} else if (params->rx_antenna_pair_elevation ==

@@ -387,6 +387,8 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 		info->ranging_pdoa_rad_q11 = dw3000_read_pdoa(dw);
 		info->ranging_pdoa_spacing_mm_q11 =
 			config->antpair_spacing_mm_q11;
+		info->ranging_aoa_rad_q11 =
+			dw3000_pdoa_to_aoa_lut(dw, info->ranging_pdoa_rad_q11);
 	}
 	/* In case of STS */
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU) {

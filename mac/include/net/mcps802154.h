@@ -347,6 +347,11 @@ struct mcps802154_rx_frame_info {
 	 */
 	int ranging_pdoa_spacing_mm_q11;
 	/**
+	 * @ranging_aoa_rad_q11: AoA interpolated by the driver from its
+	 * calibration LUT. unit is rad multiplied by 2048 (RDEV only).
+	 */
+	int ranging_aoa_rad_q11;
+	/**
 	 * @ranging_sts_timestamp_diffs_rctu: For each SRMARKERx, difference
 	 * between the measured timestamp and the expected timestamp relative to
 	 * RMARKER in ranging count time unit (ERDEV only). When STS mode is

@@ -1007,7 +1007,7 @@ static int mcps802154_nl_get_calibration(struct sk_buff *skb,
 	struct sk_buff *msg;
 	void *hdr;
 	char *key;
-	u32 tmp[7];
+	u32 tmp[32];
 	int err;
 	int r;
 

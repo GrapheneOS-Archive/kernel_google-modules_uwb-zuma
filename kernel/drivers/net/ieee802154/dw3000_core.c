@@ -4493,12 +4493,12 @@ int dw3000_set_pdoa(struct dw3000 *dw, u8 mode)
 }
 
 /**
-* dw3000_read_pdoa - Read the PDOA result.
+* dw3000_read_pdoa() - Read the PDOA result.
 * @dw: The DW device.
 *
 * This is used to read the PDOA result, it is the phase difference between
 * either the Ipatov and STS POA, or the two STS POAs, depending on the PDOA
-* mode of operation. (POA - Phase Of Arrival).
+* mode of operation. (PDoA - Phase Difference On Arrival).
 * NOTE: To convert to degrees: float pdoa_deg =
 * ((float)pdoa / (1 << 11)) * 180 / M_PI.
 *
@@ -4538,6 +4538,42 @@ s16 dw3000_read_pdoa(struct dw3000 *dw)
 	if (pdoa > pi_floored_q11)
 		pdoa -= pix2_rounded_q11;
 	return pdoa;
+}
+
+/**
+ * dw3000_pdoa_to_aoa_lut() - Convert PDoA to AoA.
+ * @dw: the DW device
+ * @pdoa_rad_q11: the PDoA value as returned by dw3000_read_pdoa()
+ *
+ * Convert PDoA (in radian, encoded as a Q11 fixed
+ * point number) to AoA value using calibration look-up table.
+ *
+ * Return: AoA value interpolated from LUT values.
+ */
+s16 dw3000_pdoa_to_aoa_lut(struct dw3000 *dw, s16 pdoa_rad_q11)
+{
+	const dw3000_pdoa_lut_t *lut = dw->config.pdoaLut;
+	int a = 0, b = DW3000_CALIBRATION_PDOA_LUT_MAX - 1;
+	s16 delta_pdoa, delta_aoa;
+
+	if (pdoa_rad_q11 < (*lut)[0][0])
+		return (*lut)[0][1];
+	if (pdoa_rad_q11 >= (*lut)[DW3000_CALIBRATION_PDOA_LUT_MAX - 1][0])
+		return (*lut)[DW3000_CALIBRATION_PDOA_LUT_MAX - 1][1];
+
+	while (a != b) {
+		int m = (a + b) / 2;
+		if (pdoa_rad_q11 < (*lut)[m][0])
+			b = m;
+		else
+			a = m + 1;
+	}
+
+	delta_pdoa = (*lut)[a][0] - (*lut)[a - 1][0];
+	delta_aoa = (*lut)[a][1] - (*lut)[a - 1][1];
+
+	return (*lut)[a][1] +
+	       (delta_aoa * (pdoa_rad_q11 - (*lut)[a][0])) / delta_pdoa;
 }
 
 /**
@@ -5879,6 +5915,14 @@ void dw3000_init_config(struct dw3000 *dw)
 		/* Ensure default antennas pair spacing is configured */
 		dw->calib_data.antpair[i].spacing_mm_q11 =
 			DW3000_DEFAULT_ANTPAIR_SPACING;
+		memcpy(dw->calib_data.antpair[i]
+			       .ch[DW3000_CALIBRATION_CHANNEL_5]
+			       .pdoa_lut,
+		       dw3000_default_lut_ch5, sizeof(dw3000_pdoa_lut_t));
+		memcpy(dw->calib_data.antpair[i]
+			       .ch[DW3000_CALIBRATION_CHANNEL_9]
+			       .pdoa_lut,
+		       dw3000_default_lut_ch9, sizeof(dw3000_pdoa_lut_t));
 	}
 	/* Set default antenna ports configuration */
 	dw->calib_data.ant[0].port = 0;

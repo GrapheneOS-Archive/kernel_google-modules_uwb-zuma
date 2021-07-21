@@ -342,6 +342,7 @@ int dw3000_set_rx_antennas(struct dw3000 *dw, int antpairidx,
 			   bool pdoa_enabled);
 
 s16 dw3000_read_pdoa(struct dw3000 *dw);
+s16 dw3000_pdoa_to_aoa_lut(struct dw3000 *dw, s16 pdoa_rad_q11);
 int dw3000_read_sts_timestamp(struct dw3000 *dw, u64 *sts_ts);
 int dw3000_read_sts_quality(struct dw3000 *dw, s16 *acc_qual);
 

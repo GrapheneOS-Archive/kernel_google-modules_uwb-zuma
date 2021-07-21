@@ -272,6 +272,7 @@ struct dw3000_power_control {
  * @ant: Antennas currently connected to RF1 & RF2 ports respectively
  * @antpair_spacing_mm_q11: Holds selected antennas pair spacing from calibration table
  * @pdoaOffset: Calibrated PDOA offset
+ * @pdoaLut: Pointer to calibrated PDOA to AoA look-up table
  * @rmarkerOffset: Calibrated rmarker offset
  * @promisc: Promiscuous mode enabled?
  * @hw_addr_filt: HW filter configuration
@@ -292,6 +293,7 @@ struct dw3000_config {
 	s8 ant[2];
 	int antpair_spacing_mm_q11;
 	s16 pdoaOffset;
+	const dw3000_pdoa_lut_t *pdoaLut;
 	u32 rmarkerOffset;
 	bool promisc;
 	struct ieee802154_hw_addr_filt hw_addr_filt;

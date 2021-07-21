@@ -57,7 +57,16 @@ enum dw3000_calibration_prf {
 /**
  * DW3000_CALIBRATION_PDOA_LUT_MAX - number of value in PDOA LUT table
  */
-#define DW3000_CALIBRATION_PDOA_LUT_MAX 7
+#define DW3000_CALIBRATION_PDOA_LUT_MAX 31
+
+/**
+ * typedef dw3000_pdoa_lut_t - PDoA LUT array type
+ */
+typedef s16 dw3000_pdoa_lut_t[DW3000_CALIBRATION_PDOA_LUT_MAX][2];
+
+/* Default LUTs, theorical values for Monalisa antenna (20.8mm) */
+extern const dw3000_pdoa_lut_t dw3000_default_lut_ch5;
+extern const dw3000_pdoa_lut_t dw3000_default_lut_ch9;
 
 /**
  * DW3000_DEFAULT_ANT_DELAY - antenna delay default value
@@ -121,7 +130,7 @@ struct dw3000_antenna_calib {
  */
 struct dw3000_antenna_pair_calib_chan {
 	s16 pdoa_offset;
-	u32 pdoa_lut[DW3000_CALIBRATION_PDOA_LUT_MAX];
+	dw3000_pdoa_lut_t pdoa_lut;
 };
 
 /**
