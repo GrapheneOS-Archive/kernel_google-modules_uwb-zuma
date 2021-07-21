@@ -63,30 +63,31 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 		r = mcps802154_fproc_multi_handle_frame(local, access,
 							frame_idx);
 		if (r) {
-			mcps802154_fproc_access_done(local);
-			if (r == -ETIME)
+			if (r == -ETIME) {
+				mcps802154_fproc_access_done(local, 0);
 				mcps802154_fproc_access_now(local);
-			else
+			} else {
+				mcps802154_fproc_access_done(local, r);
 				mcps802154_fproc_broken_handle(local);
+			}
 		}
 	} else {
 		if (access->hw_addr_filt_changed) {
 			r = mcps802154_fproc_multi_restore_hw_addr_filt(local,
 									access);
 			if (r) {
-				mcps802154_fproc_access_done(local);
+				mcps802154_fproc_access_done(local, r);
 				mcps802154_fproc_broken_handle(local);
 				return;
 			}
 		}
 		/* Next access. */
+		mcps802154_fproc_access_done(local, 0);
 		if (access->duration_dtu) {
 			u32 next_access_dtu =
 				access->timestamp_dtu + access->duration_dtu;
-			mcps802154_fproc_access_done(local);
 			mcps802154_fproc_access(local, next_access_dtu);
 		} else {
-			mcps802154_fproc_access_done(local);
 			mcps802154_fproc_access_now(local);
 		}
 	}
@@ -110,7 +111,7 @@ static void mcps802154_fproc_multi_rx_rx_frame(struct mcps802154_local *local)
 				      MCPS802154_RX_ERROR_NONE);
 
 	if (r && r != -EBUSY) {
-		mcps802154_fproc_access_done(local);
+		mcps802154_fproc_access_done(local, r);
 		mcps802154_fproc_broken_handle(local);
 	} else {
 		/* Next. */
@@ -166,7 +167,7 @@ mcps802154_fproc_multi_rx_schedule_change(struct mcps802154_local *local)
 		access->ops->rx_frame(access, frame_idx, NULL, NULL,
 				      MCPS802154_RX_ERROR_TIMEOUT);
 		if (r) {
-			mcps802154_fproc_access_done(local);
+			mcps802154_fproc_access_done(local, r);
 			mcps802154_fproc_broken_handle(local);
 		} else {
 			/* Next. */

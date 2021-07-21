@@ -91,7 +91,7 @@ void mcps802154_fproc_access(struct mcps802154_local *local,
 	}
 
 	if (r) {
-		mcps802154_fproc_access_done(local);
+		mcps802154_fproc_access_done(local, r);
 		mcps802154_fproc_broken_handle(local);
 	}
 }
@@ -111,12 +111,12 @@ void mcps802154_fproc_access_now(struct mcps802154_local *local)
 						       local->llhw.anticip_dtu);
 }
 
-void mcps802154_fproc_access_done(struct mcps802154_local *local)
+void mcps802154_fproc_access_done(struct mcps802154_local *local, int error)
 {
 	struct mcps802154_access *access = local->fproc.access;
 
 	if (access->common_ops->access_done)
-		access->common_ops->access_done(access);
+		access->common_ops->access_done(access, error);
 	local->fproc.access = NULL;
 }
 
@@ -134,7 +134,7 @@ void mcps802154_fproc_access_reset(struct mcps802154_local *local)
 				MCPS802154_ACCESS_TX_RETURN_REASON_CANCEL);
 			local->fproc.tx_skb = NULL;
 		}
-		mcps802154_fproc_access_done(local);
+		mcps802154_fproc_access_done(local, 0);
 		local->fproc.access = NULL;
 	}
 }

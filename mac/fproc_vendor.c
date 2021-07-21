@@ -36,9 +36,10 @@ mcps802154_fproc_vendor_handle_callback_return(struct mcps802154_local *local,
 	u32 next_access_dtu = access->timestamp_dtu + duration_dtu;
 
 	if (!r)
+		/* TODO_MR : call access_done(false) ?? */
 		return;
 
-	mcps802154_fproc_access_done(local);
+	mcps802154_fproc_access_done(local, r);
 	if (r != 1) {
 		mcps802154_fproc_broken_handle(local);
 	} else if (duration_dtu) {

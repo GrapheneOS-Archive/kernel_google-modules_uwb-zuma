@@ -139,6 +139,7 @@ struct fira_controlee {
 
 /**
  * enum fira_ranging_status - Ranging status: success or failure reason.
+ * @FIRA_STATUS_RANGING_INTERNAL_ERROR: Implementation specific error.
  * @FIRA_STATUS_RANGING_SUCCESS: Ranging info are valid.
  * @FIRA_STATUS_RANGING_TX_FAILED: Failed to transmit UWB packet.
  * @FIRA_STATUS_RANGING_RX_TIMEOUT: No UWB packet detected by the receiver.
@@ -151,6 +152,7 @@ struct fira_controlee {
  * @FIRA_STATUS_RANGING_RX_MAC_IE_MISSING: Expected IE missing in the packet.
  */
 enum fira_ranging_status {
+	FIRA_STATUS_RANGING_INTERNAL_ERROR = -1,
 	FIRA_STATUS_RANGING_SUCCESS = 0,
 	FIRA_STATUS_RANGING_TX_FAILED = 1,
 	FIRA_STATUS_RANGING_RX_TIMEOUT = 2,

@@ -108,8 +108,9 @@ void mcps802154_fproc_access_now(struct mcps802154_local *local);
 /**
  * mcps802154_fproc_access_done() - Done with the access, release it.
  * @local: MCPS private data.
+ * @error: Internal error code.
  */
-void mcps802154_fproc_access_done(struct mcps802154_local *local);
+void mcps802154_fproc_access_done(struct mcps802154_local *local, int error);
 
 /**
  * mcps802154_fproc_access_reset() - Reset an access when things go wrong.

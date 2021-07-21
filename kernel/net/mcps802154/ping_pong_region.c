@@ -365,7 +365,8 @@ ping_pong_init_active_tx_get_frame(struct mcps802154_access *access,
 	return skb;
 }
 
-static void ping_pong_init_active_access_done(struct mcps802154_access *access)
+static void ping_pong_init_active_access_done(struct mcps802154_access *access,
+					      int error)
 {
 	struct ping_pong_local *local = access_to_ping_pong_local(access);
 

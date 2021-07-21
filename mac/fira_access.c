@@ -473,11 +473,16 @@ static void fira_tx_return(struct mcps802154_access *access, int frame_idx,
 	}
 }
 
-static void fira_access_done(struct mcps802154_access *access)
+static void fira_access_done(struct mcps802154_access *access, int error)
 {
 	struct fira_local *local = access_to_local(access);
 	struct fira_session *session = local->current_session;
+	int i;
 
+	if (error)
+		for (i = 0; i < local->n_ranging_info; i++)
+			local->ranging_info[i].status =
+				FIRA_STATUS_RANGING_INTERNAL_ERROR;
 	fira_session_access_done(local, session);
 
 	local->current_session = NULL;

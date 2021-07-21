@@ -53,7 +53,7 @@ static int nfcc_coex_vendor_cmd(struct mcps802154_llhw *llhw, u32 subcmd,
 	return llhw_vendor_cmd(local, qorvo_oui, subcmd, data, data_len);
 }
 
-static void nfcc_coex_access_done(struct mcps802154_access *access)
+static void nfcc_coex_access_done(struct mcps802154_access *access, int error)
 {
 	struct nfcc_coex_local *local = access_to_local(access);
 	struct nfcc_coex_session *session = &local->session;
