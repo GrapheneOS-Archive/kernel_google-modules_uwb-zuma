@@ -189,9 +189,9 @@ TRACE_DEFINE_ENUM(DW3000_PWR_TX);
 	mcps802154_rx_info_name(RANGING),            \
 	mcps802154_rx_info_name(KEEP_RANGING_CLOCK), \
 	mcps802154_rx_info_name(RANGING_PDOA),       \
-	mcps802154_rx_info_name(SP1),                \
-	mcps802154_rx_info_name(SP2),                \
 	mcps802154_rx_info_name(SP3),                \
+	mcps802154_rx_info_name(SP2),                \
+	mcps802154_rx_info_name(SP1),                \
 	mcps802154_rx_info_name(STS_MODE_MASK)
 /* clang-format on */
 
@@ -223,6 +223,30 @@ TRACE_DEFINE_ENUM(DW3000_PWR_TX);
 
 #define RX_FRAME_INFO_FLAGS_PR_ARG \
 	__print_flags(__entry->flags, "|", RX_FRAME_INFO_FLAGS)
+
+#define TX_FRAME_INFO_FLAGS_ENTRY __field(u8, flags)
+#define TX_FRAME_INFO_FLAGS_ASSIGN entry->flags = flags
+#define TX_FRAME_INFO_FLAGS_PR_FMT "flags: %s"
+
+#define mcps802154_tx_frame_info_name(name)       \
+	{                                         \
+		MCPS802154_TX_FRAME_##name, #name \
+	}
+
+/* clang-format off */
+#define TX_FRAME_INFO_FLAGS						\
+	mcps802154_tx_frame_info_name(TIMESTAMP_DTU),			\
+	mcps802154_tx_frame_info_name(CCA),				\
+	mcps802154_tx_frame_info_name(RANGING),				\
+	mcps802154_tx_frame_info_name(KEEP_RANGING_CLOCK),		\
+	mcps802154_tx_frame_info_name(SP3),				\
+	mcps802154_tx_frame_info_name(SP2),				\
+	mcps802154_tx_frame_info_name(SP1),				\
+	mcps802154_tx_frame_info_name(STS_MODE_MASK)
+/* clang-format on */
+
+#define TX_FRAME_INFO_FLAGS_PR_ARG \
+	__print_flags(__entry->flags, "|", TX_FRAME_INFO_FLAGS)
 
 /* We don't want clang-format to modify the following events definition!
    Look at net/wireless/trace.h for the required format. */
@@ -312,17 +336,20 @@ DEFINE_EVENT(dw_only_evt, dw3000_mcps_stop,
 );
 
 TRACE_EVENT(dw3000_mcps_tx_frame,
-	TP_PROTO(struct dw3000 *dw, u16 len),
-	TP_ARGS(dw, len),
+	TP_PROTO(struct dw3000 *dw, u8 flags, u16 len),
+	TP_ARGS(dw, flags, len),
 	TP_STRUCT__entry(
 		DW_ENTRY
+		TX_FRAME_INFO_FLAGS_ENTRY
 		__field(u16, len)
 	),
 	TP_fast_assign(
 		DW_ASSIGN;
+		TX_FRAME_INFO_FLAGS_ASSIGN;
 		__entry->len = len;
 	),
-	TP_printk(DW_PR_FMT ", skb->len: %d", DW_PR_ARG, __entry->len)
+	TP_printk(DW_PR_FMT ", " TX_FRAME_INFO_FLAGS_PR_FMT ", skb->len: %d",
+		  DW_PR_ARG, TX_FRAME_INFO_FLAGS_PR_ARG,__entry->len)
 );
 
 TRACE_EVENT(dw3000_mcps_rx_enable,

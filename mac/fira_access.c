@@ -236,6 +236,7 @@ static void fira_rx_frame_control(struct fira_local *local,
 	unsigned int n_slots;
 	int last_slot_index;
 	int i;
+	bool stop_ranging;
 
 	if (!(info->flags & MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU)) {
 		ranging_info->status = FIRA_STATUS_RANGING_RX_PHY_DEC_FAILED;
@@ -250,12 +251,17 @@ static void fira_rx_frame_control(struct fira_local *local,
 		fira_access_controlee(local, session);
 	}
 
-	if (!fira_frame_control_payload_check(local, skb, &ie_get, &n_slots)) {
+	if (!fira_frame_control_payload_check(local, skb, &ie_get, &n_slots,
+					       &stop_ranging)) {
 		ranging_info->status = FIRA_STATUS_RANGING_RX_MAC_IE_DEC_FAILED;
 		goto failed;
 	}
 
 	fira_session_resync(local, session, sts_index, info->timestamp_dtu);
+
+	if (stop_ranging) {
+		session->stop_inband = true;
+	}
 
 	last_slot_index = 0;
 	for (i = 1; i < n_slots; i++) {
@@ -399,6 +405,11 @@ static void fira_rx_frame(struct mcps802154_access *access, int frame_idx,
 		    (slot->message_id <= FIRA_MESSAGE_ID_RFRAME_MAX &&
 		     --local->n_ranging_valid == 0))
 			access->n_frames = frame_idx + 1;
+
+	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLEE &&
+	    session->stop_inband) {
+		access->n_frames = frame_idx + 1;
+	}
 }
 
 static struct sk_buff *fira_tx_get_frame(struct mcps802154_access *access,
@@ -483,7 +494,7 @@ static void fira_access_done(struct mcps802154_access *access, int error)
 		for (i = 0; i < local->n_ranging_info; i++)
 			local->ranging_info[i].status =
 				FIRA_STATUS_RANGING_INTERNAL_ERROR;
-	fira_session_access_done(local, session);
+	fira_session_access_done(local, session, true);
 
 	local->current_session = NULL;
 }
@@ -563,8 +574,8 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 	struct fira_slot *s;
 	struct fira_ranging_info *ri;
 	struct fira_controlees_array *controlees_array =
-		&session->params.current_controlees;
-	int i;
+		&session->current_controlees;
+	int i, j;
 	u32 frame_dtu;
 	int index = 0;
 
@@ -583,8 +594,21 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 	access->frames = local->frames;
 
 	fira_update_antennas_id(session);
-	local->n_ranging_info = controlees_array->size;
-	local->n_ranging_valid = controlees_array->size;
+
+	local->n_stopped_controlees_short_addr = 0;
+	for (i = 0; i < controlees_array->size; i++) {
+		const struct fira_controlee *c = &controlees_array->data[i];
+
+		if (c->state != FIRA_CONTROLEE_STATE_RUNNING) {
+			local->stopped_controlees_short_addr
+				[local->n_stopped_controlees_short_addr] =
+				c->short_addr;
+			local->n_stopped_controlees_short_addr++;
+		}
+	}
+
+	local->n_ranging_valid = local->n_ranging_info =
+		controlees_array->size - local->n_stopped_controlees_short_addr;
 	ri = local->ranging_info;
 
 	memset(ri, 0, local->n_ranging_info * sizeof(*ri));
@@ -596,50 +620,59 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 	s->ranging_index = 0;
 	s->tx_ant = session->tx_ant;
 	s->message_id = FIRA_MESSAGE_ID_CONTROL;
-
 	s++;
-	s->index = index++;
-	s->tx_controlee_index = -1;
-	s->ranging_index = 0;
-	s->tx_ant = session->tx_ant;
-	s->message_id = FIRA_MESSAGE_ID_RANGING_INITIATION;
 
-	s++;
-	for (i = 0; i < local->n_ranging_info; i++) {
-		ri->short_addr = controlees_array->data[i].short_addr;
-		/* Requested in fira_report_aoa function. */
-		ri++;
+	if (local->n_ranging_info) {
 		s->index = index++;
-		s->tx_controlee_index = i;
-		s->ranging_index = i;
-		s->rx_ant_pair = session->rx_ant_pair[0];
-		s->message_id = FIRA_MESSAGE_ID_RANGING_RESPONSE;
+		s->tx_controlee_index = -1;
+		s->ranging_index = 0;
+		s->tx_ant = session->tx_ant;
+		s->message_id = FIRA_MESSAGE_ID_RANGING_INITIATION;
+
 		s++;
-	}
-	s->index = index++;
-	s->tx_controlee_index = -1;
-	s->ranging_index = 0;
-	s->tx_ant = session->tx_ant;
-	s->message_id = FIRA_MESSAGE_ID_RANGING_FINAL;
-
-	s++;
-	s->index = index++;
-	s->tx_controlee_index = -1;
-	s->ranging_index = 0;
-	s->tx_ant = session->tx_ant;
-	s->message_id = FIRA_MESSAGE_ID_MEASUREMENT_REPORT;
-
-	s++;
-	if (session->params.result_report_phase) {
-		for (i = 0; i < local->n_ranging_info; i++) {
+		for (i = 0, j = 0; i < controlees_array->size; i++) {
+			if (controlees_array->data[i].state !=
+			    FIRA_CONTROLEE_STATE_RUNNING)
+				continue;
+			ri->short_addr = controlees_array->data[i].short_addr;
+			/* Requested in fira_report_aoa function. */
+			ri++;
 			s->index = index++;
 			s->tx_controlee_index = i;
-			s->ranging_index = i;
+			s->ranging_index = j++;
 			s->rx_ant_pair = session->rx_ant_pair[0];
-			s->message_id = FIRA_MESSAGE_ID_RESULT_REPORT;
+			s->message_id = FIRA_MESSAGE_ID_RANGING_RESPONSE;
 			s++;
 		}
+		s->index = index++;
+		s->tx_controlee_index = -1;
+		s->ranging_index = 0;
+		s->tx_ant = session->tx_ant;
+		s->message_id = FIRA_MESSAGE_ID_RANGING_FINAL;
+
+		s++;
+		s->index = index++;
+		s->tx_controlee_index = -1;
+		s->ranging_index = 0;
+		s->tx_ant = session->tx_ant;
+		s->message_id = FIRA_MESSAGE_ID_MEASUREMENT_REPORT;
+
+		s++;
+		if (session->params.result_report_phase) {
+			for (i = 0, j = 0; i < controlees_array->size; i++) {
+				if (controlees_array->data[i].state !=
+				    FIRA_CONTROLEE_STATE_RUNNING)
+					continue;
+				s->index = index++;
+				s->tx_controlee_index = i;
+				s->ranging_index = j++;
+				s->rx_ant_pair = session->rx_ant_pair[0];
+				s->message_id = FIRA_MESSAGE_ID_RESULT_REPORT;
+				s++;
+			}
+		}
 	}
+
 	access->n_frames = index;
 
 	frame_dtu = access->timestamp_dtu;
@@ -692,6 +725,7 @@ fira_access_controlee(struct fira_local *local, struct fira_session *session)
 	memset(ri, 0, sizeof(*ri));
 	ri->short_addr = session->params.controller_short_addr;
 	local->n_ranging_info = 1;
+	local->n_stopped_controlees_short_addr = 0;
 
 	s = local->slots;
 	s->index = 0;
@@ -726,9 +760,14 @@ struct mcps802154_access *fira_get_access(struct mcps802154_region *region,
 	struct fira_local *local = region_to_local(region);
 	struct fira_session *session;
 
-	session = fira_session_next(local, next_timestamp_dtu +
-						   local->llhw->anticip_dtu);
-	local->current_session = session;
+	if (!local->current_session) {
+		session = fira_session_next(
+			local, next_timestamp_dtu + local->llhw->anticip_dtu,
+			region_duration_dtu - next_in_region_dtu);
+		local->current_session = session;
+	} else {
+		session = local->current_session;
+	}
 
 	if (!session)
 		return NULL;
@@ -753,7 +792,7 @@ void fira_session_get_demand(struct fira_local *local,
 					session->params.slot_duration_dtu;
 	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLLER)
 		demand->duration_dtu =
-			(4 + 2 * session->params.current_controlees.size) *
+			(4 + 2 * session->current_controlees.size) *
 			session->params.slot_duration_dtu;
 	else
 		/* Min size for DSTWR. */

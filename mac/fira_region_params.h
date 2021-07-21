@@ -129,12 +129,24 @@ enum fira_sts_config {
 	FIRA_STS_CONFIG_DYNAMIC_INDIVIDUAL_KEY,
 };
 
+enum fira_controlee_state {
+	FIRA_CONTROLEE_STATE_RUNNING,
+	FIRA_CONTROLEE_STATE_PENDING_STOP,
+	FIRA_CONTROLEE_STATE_PENDING_DEL,
+};
+
 struct fira_controlee {
 	u32 sub_session_id;
 	__le16 short_addr;
 	u16 sub_session_key_len;
 	char sub_session_key[FIRA_KEY_SIZE_MAX];
 	bool sub_session;
+	enum fira_controlee_state state;
+};
+
+enum fira_session_controlee_management_flags {
+	FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_UPDATE = 1,
+	FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_STOP = 2,
 };
 
 /**

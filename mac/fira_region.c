@@ -67,7 +67,7 @@ static void fira_notify_stop(struct mcps802154_region *region)
 
 	list_for_each_entry_safe (session, s, &local->active_sessions, entry) {
 		session->stop_request = true;
-		fira_session_access_done(local, session);
+		fira_session_access_done(local, session, false);
 	}
 }
 
@@ -99,16 +99,18 @@ static int fira_get_demand(struct mcps802154_region *region,
 			   u32 next_timestamp_dtu,
 			   struct mcps802154_region_demand *demand)
 {
-	/* TODO:
-	 * - Return 0 when no demand,
-	 * - Return 1 for next active session and with demand updated.
-	 *
-	 * if (next_active_session) {
-	 *     demand->timestamp_dtu = X;
-	 *     demand->duration_dtu = Y;
-	 *     return 1
-	 * }
-	 */
+	struct fira_local *local = region_to_local(region);
+	struct fira_session *session;
+
+	session = fira_session_next(
+		local, next_timestamp_dtu + local->llhw->anticip_dtu, 0);
+
+	if (session) {
+		fira_session_get_demand(local, session, demand);
+		demand->duration_dtu = session->last_access_duration_dtu;
+		local->current_session = session;
+		return 1;
+	}
 	return 0;
 }
 
@@ -218,12 +220,29 @@ nla_put_failure:
 	return -EMSGSIZE;
 }
 
+static int fira_report_measurement_stopped_controlee(struct fira_local *local,
+						     struct sk_buff *msg,
+						     __le16 short_addr)
+{
+#define A(x) FIRA_RANGING_DATA_MEASUREMENTS_ATTR_##x
+
+	if (nla_put_u16(msg, A(SHORT_ADDR), short_addr) ||
+	    nla_put_u8(msg, A(STOPPED), 1))
+		goto nla_put_failure;
+
+#undef A
+	return 0;
+nla_put_failure:
+	return -EMSGSIZE;
+}
+
 void fira_report(struct fira_local *local, struct fira_session *session,
 		 bool add_measurements)
 {
 	struct sk_buff *msg;
 	struct nlattr *data, *measurements, *measurement;
 	int block_duration_ms, i, r;
+	bool stop_completed;
 
 	msg = mcps802154_region_event_alloc_skb(local->llhw, &local->region,
 						FIRA_CALL_SESSION_NOTIFICATION,
@@ -247,13 +266,25 @@ void fira_report(struct fira_local *local, struct fira_session *session,
 			block_duration_ms))
 		goto nla_put_failure;
 
-	if (session->stop_request) {
+	stop_completed = session->stop_request &&
+			 !(session->controlee_management_flags &
+			   FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_STOP);
+	if (stop_completed || session->stop_inband ||
+	    session->stop_no_response) {
+		enum fira_ranging_data_attrs_stopped_values stopped_value =
+			stop_completed ?
+				FIRA_RANGING_DATA_ATTR_STOPPED_REQUEST :
+				session->stop_inband ?
+				FIRA_RANGING_DATA_ATTR_STOPPED_IN_BAND :
+				FIRA_RANGING_DATA_ATTR_STOPPED_NO_RESPONSE;
+
 		if (nla_put_u8(msg, FIRA_RANGING_DATA_ATTR_STOPPED,
-			       FIRA_RANGING_DATA_ATTR_STOPPED_REQUEST))
+			       stopped_value))
 			goto nla_put_failure;
 	}
 
-	if (add_measurements) {
+	if (add_measurements && (local->n_ranging_info +
+				 local->n_stopped_controlees_short_addr) != 0) {
 		measurements = nla_nest_start(
 			msg, FIRA_RANGING_DATA_ATTR_MEASUREMENTS);
 		if (!measurements)
@@ -263,6 +294,15 @@ void fira_report(struct fira_local *local, struct fira_session *session,
 			measurement = nla_nest_start(msg, 1);
 			if (fira_report_measurement(local, msg,
 						    &local->ranging_info[i]))
+				goto nla_put_failure;
+			nla_nest_end(msg, measurement);
+		}
+
+		for (i = 0; i < local->n_stopped_controlees_short_addr; i++) {
+			measurement = nla_nest_start(msg, 1);
+			if (fira_report_measurement_stopped_controlee(
+				    local, msg,
+				    local->stopped_controlees_short_addr[i]))
 				goto nla_put_failure;
 			nla_nest_end(msg, measurement);
 		}

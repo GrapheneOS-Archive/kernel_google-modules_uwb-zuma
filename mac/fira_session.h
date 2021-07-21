@@ -56,6 +56,7 @@ struct fira_session_params {
 	int block_duration_dtu;
 	int round_duration_slots;
 	/* Behaviour parameters. */
+	int max_rr_retry;
 	bool round_hopping;
 	int priority;
 	bool result_report_phase;
@@ -71,12 +72,7 @@ struct fira_session_params {
 	/* STS and crypto. */
 	enum fira_sts_config sts_config;
 	u8 vupper64[FIRA_VUPPER64_SIZE];
-	/* List of controlees to applies on next ca. */
-	struct fira_controlees_array new_controlees;
-	/* List of controlees currently applied. */
-	struct fira_controlees_array current_controlees;
 	size_t n_controlees_max;
-	bool update_controlees;
 	bool aoa_result_req;
 	bool report_tof;
 	bool report_aoa_azimuth;
@@ -154,6 +150,16 @@ struct fira_session {
 	 */
 	bool stop_request;
 	/**
+	 * @stop_inband: Session has been requested to stop by controller. This
+	 * field is only used for controlee sessions.
+	 */
+	bool stop_inband;
+	/**
+	 * @stop_no_response: Session has been requested to stop because ranging
+	 * failed for max_rr_retry consecutives rounds.
+	 */
+	bool stop_no_response;
+	/**
 	 * @crypto: Crypto context.
 	 */
 	struct fira_crypto crypto;
@@ -186,6 +192,26 @@ struct fira_session {
 	 * @n_cm_sent: Number of control message sent
 	 */
 	int n_cm_sent;
+	/**
+	 *  @last_block_index: Block index of the last successful ranging.
+	 */
+	u32 last_block_index;
+	/**
+	 * @new_controlees: List of controlees to applies on next ca.
+	 */
+	struct fira_controlees_array new_controlees;
+	/**
+	 * @current_controlees: List of controlees currently applied.
+	 */
+	struct fira_controlees_array current_controlees;
+	/**
+	 * @controlee_management_flags: Flags used to indicates if the list of
+	 * controlees must be updated and if any controlee must be stopped
+	 * before allowing updates again. See
+	 * &fira_session_controlee_management_flags.
+	 */
+	u32 controlee_management_flags;
+
 };
 
 /**
@@ -240,7 +266,8 @@ int fira_session_new_controlees(struct fira_local *local,
 				size_t n_controlees);
 
 /**
- * fira_session_new_controlees() - Remove controlees.
+ * fira_session_del_controlees() - Set flag to indicate that controlees are
+ * to be stopped then deleted.
  * @local: FiRa context.
  * @session: Session.
  * @controlees_array: Destination array where store new controlees list.
@@ -256,6 +283,16 @@ int fira_session_del_controlees(struct fira_local *local,
 				size_t n_controlees);
 
 /**
+ * fira_session_stop_controlees() - Stop controlees.
+ * @local: FiRa context.
+ * @session: Session.
+ * @controlees_array: Destination array where store new controlees list.
+ */
+void fira_session_stop_controlees(
+	struct fira_local *local, struct fira_session *session,
+	struct fira_controlees_array *controlees_array);
+
+/**
  * fira_session_is_ready() - Test whether a session is ready to be started.
  * @local: FiRa context.
  * @session: Session to test.
@@ -269,11 +306,13 @@ bool fira_session_is_ready(struct fira_local *local,
  * fira_session_next() - Find the next session to use after the given timestamp.
  * @local: FiRa context.
  * @next_timestamp_dtu: Next access opportunity.
+ * @max_access_duration_dtu: Maximum access duration.
  *
  * Return: The session or NULL if none.
  */
 struct fira_session *fira_session_next(struct fira_local *local,
-				       u32 next_timestamp_dtu);
+				       u32 next_timestamp_dtu,
+				       u32 max_access_duration_dtu);
 
 /**
  * fira_session_round_hopping() - Update round index for round hopping.
@@ -296,9 +335,11 @@ void fira_session_resync(struct fira_local *local, struct fira_session *session,
  * when no access is active.
  * @local: FiRa context.
  * @session: Session.
+ * @add_measurements: True to add measurements to report.
  */
 void fira_session_access_done(struct fira_local *local,
-			      struct fira_session *session);
+			      struct fira_session *session,
+			      bool add_measurements);
 
 /**
  * fira_session_get_round_slot() - Get current round's slot.

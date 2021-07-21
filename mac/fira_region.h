@@ -32,6 +32,7 @@
 #define FIRA_SLOT_DURATION_RSTU_DEFAULT 2400
 #define FIRA_BLOCK_DURATION_MS_DEFAULT 200
 #define FIRA_ROUND_DURATION_SLOTS_DEFAULT 30
+#define FIRA_MAX_RR_RETRY_DEFAULT 0
 #define FIRA_PRIORITY_MAX 100
 #define FIRA_PRIORITY_DEFAULT 50
 #define FIRA_IN_BAND_TERMINATION_ATTEMPT_COUNT_MAX 10
@@ -272,6 +273,17 @@ struct fira_local {
 	 * @active_sessions: List of active sessions.
 	 */
 	struct list_head active_sessions;
+	/**
+	 * @stopped_controlees_short_addr: Short addresses of the stopped
+	 * controlees for which an element must be added to the Device
+	 * Management List of the RCM message.
+	 */
+	__le16 stopped_controlees_short_addr[FIRA_CONTROLEES_MAX];
+	/**
+	 * @n_stopped_controlees_short_addr: Number of elements in the stopped
+	 * controlees short addr table.
+	 */
+	int n_stopped_controlees_short_addr;
 };
 
 static inline struct fira_local *

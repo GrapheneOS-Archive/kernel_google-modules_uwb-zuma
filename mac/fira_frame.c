@@ -139,7 +139,7 @@ void fira_frame_control_payload_put(const struct fira_local *local,
 		 * When the number of measurements is exceed, just
 		 * send a stop control message.
 		 */
-		n_mngt = session->params.current_controlees.size;
+		n_mngt = session->current_controlees.size;
 
 		p = fira_frame_common_payload_put(
 			skb,
@@ -152,7 +152,7 @@ void fira_frame_control_payload_put(const struct fira_local *local,
 
 		for (i = 0 ; i < n_mngt; i++) {
 			__le16 short_addr =
-				session->params.current_controlees
+				session->current_controlees
 				.data[i].short_addr;
 			u32 mngt =
 				FIELD_PREP(FIRA_MNGT_SHORT_ADDR, short_addr) |
@@ -169,12 +169,13 @@ void fira_frame_control_payload_put(const struct fira_local *local,
 			struct fira_session *s = local->current_session;
 
 			s->stop_request = true;
-			fira_session_access_done((struct fira_local *)local, s);
+			fira_session_access_done((struct fira_local *)local, s, true);
 		}
 		return;
 	}
 
-	n_mngt = local->access.n_frames - 1;
+	n_mngt = local->access.n_frames - 1 +
+		 local->n_stopped_controlees_short_addr;
 
 	p = fira_frame_common_payload_put(skb,
 					  FIRA_IE_PAYLOAD_CONTROL_LEN(n_mngt),
@@ -184,14 +185,14 @@ void fira_frame_control_payload_put(const struct fira_local *local,
 	*p++ = 0;
 	*p++ = 0;
 
-	for (i = 0; i < n_mngt; i++) {
+	for (i = 0; i < local->access.n_frames - 1; i++) {
 		const struct fira_slot *slot = &local->slots[i + 1];
 		int initiator = slot->tx_controlee_index == -1;
 		int slot_index = slot->index;
 		__le16 short_addr =
 			slot->tx_controlee_index == -1 ?
 				local->src_short_addr :
-				session->params.current_controlees
+				session->current_controlees
 					.data[slot->tx_controlee_index]
 					.short_addr;
 		int message_id = slot->message_id;
@@ -199,6 +200,14 @@ void fira_frame_control_payload_put(const struct fira_local *local,
 			   FIELD_PREP(FIRA_MNGT_SLOT_INDEX, slot_index) |
 			   FIELD_PREP(FIRA_MNGT_SHORT_ADDR, short_addr) |
 			   FIELD_PREP(FIRA_MNGT_MESSAGE_ID, message_id);
+		put_unaligned_le32(mngt, p);
+		p += sizeof(u32);
+	}
+
+	for (i = 0; i < local->n_stopped_controlees_short_addr; i++) {
+		__le16 short_addr = local->stopped_controlees_short_addr[i];
+		u32 mngt = FIELD_PREP(FIRA_MNGT_SHORT_ADDR, short_addr) |
+			   FIELD_PREP(FIRA_MNGT_STOP, 1);
 		put_unaligned_le32(mngt, p);
 		p += sizeof(u32);
 	}
@@ -264,9 +273,7 @@ void fira_frame_measurement_report_payload_put(const struct fira_local *local,
 		ranging_info = &local->ranging_info[i];
 		if (ranging_info->status)
 			continue;
-		put_unaligned_le16(
-			session->params.current_controlees.data[i].short_addr,
-			p);
+		put_unaligned_le16(ranging_info->short_addr, p);
 		p += sizeof(u16);
 		response_rctu = ranging_info->timestamps_rctu
 					[FIRA_MESSAGE_ID_RANGING_RESPONSE];
@@ -415,12 +422,14 @@ bool fira_frame_header_check(const struct fira_local *local,
 }
 
 static bool fira_frame_control_read(struct fira_local *local, u8 *p,
-				    unsigned int ie_len, unsigned int *n_slots)
+				    unsigned int ie_len, unsigned int *n_slots,
+				    bool *stop)
 {
 	const struct fira_session *session = local->current_session;
 	struct fira_slot *slot, last;
 	int n_mngt, stride_len, i;
 	u16 msg_ids = 0;
+	bool stop_found = false;
 
 	n_mngt = *p++;
 	if (ie_len < FIRA_IE_PAYLOAD_CONTROL_LEN(n_mngt))
@@ -450,6 +459,13 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 		short_addr = FIELD_GET(FIRA_MNGT_SHORT_ADDR, mngt);
 		message_id = FIELD_GET(FIRA_MNGT_MESSAGE_ID, mngt);
 		stop_ranging = !!(mngt & FIRA_MNGT_STOP);
+
+		if (stop_ranging) {
+			if (short_addr == local->src_short_addr) {
+				stop_found = true;
+			}
+			continue;
+		}
 
 		if (slot_index <= last.index ||
 		    slot_index >= session->params.round_duration_slots)
@@ -488,6 +504,7 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 			*slot++ = last;
 		}
 	}
+	*stop = stop_found;
 	*n_slots = slot - local->slots;
 
 	return true;
@@ -496,7 +513,7 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 bool fira_frame_control_payload_check(struct fira_local *local,
 				      struct sk_buff *skb,
 				      struct mcps802154_ie_get_context *ie_get,
-				      unsigned int *n_slots)
+				      unsigned int *n_slots, bool *stop_ranging)
 {
 	bool fira_payload_seen = false;
 	int r;
@@ -527,7 +544,7 @@ bool fira_frame_control_payload_check(struct fira_local *local,
 				return false;
 
 			if (!fira_frame_control_read(local, p, ie_get->len,
-						     n_slots))
+						     n_slots, stop_ranging))
 				return false;
 
 			fira_payload_seen = true;
@@ -822,7 +839,7 @@ int fira_frame_decrypt(struct fira_local *local, struct fira_session *session,
 	if (slot->tx_controlee_index == -1)
 		src_short_addr = local->dst_short_addr;
 	else
-		src_short_addr = session->params.current_controlees
+		src_short_addr = session->current_controlees
 					 .data[slot->tx_controlee_index]
 					 .short_addr;
 

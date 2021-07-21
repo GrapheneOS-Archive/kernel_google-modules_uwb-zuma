@@ -105,13 +105,15 @@ bool fira_frame_header_check(const struct fira_local *local,
  * @skb: Frame buffer.
  * @ie_get: Context used to read IE, must have been used to read header first.
  * @n_slots: Pointer where to store number of used slots.
+ * @stop_ranging: True if the message indicates that the ranging must be stopped.
  *
  * Return: true if message is correct. Extra payload is accepted.
  */
 bool fira_frame_control_payload_check(struct fira_local *local,
 				      struct sk_buff *skb,
 				      struct mcps802154_ie_get_context *ie_get,
-				      unsigned int *n_slots);
+				      unsigned int *n_slots,
+				      bool *stop_ranging);
 
 /**
  * fira_frame_measurement_report_payload_check() - Check FiRa frame payload for

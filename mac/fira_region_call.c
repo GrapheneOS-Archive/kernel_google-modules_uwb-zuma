@@ -296,6 +296,7 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 		session->synchronised = false;
 		session->last_access_timestamp_dtu = -1;
 		session->last_access_duration_dtu = 0;
+		session->last_block_index = -1;
 		fira_session_round_hopping(session);
 		session->tx_ant = -1;
 		session->rx_ant_pair[0] = -1;
@@ -339,10 +340,32 @@ static int fira_session_stop(struct fira_local *local, u32 session_id,
 
 	if (active) {
 		session->stop_request = true;
-		if (local->current_session != session)
-			fira_session_access_done(local, session);
-		else
-			mcps802154_reschedule(local->llhw);
+		if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLEE) {
+			if (local->current_session != session)
+				fira_session_access_done(local, session, false);
+			else
+				mcps802154_reschedule(local->llhw);
+		} else {
+			if (local->current_session == NULL ||
+			    (local->current_session != session &&
+			     !session->current_controlees.size)) {
+				fira_session_access_done(local, session, false);
+			} else {
+				if (session->controlee_management_flags) {
+					/* Many changes on same round or while a controlee is stopping is not supported. */
+					return -EBUSY;
+				}
+				fira_session_copy_controlees(
+					&session->new_controlees,
+					&session->current_controlees);
+				fira_session_stop_controlees(
+					local, session,
+					&session->new_controlees);
+				session->controlee_management_flags =
+					FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_UPDATE |
+					FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_STOP;
+			}
+		}
 	}
 
 	/* Notify session state change */
@@ -486,6 +509,7 @@ static int fira_session_set_parameters(struct fira_local *local, u32 session_id,
 	  x * (local->llhw->dtu_freq_hz / 1000));
 	P(ROUND_DURATION_SLOTS, round_duration_slots, u32, x);
 	/* Behaviour parameters. */
+	P(MAX_RR_RETRY, max_rr_retry, u32, x);
 	P(ROUND_HOPPING, round_hopping, u8, !!x);
 	P(PRIORITY, priority, u8, x);
 	P(RESULT_REPORT_PHASE, result_report_phase, u8, !!x);
@@ -796,6 +820,7 @@ static int fira_manage_controlees(struct fira_local *local, u32 call_id,
 				attrs[FIRA_CALL_CONTROLEE_ATTR_SUB_SESSION_KEY]);
 		} else
 			controlees[n_controlees].sub_session = false;
+		controlees[n_controlees].state = FIRA_CONTROLEE_STATE_RUNNING;
 
 		for (i = 0; i < n_controlees; i++) {
 			if (controlees[n_controlees].short_addr ==
@@ -812,31 +837,32 @@ static int fira_manage_controlees(struct fira_local *local, u32 call_id,
 	if (!session)
 		return -ENOENT;
 
-	if (session->params.update_controlees) {
-		/* Many changes on same round is not supported. */
+	if (session->controlee_management_flags) {
+		/* Many changes on same round or while a controlee is stopping is not supported. */
 		return -EBUSY;
 	} else if (active) {
 		/* If unicast refuse to add more than one controlee. */
 		if (call_id == FIRA_CALL_NEW_CONTROLEE &&
 		    session->params.multi_node_mode ==
 			    FIRA_MULTI_NODE_MODE_UNICAST &&
-		    (session->params.current_controlees.size > 0 ||
-		     n_controlees > 1))
+		    (session->current_controlees.size > 0 || n_controlees > 1))
 			return -EINVAL;
-		fira_session_copy_controlees(
-			&session->params.new_controlees,
-			&session->params.current_controlees);
+		fira_session_copy_controlees(&session->new_controlees,
+					     &session->current_controlees);
 		/* Use second array to not disturbe active session. */
-		controlees_array = &session->params.new_controlees;
+		controlees_array = &session->new_controlees;
 	} else {
 		/* No risk to disturbe this session. */
-		controlees_array = &session->params.current_controlees;
+		controlees_array = &session->current_controlees;
 	}
 
 	if (call_id == FIRA_CALL_DEL_CONTROLEE) {
 		r = fira_session_del_controlees(local, session,
 						controlees_array, controlees,
 						n_controlees);
+		if (active)
+			session->controlee_management_flags |=
+				FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_STOP;
 	} else {
 		r = fira_session_new_controlees(local, session,
 						controlees_array, controlees,
@@ -846,7 +872,8 @@ static int fira_manage_controlees(struct fira_local *local, u32 call_id,
 		return r;
 
 	if (active)
-		session->params.update_controlees = true;
+		session->controlee_management_flags |=
+			FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_UPDATE;
 
 	return 0;
 }

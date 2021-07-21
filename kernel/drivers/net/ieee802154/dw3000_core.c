@@ -2981,7 +2981,7 @@ int dw3000_do_tx_frame(struct dw3000 *dw,
 	int rc;
 	u8 sts_mode;
 
-	trace_dw3000_mcps_tx_frame(dw, skb ? skb->len : 0);
+	trace_dw3000_mcps_tx_frame(dw, info->flags, skb ? skb->len : 0);
 
 	/* Calculate the transfer date.*/
 	if (info->flags & MCPS802154_TX_FRAME_TIMESTAMP_DTU) {
