@@ -140,7 +140,10 @@ mcps802154_fproc_multi_rx_rx_error(struct mcps802154_local *local,
 	struct mcps802154_rx_frame_info info = {
 		.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU,
 	};
-
+	if (error == MCPS802154_RX_ERROR_FILTERED) {
+		mcps802154_fproc_multi_next(local, access, frame_idx);
+		return;
+	}
 	llhw_rx_get_error_frame(local, &info);
 	access->ops->rx_frame(access, frame_idx, NULL, &info, error);
 
