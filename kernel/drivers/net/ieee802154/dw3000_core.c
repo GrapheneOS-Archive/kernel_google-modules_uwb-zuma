@@ -1605,11 +1605,10 @@ static int dw3000_rx_store_rssi(struct dw3000 *dw)
 	if (unlikely(rc))
 		return rc;
 	/* Avoid "nan" and "-inf" in userspace when calculating average RSSI */
-	if (cir_pwr == 0 || pacc_cnt == 0) {
-		dev_err(dw->dev,
+	if (cir_pwr == 0 || pacc_cnt == 0)
+		dev_info(dw->dev,
 			"one or both values from CIA registers are null\n");
-		return -EAGAIN;
-	}
+
 	rssi->cir_pwr = cir_pwr;
 	rssi->pacc_cnt = pacc_cnt;
 	rssi->prf_64mhz = ((config->rxCode >= 9) && (config->rxCode <= 24));
