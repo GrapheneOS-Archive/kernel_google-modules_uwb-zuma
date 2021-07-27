@@ -3634,8 +3634,20 @@ static inline int dw3000_configure_rf(struct dw3000 *dw)
 		return rc;
 
 	/* Extend the lock delay */
-	return dw3000_reg_write8(dw, DW3000_PLL_CAL_ID, 0,
-				 DW3000_RF_PLL_CFG_LD);
+	rc = dw3000_reg_write8(dw, DW3000_PLL_CAL_ID, 0,
+ 				 DW3000_RF_PLL_CFG_LD);
+	if (unlikely(rc))
+		return rc;
+
+	if (__dw3000_chip_version > 0) {
+		/* Verify PLL lock bit is cleared */
+		int rc = dw3000_reg_write8(
+			dw, DW3000_SYS_STATUS_ID, 0,
+			DW3000_SYS_STATUS_CLK_PLL_LOCK_BIT_MASK);
+		if (rc)
+			return rc;
+	}
+	return 0;
 }
 
 static int dw3000_configmrxlut(struct dw3000 *dw)
@@ -4072,14 +4084,6 @@ static inline int dw3000_lock_pll(struct dw3000 *dw, u8 sys_status)
 		goto resync_dtu;
 	}
 
-	if (__dw3000_chip_version > 0) {
-		/* Verify PLL lock bit is cleared */
-		int rc = dw3000_reg_write8(
-			dw, DW3000_SYS_STATUS_ID, 0,
-			DW3000_SYS_STATUS_CLK_PLL_LOCK_BIT_MASK);
-		if (rc)
-			return rc;
-	}
 	rc = dw3000_setdwstate(dw, DW3000_OP_STATE_IDLE_PLL);
 	if (rc)
 		return rc;
