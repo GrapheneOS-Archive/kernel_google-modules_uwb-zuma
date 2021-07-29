@@ -31,8 +31,9 @@
 #define ANT_CHAN_PARAMS (CHAN_PRF_PARAMS * DW3000_CALIBRATION_CHANNEL_MAX)
 #define ANT_OTHER_PARAMS (3) /* port, selector_gpio... */
 #define ANTPAIR_CHAN_PARAMS (2 * DW3000_CALIBRATION_CHANNEL_MAX + 1)
-#define OTHER_PARAMS (6) /* xtal_trim, temperature_reference, smart_tx_power,
-			    spi_pid, dw3000_pid, auto_sleep_margin */
+#define OTHER_PARAMS (7) /* xtal_trim, temperature_reference, smart_tx_power,
+			    spi_pid, dw3000_pid, auto_sleep_margin,
+			    restricted_channels */
 
 #define MAX_CALIB_KEYS ((ANTMAX * (ANT_CHAN_PARAMS + ANT_OTHER_PARAMS)) + \
 			(ANTPAIR_MAX * ANTPAIR_CHAN_PARAMS) +		\
@@ -96,6 +97,7 @@ static const struct {
 	DW_INFO(auto_sleep_margin_us),
 	DW_INFO(spi_pid),
 	DW_INFO(dw3000_pid),
+	DW_INFO(restricted_channels),
 	/* other with defaults from OTP */
 	OTP_INFO(xtal_trim),
 	OTP_INFO(tempP),
@@ -149,6 +151,7 @@ static const char *const dw3000_calib_keys[MAX_CALIB_KEYS + 1] = {
 	"auto_sleep_margin",
 	"spi_pid",
 	"dw3000_pid",
+	"restricted_channels",
 	/* other (OTP) */
 	"xtal_trim",
 	"temperature_reference",

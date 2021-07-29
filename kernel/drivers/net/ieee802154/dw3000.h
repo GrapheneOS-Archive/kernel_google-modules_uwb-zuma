@@ -477,6 +477,7 @@ struct dw3000_rctu_conv {
  * @debugfs: debugfs informations
  * @spi_pid: PID of the SPI controller pump messages
  * @dw3000_pid: PID the dw3000 state machine thread
+ * @restricted_channels: bit field of restricted channels
  * @msg_mutex: mutex protecting @msg_readwrite_fdx
  * @msg_readwrite_fdx: pre-computed generic register read/write SPI message
  * @msg_fast_command: pre-computed fast command SPI message
@@ -575,6 +576,8 @@ struct dw3000 {
 	pid_t spi_pid;
 	/* PID the dw3000 state machine thread */
 	pid_t dw3000_pid;
+	/* Restricted channels */
+	u16 restricted_channels;
 
 	/* Insert new fields before this line */
 

@@ -35,6 +35,9 @@
 #include "dw3000_nfcc_coex_mcps.h"
 #include "dw3000_coex.h"
 
+/* UWB High band 802.15.4a-2007. Only channels 5 & 9 for DW3000. */
+#define DW3000_SUPPORTED_CHANNELS ((1 << 5) | (1 << 9))
+
 static inline u32 timestamp_rctu_to_dtu(struct dw3000 *dw, u64 timestamp_rctu);
 static inline u64 timestamp_rctu_to_rmarker_rctu(struct dw3000 *dw,
 						 u64 timestamp_rctu,
@@ -675,7 +678,8 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 
 	trace_dw3000_mcps_set_channel(dw, page, channel, preamble_code);
 	/* Check parameters early */
-	if (page != 4 || (channel != 5 && channel != 9)) {
+	if (page != 4 || (channel != 5 && channel != 9) ||
+	    (dw->restricted_channels & (1 << (channel % 16)))) {
 		ret = -EINVAL;
 		goto error;
 	}
@@ -846,12 +850,24 @@ static int set_promiscuous_mode(struct mcps802154_llhw *llhw, bool on)
 	return dw3000_is_active(dw) ? dw3000_enqueue_generic(dw, &cmd) : 0;
 }
 
+static int check_calibration_value(struct mcps802154_llhw *llhw,
+				   const char *key, void *value)
+{
+	if (!strcmp(key, "restricted_channels")) {
+		/* Prevent restricted channels from containing current channel. */
+		if ((1 << llhw->hw->phy->current_channel) & *(u16 *)value)
+			return -EINVAL;
+	}
+	return 0;
+}
+
 static int set_calibration(struct mcps802154_llhw *llhw, const char *key,
 			   void *value, size_t length)
 {
 	struct dw3000 *dw = llhw->priv;
 	void *param;
 	int len;
+	int r;
 	/* Sanity checks */
 	if (!key || !value || !length)
 		return -EINVAL;
@@ -861,10 +877,15 @@ static int set_calibration(struct mcps802154_llhw *llhw, const char *key,
 		return len;
 	if (len > length)
 		return -EINVAL;
+	r = check_calibration_value(llhw, key, value);
+	if (r)
+		return r;
 	/* FIXME: This copy isn't big-endian compatible. */
 	memcpy(param, value, len);
 	/* One parameter has changed. */
 	dw3000_calib_update_config(dw);
+	llhw->hw->phy->supported.channels[4] = DW3000_SUPPORTED_CHANNELS &
+					       ~dw->restricted_channels;
 	/* TODO: need reconfiguration? */
 	return 0;
 }
@@ -985,8 +1006,7 @@ struct dw3000 *dw3000_mcps_alloc(struct device *dev)
 		 IEEE802154_HW_PROMISCUOUS | IEEE802154_HW_RX_OMIT_CKSUM);
 	llhw->flags = llhw->hw->flags;
 
-	/* UWB High band 802.15.4a-2007. Only channels 5 & 9 for DW3000. */
-	llhw->hw->phy->supported.channels[4] = (1 << 5) | (1 << 9);
+	llhw->hw->phy->supported.channels[4] = DW3000_SUPPORTED_CHANNELS;
 
 	/* Set time related fields */
 	llhw->dtu_freq_hz = DW3000_DTU_FREQ;
