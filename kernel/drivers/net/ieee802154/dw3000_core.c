@@ -499,6 +499,8 @@ static int dw3000_transfers_reset(struct dw3000 *dw);
 static int dw3000_change_speed(struct dw3000 *dw, u32 new_speed);
 static int dw3000_wakeup(struct dw3000 *dw);
 static inline bool _dw3000_sts_is_enabled(struct dw3000 *dw);
+static u8 dw3000_calc_bandwithadj(struct dw3000 *dw, int target_count);
+static u32 dw3000_calc_pgcount(struct dw3000 *dw, u32 pg_delay);
 
 /**
  * dw3000_get_dtu_time() - compute current DTU time
@@ -2637,7 +2639,17 @@ static int dw3000_enable_rf_tx(struct dw3000 *dw, u32 chan, u8 switch_ctrl)
 			      DW3000_LDO_CTRL_LDO_VDDTX2_EN_BIT_MASK |
 			      DW3000_LDO_CTRL_LDO_VDDTX1_EN_BIT_MASK));
 	/* Enable RF blocks for TX (configure RF_ENABLE_ID register) */
-	rc = dw3000_rftx_blocks_enable(dw, chan);
+	if (chan == 5) {
+		dw3000_reg_or32(dw, DW3000_RF_ENABLE_ID, 0,
+				(0x2000000UL
+				| 0x2000U | 0x1000U
+				| 0x800U | 0x400U));
+	} else {
+		dw3000_reg_or32(dw, DW3000_RF_ENABLE_ID, 0,
+				(0x2000000UL
+				| 0x1000U
+				| 0x800U | 0x400U));
+	}
 	if (rc)
 		return rc;
 	if (switch_ctrl) {
@@ -2669,7 +2681,10 @@ static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 		/* TX_CLK_SEL = ON */
 		regvalue0 |= (u16)DW3000_FORCE_CLK_PLL
 			     << DW3000_CLK_CTRL_TX_CLK_SEL_BIT_OFFSET;
-		rc = dw3000_reg_write16(dw, DW3000_CLK_CTRL_ID, 0x0, regvalue0);
+
+		regvalue0 |= DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK;
+
+		rc = dw3000_reg_write16(dw, DW3000_CLK_CTRL_ID, 0x0, 0x1822);
 		if (rc)
 			return rc;
 	}
@@ -3599,8 +3614,10 @@ static inline int dw3000_configure_rf(struct dw3000 *dw)
 	struct dw3000_txconfig *txconfig = &dw->txconfig;
 	u8 chan = config->chan;
 	u32 txctrl, rf_pll_cfg;
-	int rc;
+
+	int rc = 0;
 	/* Get default values */
+
 	if (chan == 9) {
 		txctrl = DW3000_RF_TXCTRL_CH9;
 		rf_pll_cfg = DW3000_RF_PLL_CFG_CH9;
@@ -3608,14 +3625,17 @@ static inline int dw3000_configure_rf(struct dw3000 *dw)
 		txctrl = DW3000_RF_TXCTRL_CH5;
 		rf_pll_cfg = DW3000_RF_PLL_CFG_CH5;
 	}
+
+
+
 	/* Setup PG delay */
 	txctrl = (txctrl & ~DW3000_TX_CTRL_HI_TX_PG_DELAY_BIT_MASK) |
 		 txconfig->PGdly;
-
 	/* Setup TX analog */
 	rc = dw3000_reg_write32(dw, DW3000_TX_CTRL_HI_ID, 0, txctrl);
 	if (rc)
 		return rc;
+
 	rc = dw3000_reg_write16(dw, DW3000_PLL_CFG_ID, 0, rf_pll_cfg);
 	if (rc)
 		return rc;
@@ -3629,6 +3649,7 @@ static inline int dw3000_configure_rf(struct dw3000 *dw)
 		return rc;
 	/* Setup TX power */
 	rc = dw3000_reg_write32(dw, DW3000_TX_POWER_ID, 0, txconfig->power);
+
 	if (unlikely(rc))
 		return rc;
 
@@ -4244,6 +4265,7 @@ static int dw3000_configure(struct dw3000 *dw)
 	int symb = _plen_info[config->txPreambLength - 1].symb;
 	int pac_symb = _plen_info[config->txPreambLength - 1].pac_symb;
 	int sfd_symb = dw3000_get_sfd_symb(dw);
+	int pg_count = 0;
 	int rc;
 	/* Clear the sleep mode ALT_GEAR bit */
 	dw->data.sleep_mode &= (~(DW3000_ALT_GEAR | DW3000_SEL_GEAR3));
@@ -4298,6 +4320,12 @@ static int dw3000_configure(struct dw3000 *dw)
 	if (dw->chip_ops->adc_offset_calibration)
 		rc = dw->chip_ops->adc_offset_calibration(dw);
 	/* Update configuration dependent timings */
+	if (dw->bw_comp) {
+		pg_count = dw3000_calc_pgcount(dw, dw->txconfig.PGdly);
+		 if (pg_count !=0) {
+			 dw3000_calc_bandwithadj(dw, pg_count);
+		 }
+	}
 	dw3000_update_timings(dw);
 	return rc;
 }
@@ -6530,6 +6558,72 @@ spi_err:
 	trace_dw3000_return_int(dw, rc);
 	return;
 }
+
+
+static u32 dw3000_calc_pgcount(struct dw3000 *dw, u32 pg_delay)
+{
+	u8 val;
+	u16 count;
+	int chan = dw->config.chan;
+
+	dw3000_rftx_blocks_autoseq_disable(dw, chan);
+	dw3000_enable_rf_tx(dw, chan, 0);
+	dw3000_force_clocks(dw, DW3000_FORCE_CLK_SYS_TX);
+	usleep_range(DW3000_HARD_RESET_DELAY_US,
+		     DW3000_HARD_RESET_DELAY_US + 500);
+
+	dw3000_reg_write8(dw, DW3000_TX_CTRL_HI_ID, 0,
+			   pg_delay & DW3000_TX_CTRL_HI_TX_PG_DELAY_BIT_MASK);
+
+	dw3000_reg_write8(dw, DW3000_PGC_CTRL_ID, 0, 0x91);
+	
+	do {
+		dw3000_reg_read8(dw, DW3000_PGC_CTRL_ID, 0, &val);
+	} while (val & DW3000_PGC_CTRL_PGC_START_BIT_MASK);
+
+	dw3000_reg_read16(dw, DW3000_PGC_STATUS_ID, 0, &count);
+	count &= DW3000_PGC_STATUS_PG_DELAY_COUNT_BIT_MASK;
+
+	dw3000_reg_write32(dw, DW3000_RF_CTRL_MASK_ID, 0, 0);
+	dw3000_rftx_blocks_autoseq_disable(dw, chan);
+	dw3000_force_clocks(dw, DW3000_FORCE_CLK_AUTO);
+
+	return (u32) count;
+}
+
+static u8 dw3000_calc_bandwithadj(struct dw3000 *dw, int target_count)
+{
+	int chan = dw->config.chan;
+	int timeout = 1000;
+	u8 val;
+
+	if (target_count == 0)
+		return 0;
+
+	dw3000_rftx_blocks_autoseq_disable(dw, chan);
+	dw3000_enable_rf_tx(dw, chan, 0);
+	dw3000_force_clocks(dw, DW3000_FORCE_CLK_SYS_TX);
+
+	dw3000_reg_write16(dw, DW3000_PG_CAL_TARGET_ID, 0,
+			target_count & DW3000_PG_CAL_TARGET_TARGET_BIT_MASK);
+
+	dw3000_reg_write8(dw, DW3000_PGC_CTRL_ID, 0x0, 0x92);
+	do {
+		dw3000_reg_read8(dw, DW3000_PGC_CTRL_ID, 0, &val);
+	} while((val & DW3000_PGC_CTRL_PGC_START_BIT_MASK) && timeout--);
+
+	/* dw3000_disable_rf */
+	dw3000_reg_write32(dw, DW3000_RF_CTRL_MASK_ID, 0, 0);
+	dw3000_rftx_blocks_autoseq_disable(dw, chan);
+	dw3000_force_clocks(dw, DW3000_FORCE_CLK_AUTO);
+
+	dw3000_reg_read8(dw, DW3000_TX_CTRL_HI_ID, 0, &val);
+	val &= DW3000_TX_CTRL_HI_TX_PG_DELAY_BIT_MASK;
+
+	return val;
+
+}
+
 
 static int dw3000_spi_tests;
 module_param_named(spitests, dw3000_spi_tests, int, 0644);

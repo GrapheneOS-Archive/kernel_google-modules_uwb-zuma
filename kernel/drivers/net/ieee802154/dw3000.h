@@ -579,6 +579,8 @@ struct dw3000 {
 	/* Restricted channels */
 	u16 restricted_channels;
 
+	/* Activate bandwith compensation  */
+	bool bw_comp;
 	/* Insert new fields before this line */
 
 	/* Shared message protected by a mutex */

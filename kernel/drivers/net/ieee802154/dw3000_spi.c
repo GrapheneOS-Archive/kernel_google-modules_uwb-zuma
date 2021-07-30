@@ -36,6 +36,11 @@
  * Set to -1 (disabled) until we want to have deep-sleep enabled by default. */
 #define DW3000_AUTO_DEEP_SLEEP_MARGIN_US -1
 
+static int dw3000_bw_comp = 0;
+module_param_named(bw_compensation, dw3000_bw_comp, int, 0660);
+MODULE_PARM_DESC(bw_compensation,
+		 "Activate/Deactivate bandwidth compensation mechanism");
+
 static int dw3000_thread_cpu = -1;
 module_param_named(cpu, dw3000_thread_cpu, int, 0444);
 MODULE_PARM_DESC(cpu, "CPU on which the DW state machine's thread will run");
@@ -94,6 +99,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	dw->spi_pid = spi->master->kworker.task->pid;
 #endif
 	dw->auto_sleep_margin_us = DW3000_AUTO_DEEP_SLEEP_MARGIN_US;
+	dw->bw_comp = dw3000_bw_comp;
 	dw->current_operational_state = DW3000_OP_STATE_OFF;
 	init_waitqueue_head(&dw->operational_state_wq);
 	/* Initialization of the deep sleep timer */
