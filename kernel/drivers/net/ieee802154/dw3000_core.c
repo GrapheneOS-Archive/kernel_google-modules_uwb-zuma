@@ -4502,37 +4502,6 @@ static inline int dw3000_framefilter_disable(struct dw3000 *dw)
 }
 
 /**
- * dw3000_set_pdoa() - set device's PDOA mode
- * @dw: the DW device
- * @mode: the PDOA mode
- *
- * Return: zero on success, else a negative error code.
- */
-int dw3000_set_pdoa(struct dw3000 *dw, u8 mode)
-{
-	struct dw3000_config *config = &dw->config;
-	int rc;
-	/* This configuration is reserved or not supported
-	 * (c.f DW3000 User Manual) */
-	if (mode == DW3000_PDOA_M2)
-		return -EOPNOTSUPP;
-	if (config->pdoaMode == mode)
-		return 0;
-	rc = dw3000_reg_modify32(
-		dw, DW3000_SYS_CFG_ID, 0,
-		~(u32)(DW3000_SYS_CFG_PDOA_MODE_BIT_MASK),
-		(((u32)config->pdoaMode & DW3000_PDOA_CONFIG_MASK)
-		 << DW3000_SYS_CFG_PDOA_MODE_BIT_OFFSET));
-	if (rc)
-		return rc;
-	trace_dw3000_set_pdoa(dw, mode);
-	config->pdoaMode = mode;
-	/* Re-configure the device with new PDOA mode */
-	/* TODO: Changing both PDOA & STS will result in the following called twice */
-	return dw3000_configure_sys_cfg(dw, config);
-}
-
-/**
 * dw3000_read_pdoa() - Read the PDOA result.
 * @dw: The DW device.
 *

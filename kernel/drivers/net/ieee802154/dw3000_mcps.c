@@ -864,7 +864,13 @@ static int check_calibration_value(struct mcps802154_llhw *llhw,
 		config->chan = ffs(dw->llhw->hw->phy->supported.channels[4]) - 1;
 		dw->llhw->hw->phy->current_channel = config->chan;
 	}
-
+	if ((strlen(key) > 22) && !strcmp(key + 13, ".pdoa_lut")) {
+		int i;
+		dw3000_pdoa_lut_t *lut = value;
+		for (i = 1; i < DW3000_CALIBRATION_PDOA_LUT_MAX; i++)
+			if ((*lut)[i][0] <= (*lut)[i - 1][0])
+				return -EINVAL;
+	}
 	return 0;
 }
 
@@ -889,6 +895,7 @@ static int set_calibration(struct mcps802154_llhw *llhw, const char *key,
 		return r;
 	/* FIXME: This copy isn't big-endian compatible. */
 	memcpy(param, value, len);
+
 	/* One parameter has changed. */
 	dw3000_calib_update_config(dw);
 	llhw->hw->phy->supported.channels[4] = DW3000_SUPPORTED_CHANNELS &

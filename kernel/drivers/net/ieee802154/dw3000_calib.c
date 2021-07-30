@@ -292,6 +292,16 @@ int dw3000_calib_update_config(struct dw3000 *dw)
 		return -1;
 	ant_calib = &dw->calib_data.ant[ant_rf1];
 
+	dw->llhw->hw->phy->supported.channels[4] = DW3000_SUPPORTED_CHANNELS &
+						   ~dw->restricted_channels;
+	/* Change channel if the current one is restricted. */
+	if ((1 << dw->llhw->hw->phy->current_channel) &
+	    dw->restricted_channels) {
+		config->chan =
+			ffs(dw->llhw->hw->phy->supported.channels[4]) - 1;
+		dw->llhw->hw->phy->current_channel = config->chan;
+	}
+
 	/* Convert config into index of array. */
 	chanidx = config->chan == 9 ? DW3000_CALIBRATION_CHANNEL_9 :
 				      DW3000_CALIBRATION_CHANNEL_5;
