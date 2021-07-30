@@ -853,11 +853,18 @@ static int set_promiscuous_mode(struct mcps802154_llhw *llhw, bool on)
 static int check_calibration_value(struct mcps802154_llhw *llhw,
 				   const char *key, void *value)
 {
-	if (!strcmp(key, "restricted_channels")) {
-		/* Prevent restricted channels from containing current channel. */
-		if ((1 << llhw->hw->phy->current_channel) & *(u16 *)value)
-			return -EINVAL;
+	struct dw3000 *dw = llhw->priv;
+	struct dw3000_config *config = &dw->config;
+
+	/* Prevent restricted channels from containing current channel. */
+	if ((!strcmp(key, "restricted_channels")) &&
+	    ((1 << llhw->hw->phy->current_channel) & *(u16 *)value) &&
+	    ((1 << dw->llhw->hw->phy->current_channel) & dw->restricted_channels)) {
+		/* Change channel if the current one is restricted. */
+		config->chan = ffs(dw->llhw->hw->phy->supported.channels[4]) - 1;
+		dw->llhw->hw->phy->current_channel = config->chan;
 	}
+
 	return 0;
 }
 
