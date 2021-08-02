@@ -310,7 +310,7 @@ static const u16 dw3000_sts_length_factors[DW3000_STS_LEN_SUPPORTED] = {
 /* The default XTAL TRIM value for load capacitors of 2pF.
  * During the initialization the XTAL TRIM value can be read from the OTP and
  * in case it is not present, the default would be used instead. */
-#define DW3000_DEFAULT_XTAL_TRIM 0x2E
+#define DW3000_DEFAULT_XTAL_TRIM 0x20
 
 /* SYS_STATE_LO register errors */
 /* TSE is in TX but TX is in IDLE in SYS_STATE_LO register */
