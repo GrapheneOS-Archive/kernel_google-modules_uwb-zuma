@@ -365,4 +365,19 @@ fira_session_get_round_sts_index(const struct fira_session *session)
 	return session->sts_index + fira_session_get_round_slot(session);
 }
 
+/**
+ * fira_session_get_block_duration_margin() - Get block duration margin.
+ * @local: FiRa context.
+ * @session: Session.
+ *
+ * Return: Block duration margin in dtu.
+ */
+static inline int
+fira_session_get_block_duration_margin(struct fira_local *local,
+				       const struct fira_session *session)
+{
+	return (long long int)session->params.block_duration_dtu *
+	       local->block_duration_rx_margin_ppm / 1000000;
+}
+
 #endif /* NET_MCPS802154_FIRA_SESSION_H */

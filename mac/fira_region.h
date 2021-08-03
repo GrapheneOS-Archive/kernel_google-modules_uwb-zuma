@@ -40,6 +40,8 @@
 #define FIRA_BOOLEAN_MAX 1
 #define FIRA_FRAMES_MAX (3 + 3 * FIRA_CONTROLEES_MAX)
 #define FIRA_CONTROLEE_FRAMES_MAX (3 + 3 + 1)
+/* IEEE 802.15.4z 2020 section 6.9.7.2 */
+#define UWB_BLOCK_DURATION_MARGIN_PPM 100
 
 /**
  * enum fira_message_id - Message identifiers, used in internal state and in
@@ -284,6 +286,11 @@ struct fira_local {
 	 * controlees short addr table.
 	 */
 	int n_stopped_controlees_short_addr;
+	/**
+	 * @block_duration_rx_margin_ppm: Block duration rx margin for
+	 * controlees.
+	 */
+	int block_duration_rx_margin_ppm;
 };
 
 static inline struct fira_local *

@@ -50,6 +50,7 @@ static struct mcps802154_region *fira_open(struct mcps802154_llhw *llhw)
 	local->region.ops = &fira_region_ops;
 	INIT_LIST_HEAD(&local->inactive_sessions);
 	INIT_LIST_HEAD(&local->active_sessions);
+	local->block_duration_rx_margin_ppm = UWB_BLOCK_DURATION_MARGIN_PPM;
 	return &local->region;
 }
 

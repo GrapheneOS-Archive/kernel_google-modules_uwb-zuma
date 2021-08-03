@@ -294,10 +294,16 @@ static void fira_session_update(struct fira_local *local,
 				struct fira_session *session,
 				u32 next_timestamp_dtu)
 {
-	s32 diff_dtu = session->block_start_dtu +
-		       fira_session_get_round_slot(session) *
-			       session->params.slot_duration_dtu -
-		       next_timestamp_dtu;
+	s32 diff_dtu;
+	int block_duration_margin_dtu = 0;
+
+	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLEE)
+		block_duration_margin_dtu =
+			fira_session_get_block_duration_margin(local, session);
+	diff_dtu = session->block_start_dtu +
+		   fira_session_get_round_slot(session) *
+			   session->params.slot_duration_dtu -
+		   block_duration_margin_dtu - next_timestamp_dtu;
 
 	if (diff_dtu < 0) {
 		int block_duration_dtu = session->params.block_duration_dtu;
@@ -392,7 +398,6 @@ fira_session_find_next(struct fira_local *local, u32 next_timestamp_dtu,
 			continue;
 		fira_session_update(local, session, next_timestamp_dtu);
 		fira_session_get_demand(local, session, &demand);
-		access_timestamp_dtu = demand.timestamp_dtu;
 		access_duration_dtu = demand.duration_dtu;
 		if ((!found_sync_session ||
 		     access_duration_dtu <= max_unsync_access_duration_dtu) &&

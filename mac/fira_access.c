@@ -787,14 +787,22 @@ void fira_session_get_demand(struct fira_local *local,
 			     struct fira_session *session,
 			     struct mcps802154_region_demand *demand)
 {
-	demand->timestamp_dtu = session->block_start_dtu +
-				fira_session_get_round_slot(session) *
-					session->params.slot_duration_dtu;
-	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLLER)
+	u32 base_timestamp_dtu = session->block_start_dtu +
+				 fira_session_get_round_slot(session) *
+					 session->params.slot_duration_dtu;
+	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLLER) {
+		demand->timestamp_dtu = base_timestamp_dtu;
 		demand->duration_dtu =
 			(4 + 2 * session->current_controlees.size) *
 			session->params.slot_duration_dtu;
-	else
-		/* Min size for DSTWR. */
-		demand->duration_dtu = 6 * session->params.slot_duration_dtu;
+	} else {
+		int block_duration_margin_dtu =
+			fira_session_get_block_duration_margin(local, session);
+		demand->timestamp_dtu =
+			base_timestamp_dtu - block_duration_margin_dtu;
+		demand->duration_dtu =
+			session->params.round_duration_slots *
+				session->params.slot_duration_dtu +
+			2 * block_duration_margin_dtu;
+	}
 }
