@@ -274,6 +274,7 @@ struct dw3000_power_control {
  * @pdoaLut: Pointer to calibrated PDOA to AoA look-up table
  * @rmarkerOffset: Calibrated rmarker offset
  * @promisc: Promiscuous mode enabled?
+ * @alternate_pulse_shape: set alternate pulse shape
  * @hw_addr_filt: HW filter configuration
  */
 struct dw3000_config {
@@ -295,6 +296,7 @@ struct dw3000_config {
 	const dw3000_pdoa_lut_t *pdoaLut;
 	u32 rmarkerOffset;
 	bool promisc;
+	bool alternate_pulse_shape;
 	struct ieee802154_hw_addr_filt hw_addr_filt;
 };
 

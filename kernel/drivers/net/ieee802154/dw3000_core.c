@@ -4252,6 +4252,32 @@ static int dw3000_pgf_cal(struct dw3000 *dw, bool ldoen)
 }
 
 /**
+ * dw3000_configure_pulse_shape() - Configure alternate pulse shape
+ * @dw: the DW device
+ * @isalternate: set the special pulse shape in chip
+ *
+ * Configure the pulse shape used for transmitting frames.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+int dw3000_configure_pulse_shape(struct dw3000 *dw, bool isalternate)
+{
+	int rc;
+
+	if (isalternate) {
+		rc = dw3000_reg_or8(
+			dw, DW3000_TX_CTRL_HI_ID, 3,
+			(u8)(DW3000_TX_CTRL_HI_TX_PULSE_SHAPE_BIT_MASK >> 24));
+	} else {
+		rc = dw3000_reg_and8(
+			dw, DW3000_TX_CTRL_HI_ID, 3,
+			(u8)(~DW3000_TX_CTRL_HI_TX_PULSE_SHAPE_BIT_MASK >> 24));
+	}
+
+	return rc;
+}
+
+/**
  * dw3000_configure() - configure the whole device
  * @dw: the DW device
  *
@@ -4277,6 +4303,10 @@ static int dw3000_configure(struct dw3000 *dw)
 		return rc;
 	/* Configure the RF channel */
 	rc = dw3000_configure_chan(dw);
+	if (rc)
+		return rc;
+	/* Configure country specific pulse shape */
+	rc = dw3000_configure_pulse_shape(dw, dw->config.alternate_pulse_shape);
 	if (rc)
 		return rc;
 	/* Setup TX preamble size, PRF and data rate */
