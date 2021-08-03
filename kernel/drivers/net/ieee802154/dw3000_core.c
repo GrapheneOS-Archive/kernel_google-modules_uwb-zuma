@@ -1858,8 +1858,6 @@ int dw3000_forcetrxoff(struct dw3000 *dw)
 	enable_irq(dw->spi->irq);
 	if (!rc)
 		dw3000_power_stats(dw, DW3000_PWR_IDLE, 0);
-	/* Release Wifi coexistence. */
-	dw3000_coex_stop(dw);
 	return rc;
 }
 
@@ -2206,8 +2204,6 @@ int dw3000_rx_enable(struct dw3000 *dw, bool rx_delayed, u32 date_dtu,
 			dev_err(dw->dev,
 				"cannot program delayed rx date_dtu=%x current_dtu=%x\n",
 				date_dtu, cur_time_dtu);
-			/* dw3000_forcetrxoff() already stop coex, return now */
-			return rc;
 		}
 		goto stop_coex;
 	}
@@ -5895,6 +5891,8 @@ int dw3000_disable(struct dw3000 *dw)
 	rc = dw3000_set_interrupt(dw, 0, DW3000_ENABLE_INT_ONLY);
 	if (rc)
 		goto err_spi;
+	/* Release Wifi coexistence. */
+	dw3000_coex_stop(dw);
 	/* Disable receiver and transmitter */
 	rc = dw3000_forcetrxoff(dw);
 	if (rc)
@@ -6293,8 +6291,6 @@ static inline int dw3000_isr_handle_rxto_event(struct dw3000 *dw, u32 status)
 					       dw->chips_per_pac *
 					       DW3000_CHIP_PER_DTU;
 	dw3000_power_stats(dw, DW3000_PWR_IDLE, end_dtu);
-	/* Release Wifi coexistence. */
-	dw3000_coex_stop(dw);
 	/* Report statistics */
 	rc = dw3000_rx_stats_inc(dw, DW3000_STATS_RX_TO);
 	if (unlikely(rc))
@@ -6316,8 +6312,6 @@ static inline int dw3000_isr_handle_rxerr_event(struct dw3000 *dw, u32 status)
 
 	/* Update power statistics */
 	dw3000_power_stats(dw, DW3000_PWR_IDLE, 0);
-	/* Release Wifi coexistence. */
-	dw3000_coex_stop(dw);
 	/* Map error to mcps802154_rx_error_type enum */
 	if (status & DW3000_SYS_STATUS_RXSTO_BIT_MASK) {
 		dev_dbg(dw->dev, "rx sfd timeout\n");

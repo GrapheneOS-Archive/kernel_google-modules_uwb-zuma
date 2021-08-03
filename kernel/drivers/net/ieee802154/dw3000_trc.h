@@ -772,45 +772,39 @@ TRACE_EVENT(dw3000_coex_gpio,
 );
 
 TRACE_EVENT(dw3000_coex_gpio_start,
-	TP_PROTO(struct dw3000 *dw, int delay_us, bool status, int coex_intervall_us, int need_ranging),
-	TP_ARGS(dw, delay_us, status, coex_intervall_us, need_ranging),
+	TP_PROTO(struct dw3000 *dw, int delay_us, bool status, int coex_interval_us),
+	TP_ARGS(dw, delay_us, status, coex_interval_us),
 	TP_STRUCT__entry(
 		DW_ENTRY
 		__field(int, delay_us)
 		__field(bool, status)
-		__field(int, coex_intervall_us)
-		__field(int, need_ranging)
+		__field(int, coex_interval_us)
 	),
 	TP_fast_assign(
 		DW_ASSIGN;
 		__entry->delay_us = delay_us;
 		__entry->status = status;
-		__entry->coex_intervall_us = coex_intervall_us;
-		__entry->need_ranging = need_ranging;
+		__entry->coex_interval_us = coex_interval_us;
 	),
-	TP_printk(DW_PR_FMT ", delay_us: %d, status: %s, coex_intervall_us: %d, need_ranging: %s",
+	TP_printk(DW_PR_FMT ", delay_us: %d, status: %s, coex_interval_us: %d",
 		DW_PR_ARG, __entry->delay_us,
-		__entry->status ? "ON" : "OFF", __entry->coex_intervall_us,
-		__entry->need_ranging ? "ON" : "OFF")
+		__entry->status ? "ON" : "OFF", __entry->coex_interval_us)
 );
 
 TRACE_EVENT(dw3000_coex_gpio_stop,
-	TP_PROTO(struct dw3000 *dw, bool status, int need_ranging),
-	TP_ARGS(dw, status, need_ranging),
+	TP_PROTO(struct dw3000 *dw, bool status),
+	TP_ARGS(dw, status),
 	TP_STRUCT__entry(
 		DW_ENTRY
 		__field(bool, status)
-		__field(int, need_ranging)
 	),
 	TP_fast_assign(
 		DW_ASSIGN;
 		__entry->status = status;
-		__entry->need_ranging = need_ranging;
 	),
-	TP_printk(DW_PR_FMT ", status: %s, need_ranging: %s",
+	TP_printk(DW_PR_FMT ", status: %s",
 		DW_PR_ARG,
-		__entry->status ? "ON" : "OFF",
-		__entry->need_ranging ? "ON" : "OFF")
+		__entry->status ? "ON" : "OFF")
 );
 
 TRACE_EVENT(dw3000_adjust_tx_power,

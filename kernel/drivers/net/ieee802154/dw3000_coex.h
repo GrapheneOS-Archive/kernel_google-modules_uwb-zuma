@@ -26,7 +26,7 @@
 #include "dw3000.h"
 
 #define COEX_TIME_US (dw->coex_delay_us)
-#define COEX_MARGIN_US 20
+#define COEX_MARGIN_US (dw->coex_margin_us)
 
 static inline int dw3000_coex_stop(struct dw3000 *dw);
 
@@ -87,10 +87,9 @@ static inline int dw3000_coex_start(struct dw3000 *dw, bool *trx_delayed,
 			delay_us = time_difference_us - delay_us;
 	}
 	trace_dw3000_coex_gpio_start(dw, delay_us, dw->coex_status,
-				     dw->coex_interval_us,
-				     dw->need_ranging_clock);
+				     dw->coex_interval_us);
 	if (dw->coex_status) {
-		if (delay_us < dw->coex_interval_us || dw->need_ranging_clock)
+		if (delay_us < dw->coex_interval_us)
 			return 0; /* Nothing more to do */
 		dw3000_coex_stop(dw);
 	}
@@ -109,8 +108,7 @@ static inline int dw3000_coex_stop(struct dw3000 *dw)
 	if (dw->coex_gpio < 0)
 		return 0;
 
-	trace_dw3000_coex_gpio_stop(dw, dw->coex_status,
-				    dw->need_ranging_clock);
+	trace_dw3000_coex_gpio_stop(dw, dw->coex_status);
 	if (!dw->coex_status)
 		return 0;
 	/* Reset coex GPIO on chip */

@@ -464,6 +464,7 @@ struct dw3000_rctu_conv {
  * @chips_per_pac: chips per PAC unit
  * @pre_timeout_pac: preamble timeout in PAC unit
  * @coex_delay_us: WiFi coexistence GPIO delay in us
+ * @coex_margin_us: WiFi coexistence GPIO margin in us
  * @coex_interval_us: Minimum interval between two operations in us
  *		      under which WiFi coexistence GPIO is kept active
  * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
@@ -555,6 +556,7 @@ struct dw3000 {
 	int pre_timeout_pac;
 	/* WiFi coexistence GPIO and delay */
 	unsigned coex_delay_us;
+	unsigned coex_margin_us;
 	unsigned coex_interval_us;
 	s8 coex_gpio;
 	int coex_status;

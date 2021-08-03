@@ -246,8 +246,6 @@ static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
 	/* Reset ranging clock requirement */
 	dw->need_ranging_clock = false;
 	dw3000_reset_rctu_conv_state(dw);
-	/* Release Wifi coexistence. */
-	dw3000_coex_stop(dw);
 	trace_dw3000_return_int(dw, ret);
 	return ret;
 }
@@ -481,6 +479,8 @@ static int do_idle(struct dw3000 *dw, const void *in, void *out)
 	/* Ensure dw3000_wakeup_timer() handler does the right thing */
 	dss->next_operational_state = DW3000_OP_STATE_IDLE_PLL;
 
+	/* Release Wifi coexistence. */
+	dw3000_coex_stop(dw);
 	/* Check if enough idle time to enter DEEP SLEEP */
 	if (in) {
 		u32 date_dtu = *(const u32 *)in;
@@ -497,8 +497,6 @@ static int do_idle(struct dw3000 *dw, const void *in, void *out)
 			goto eof;
 		}
 	} else if (dw->auto_sleep_margin_us < 0) {
-		/* Release Wifi coexistence. */
-		dw3000_coex_stop(dw);
 		/* Deep-sleep is completly disable, so do nothing here! */
 		rc = 0;
 		goto eof;

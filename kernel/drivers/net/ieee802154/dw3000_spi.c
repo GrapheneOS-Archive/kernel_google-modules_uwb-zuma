@@ -62,6 +62,12 @@ MODULE_PARM_DESC(wificoex_delay_us,
 		 "Delay between WiFi coexistence GPIO activation and TX in us "
 		 "(default is 1000us)");
 
+static unsigned dw3000_wifi_coex_margin_us = 300;
+module_param_named(wificoex_margin_us, dw3000_wifi_coex_margin_us, uint, 0444);
+MODULE_PARM_DESC(wificoex_margin_us,
+		 "Margin to add to the WiFi Coex delay for SPI transactions "
+		 "(default is 300us)");
+
 static unsigned dw3000_wifi_coex_interval_us = 2000;
 module_param_named(wificoex_interval_us, dw3000_wifi_coex_interval_us, uint,
 		   0444);
@@ -91,6 +97,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	dw->spi = spi;
 	dw->coex_gpio = (s8)dw3000_wifi_coex_gpio;
 	dw->coex_delay_us = dw3000_wifi_coex_delay_us;
+	dw->coex_margin_us = dw3000_wifi_coex_margin_us;
 	dw->coex_interval_us = dw3000_wifi_coex_interval_us;
 	dw->lna_pa_mode = (s8)dw3000_lna_pa_mode;
 #if (KERNEL_VERSION(4, 13, 0) <= LINUX_VERSION_CODE)
