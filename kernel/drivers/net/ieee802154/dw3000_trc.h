@@ -730,6 +730,23 @@ TRACE_EVENT(dw3000_power_stats,
 		  (unsigned)__entry->len_or_date)
 );
 
+TRACE_EVENT(dw3000_prog_xtrim,
+	TP_PROTO(struct dw3000 *dw, int res, int value),
+	TP_ARGS(dw, res, value),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(int, res)
+		__field(int, value)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->res = res;
+		__entry->value = value;
+	),
+	TP_printk(DW_PR_FMT ", res: %d, xtrim: %d",
+		DW_PR_ARG, __entry->res, __entry->value)
+);
+
 TRACE_EVENT(dw3000_set_antenna_gpio,
 	TP_PROTO(struct dw3000 *dw, int res, u8 gpio, u8 value),
 	TP_ARGS(dw, res, gpio, value),
@@ -1031,8 +1048,6 @@ TRACE_EVENT(dw3000_tm_cmd,
 );
 #endif
 
-
-
 TRACE_EVENT(dw3000_set_pdoa,
 	TP_PROTO(struct dw3000 *dw, u32 mode),
 	TP_ARGS(dw, mode),
@@ -1094,6 +1109,21 @@ TRACE_EVENT(dw3000_testmode_continuous_tx_stop,
 		DW_ASSIGN;
 		),
 	TP_printk(DW_PR_FMT, DW_PR_ARG)
+	);
+
+TRACE_EVENT(dw3000_read_clockoffset,
+	TP_PROTO(struct dw3000 *dw, s16 cfo),
+	TP_ARGS(dw, cfo),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(s16, cfo)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->cfo = cfo;
+		),
+	TP_printk(DW_PR_FMT " clockoffset=%d", DW_PR_ARG,
+		  __entry->cfo)
 	);
 
 /* clang-format on */

@@ -146,29 +146,33 @@ enum dw3000_ciagdiag_reg_select {
 /**
  * struct dw3000_local_data - Local data and register cache
  * @spicrc: current SPI crc mode
- * @dgc_otp_set: true if DGC info is programmed into OTP
+ * @ciadiag_reg_select: CIA diagnostic register selector according to DW3000's
+ *  config
  * @ciadiag_enabled: CIA diagnostic on/off
+ * @dgc_otp_set: true if DGC info is programmed into OTP
+ * @check_cfo: true when CFO checking is required for next RX frame
+ * @ack_time: Auto ack turnaroud time
  * @dblbuffon: double buffering mode
+ * @xtal_bias: XTAL trimming adjustment value
  * @max_frames_len: current configured max frame length
  * @sleep_mode: bitfield for work to be done on wakeup
  * @ststhreshold: current computed STS threshold
- * @ciadiag_reg_select: CIA diagnostic register selector according to DW3000's
- *  config
  * @tx_fctrl: Transmit frame control
  * @rx_timeout_pac: Preamble detection timeout period in units of PAC size
  *  symbols
  * @w4r_time: Wait-for-response time (RX after TX delay)
- * @ack_time: Auto ack turnaroud time
  * @sts_key: STS Key
  * @sts_iv: STS IV
  */
 struct dw3000_local_data {
 	enum dw3000_spi_crc_mode spicrc;
-	bool dgc_otp_set : 1;
-	bool ciadiag_enabled : 1;
 	enum dw3000_ciagdiag_reg_select ciadiag_reg_select;
+	bool ciadiag_enabled : 1;
+	bool dgc_otp_set : 1;
+	bool check_cfo : 1;
 	u8 dblbuffon;
 	u8 ack_time;
+	s8 xtal_bias;
 	u16 sleep_mode;
 	u16 max_frames_len;
 	s16 ststhreshold;

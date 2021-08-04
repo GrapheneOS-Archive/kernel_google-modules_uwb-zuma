@@ -270,19 +270,23 @@ static int rx_disable(struct mcps802154_llhw *llhw)
 /**
  * get_ranging_pdoa_fom() - compute the figure of merit of the PDoA.
  * @sts_fom: STS FoM on a received frame.
+ * @cfo: Clock-offset of a received frame.
  *
- * If the STS FoM is less than sts_fom_threshold, PDoA FoM is 1, the worst.
+ * If CFO is inside the [-CFO_THRESHOLD;CFO_THRESHOLD] range or if the STS FoM
+ * is less than sts_fom_threshold, PDoA FoM is 1, the worst.
+ *
  * If the STS FoM is greater or equal than sts_fom_threshold,
  * sts_fom_threshold to 255 values are mapped to 2 to 255.
  *
  * Return: the PDoA FoM value.
  */
-static u8 get_ranging_pdoa_fom(u8 sts_fom)
+static u8 get_ranging_pdoa_fom(u8 sts_fom, s16 cfo)
 {
 	/* For a normalized STS FoM in 0 to 255, the STS is not reliable if
 	 * the STS FoM is less than 60 percents of its maximum value.
 	 */
 	static const int sts_fom_threshold = 153;
+
 	/* sts_fom_threshold .. sts_fom_max values are mapped to pdoa_fom_min .. pdoa_fom_max.
 	 * The relation is pdoa_fom = a * sts_fom + b, with
 	 * pdoa_fom_min =  sts_fom_threshold * a + b
@@ -299,6 +303,8 @@ static u8 get_ranging_pdoa_fom(u8 sts_fom)
 	static const int b = pdoa_fom_min - ((sts_fom_threshold * a_numerator) /
 					     a_denominator);
 
+	if ((cfo > -DW3000_CFO_THRESHOLD) && (cfo < DW3000_CFO_THRESHOLD))
+		return 1;
 	if (sts_fom < sts_fom_threshold)
 		return 1;
 	return ((a_numerator * sts_fom) / a_denominator) + b;
@@ -337,6 +343,7 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	unsigned long flags;
 	u64 timestamp_rctu;
 	int ret = 0;
+	s16 cfo = S16_MAX;
 	u8 rx_flags;
 
 	trace_dw3000_mcps_rx_get_frame(dw, info->flags);
@@ -383,6 +390,28 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 	/* In case of auto-ack send. */
 	if (rx_flags & DW3000_RX_FLAG_AACK)
 		info->flags |= MCPS802154_RX_FRAME_INFO_AACK;
+	/* Read CFO and adjust XTAL trim if need */
+	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA ||
+	    dw->data.check_cfo) {
+		ret = dw3000_read_clockoffset(dw, &cfo);
+		if (ret)
+			goto error;
+	}
+	if (dw->data.check_cfo && (cfo > -DW3000_CFO_THRESHOLD) &&
+	    (cfo < DW3000_CFO_THRESHOLD)) {
+		/* CFO inside bad interval, adjust it for next round. */
+		if (cfo < 0) {
+			/* Decrease xtal_bias */
+			dw->data.xtal_bias -= DW3000_CFO_THRESHOLD;
+		} else {
+			/* Increase xtal_bias */
+			dw->data.xtal_bias += DW3000_CFO_THRESHOLD;
+		}
+		/* Reprogram XTAL_TRIM if needed. */
+		ret = dw3000_prog_xtrim(dw);
+		if (unlikely(ret))
+			goto error;
+	}
 	/* In case of PDoA. */
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA) {
 		info->ranging_pdoa_rad_q11 = dw3000_read_pdoa(dw);
@@ -408,23 +437,20 @@ static int rx_get_frame(struct mcps802154_llhw *llhw, struct sk_buff **skb,
 		}
 	}
 	info->ranging_sts_fom[0] = 0;
-	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM) {
+	if (info->flags & (MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM |
+			   MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM)) {
 		ret = get_ranging_sts_fom(llhw, info);
 		if (ret)
 			goto error;
 	}
 	if (info->flags & MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM) {
-		if (!(info->flags & MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM)) {
-			ret = get_ranging_sts_fom(llhw, info);
-			if (ret)
-				goto error;
-		}
 		if (info->ranging_sts_fom[0])
-			info->ranging_pdoa_fom =
-				get_ranging_pdoa_fom(info->ranging_sts_fom[0]);
+			info->ranging_pdoa_fom = get_ranging_pdoa_fom(
+				info->ranging_sts_fom[0], cfo);
 		else
 			info->ranging_pdoa_fom = 0;
 	}
+
 	/* Keep only implemented. */
 	info->flags &= (MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU |
 			MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU |
