@@ -2827,6 +2827,36 @@ static int dw3000_writetxfctrl(struct dw3000 *dw, u16 txFrameLength,
 	return 0;
 }
 
+/** dw3000_write_txctrl - Runtime configuration of TX parameters
+ * @dw: the DW device
+ *
+ * This function is called before packet transmission in order to set TX
+ * parameters (pgdelay, channel, pulse shape) according to the current antenna.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+static int dw3000_write_txctrl(struct dw3000 *dw)
+{
+	struct dw3000_txconfig *txconfig = &dw->txconfig;
+	struct dw3000_config *config = &dw->config;
+	u32 txctrl;
+
+	/* Get default values and insert wanted pgdelay */
+	txctrl = config->chan == 9 ? DW3000_RF_TXCTRL_CH9 :
+				     DW3000_RF_TXCTRL_CH5;
+	txctrl = (txctrl & ~DW3000_TX_CTRL_HI_TX_PG_DELAY_BIT_MASK) |
+		 (txconfig->PGdly & DW3000_TX_CTRL_HI_TX_PG_DELAY_BIT_MASK);
+
+	/* Configure pulse shape */
+	if (config->alternate_pulse_shape) {
+		txctrl |= DW3000_TX_CTRL_HI_TX_PULSE_SHAPE_BIT_MASK;
+	} else {
+		txctrl &= ~DW3000_TX_CTRL_HI_TX_PULSE_SHAPE_BIT_MASK;
+	}
+
+	return dw3000_reg_write32(dw, DW3000_TX_CTRL_HI_ID, 0, txctrl);
+}
+
 /**
  * dw3000_setrxaftertxdelay() - Set time Wait-for-Response Time
  * @dw: the DW device
@@ -2922,6 +2952,10 @@ int dw3000_tx_frame(struct dw3000 *dw, struct sk_buff *skb, bool tx_delayed,
 		dw3000_adjust_tx_power(dw, len);
 
 	rc = dw3000_writetxfctrl(dw, len, 0, ranging);
+	if (unlikely(rc))
+		return rc;
+
+	rc = dw3000_write_txctrl(dw);
 	if (unlikely(rc))
 		return rc;
 
@@ -3647,26 +3681,16 @@ static inline int dw3000_configure_rf(struct dw3000 *dw)
 	struct dw3000_config *config = &dw->config;
 	struct dw3000_txconfig *txconfig = &dw->txconfig;
 	u8 chan = config->chan;
-	u32 txctrl, rf_pll_cfg;
-
-	int rc = 0;
+	u32 rf_pll_cfg;
+	int rc;
 	/* Get default values */
 
 	if (chan == 9) {
-		txctrl = DW3000_RF_TXCTRL_CH9;
 		rf_pll_cfg = DW3000_RF_PLL_CFG_CH9;
 	} else {
-		txctrl = DW3000_RF_TXCTRL_CH5;
 		rf_pll_cfg = DW3000_RF_PLL_CFG_CH5;
 	}
-
-
-
-	/* Setup PG delay */
-	txctrl = (txctrl & ~DW3000_TX_CTRL_HI_TX_PG_DELAY_BIT_MASK) |
-		 txconfig->PGdly;
-	/* Setup TX analog */
-	rc = dw3000_reg_write32(dw, DW3000_TX_CTRL_HI_ID, 0, txctrl);
+	rc = dw3000_write_txctrl(dw);
 	if (rc)
 		return rc;
 
@@ -4293,32 +4317,6 @@ static int dw3000_pgf_cal(struct dw3000 *dw, bool ldoen)
 }
 
 /**
- * dw3000_configure_pulse_shape() - Configure alternate pulse shape
- * @dw: the DW device
- * @isalternate: set the special pulse shape in chip
- *
- * Configure the pulse shape used for transmitting frames.
- *
- * Return: zero on success, else a negative error code.
- */
-int dw3000_configure_pulse_shape(struct dw3000 *dw, bool isalternate)
-{
-	int rc;
-
-	if (isalternate) {
-		rc = dw3000_reg_or8(
-			dw, DW3000_TX_CTRL_HI_ID, 3,
-			(u8)(DW3000_TX_CTRL_HI_TX_PULSE_SHAPE_BIT_MASK >> 24));
-	} else {
-		rc = dw3000_reg_and8(
-			dw, DW3000_TX_CTRL_HI_ID, 3,
-			(u8)(~DW3000_TX_CTRL_HI_TX_PULSE_SHAPE_BIT_MASK >> 24));
-	}
-
-	return rc;
-}
-
-/**
  * dw3000_configure() - configure the whole device
  * @dw: the DW device
  *
@@ -4344,10 +4342,6 @@ static int dw3000_configure(struct dw3000 *dw)
 		return rc;
 	/* Configure the RF channel */
 	rc = dw3000_configure_chan(dw);
-	if (rc)
-		return rc;
-	/* Configure country specific pulse shape */
-	rc = dw3000_configure_pulse_shape(dw, dw->config.alternate_pulse_shape);
 	if (rc)
 		return rc;
 	/* Setup TX preamble size, PRF and data rate */

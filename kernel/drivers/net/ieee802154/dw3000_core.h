@@ -348,7 +348,6 @@ void dw3000_wakeup_timer_start(struct dw3000 *dw, int delay_us);
 void dw3000_wakeup_and_wait(struct dw3000 *dw);
 int dw3000_deep_sleep_and_wakeup(struct dw3000 *dw, int delay_us);
 int dw3000_can_deep_sleep(struct dw3000 *dw, int delay_us);
-int dw3000_configure_pulse_shape(struct dw3000 *dw, bool isalternate);
 int dw3000_trace_rssi_info(struct dw3000 *dw, u32 regid, char *chipver);
 
 int dw3000_testmode_continuous_tx_start(struct dw3000 *dw, u32 frame_length,
