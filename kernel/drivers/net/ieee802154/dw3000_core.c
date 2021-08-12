@@ -1637,8 +1637,9 @@ static inline int dw3000_rx_stats_inc(struct dw3000 *dw,
 				      const enum dw3000_stats_items item)
 {
 	int rc = 0;
-	if (dw->stats.enabled &&
-	    dw->stats.count[item] < DW3000_RSSI_REPORTS_MAX) {
+	if (dw->stats.enabled) {
+		if (dw->stats.count[item] >= DW3000_RSSI_REPORTS_MAX)
+			dw->stats.count[item] = 0;
 		dw->stats.count[item]++;
 		if (item == DW3000_STATS_RX_GOOD) {
 			rc = dw3000_rx_store_rssi(dw);
