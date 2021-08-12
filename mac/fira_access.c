@@ -740,7 +740,7 @@ fira_access_controlee(struct fira_local *local, struct fira_session *session)
 			.info = {
 				.timestamp_dtu = access->timestamp_dtu,
 				.timeout_dtu = access->duration_dtu ? access->duration_dtu : -1,
-				.flags = MCPS802154_RX_INFO_KEEP_RANGING_CLOCK,
+				.flags = MCPS802154_RX_INFO_KEEP_RANGING_CLOCK | MCPS802154_RX_INFO_TIMESTAMP_DTU,
 				.ant_pair_id = s->rx_ant_pair,
 			},
 			.frame_info_flags_request
