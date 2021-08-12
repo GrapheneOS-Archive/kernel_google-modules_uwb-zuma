@@ -263,6 +263,7 @@ static void fira_rx_frame_control(struct fira_local *local,
 
 	if (stop_ranging) {
 		session->stop_inband = true;
+		return;
 	}
 
 	last_slot_index = 0;
