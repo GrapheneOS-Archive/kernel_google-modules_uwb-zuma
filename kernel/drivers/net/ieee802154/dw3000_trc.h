@@ -1063,6 +1063,39 @@ TRACE_EVENT(dw3000_read_pdoa,
 		  __entry->pdoa)
 	);
 
+TRACE_EVENT(dw3000_testmode_continuous_tx_start,
+	TP_PROTO(struct dw3000 *dw, u8 chan, u32 len, u32 rate),
+	TP_ARGS(dw, chan, len, rate),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u8, chan)
+		__field(u32, len)
+		__field(u32, rate)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->chan = chan;
+		__entry->len = len;
+		__entry->rate = rate;
+		),
+	TP_printk(DW_PR_FMT " chan=%d, len=%d, rate=%d", DW_PR_ARG,
+		  __entry->chan,
+		  __entry->len,
+		  __entry->rate)
+	);
+
+TRACE_EVENT(dw3000_testmode_continuous_tx_stop,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		),
+	TP_printk(DW_PR_FMT, DW_PR_ARG)
+	);
+
 /* clang-format on */
 #endif /* !__DW3000_TRACE || TRACE_HEADER_MULTI_READ */
 

@@ -365,6 +365,10 @@ int dw3000_can_deep_sleep(struct dw3000 *dw, int delay_us);
 int dw3000_configure_pulse_shape(struct dw3000 *dw, bool isalternate);
 int dw3000_trace_rssi_info(struct dw3000 *dw, u32 regid, char *chipver);
 
+int dw3000_testmode_continuous_tx_start(struct dw3000 *dw, u32 frame_length,
+					u32 rate);
+int dw3000_testmode_continuous_tx_stop(struct dw3000 *dw);
+
 /* Preamble length related information. */
 struct dw3000_plen_info {
 	/* Preamble length in symbols. */

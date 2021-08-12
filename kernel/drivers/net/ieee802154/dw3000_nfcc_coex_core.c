@@ -224,7 +224,7 @@ int dw3000_nfcc_coex_handle_spi1_ready_isr(struct dw3000 *dw)
 {
 	int r;
 
-	if (__dw3000_chip_version == 0)
+	if (__dw3000_chip_version == DW3000_C0_VERSION)
 		return -EOPNOTSUPP;
 
 	/* NFCC was enabled before sleeping. Enable the NFCC mailbox
@@ -264,7 +264,7 @@ int dw3000_nfcc_coex_enable(struct dw3000 *dw, u8 channel,
 	trace_dw3000_nfcc_coex_enable(dw, channel);
 
 	/* NFCC needs a D0 chip or above. C0 does not have 2 SPI interfaces. */
-	if (__dw3000_chip_version == 0) {
+	if (__dw3000_chip_version == DW3000_C0_VERSION) {
 		trace_dw3000_nfcc_coex_err(dw, "C0 chip is not supported");
 		return -EOPNOTSUPP;
 	}
@@ -311,7 +311,7 @@ int dw3000_nfcc_coex_disable(struct dw3000 *dw)
 
 	trace_dw3000_nfcc_coex_disable(dw);
 
-	if (__dw3000_chip_version == 0)
+	if (__dw3000_chip_version == DW3000_C0_VERSION)
 		return -EOPNOTSUPP;
 
 	rc = dw3000_nfcc_coex_is_SPIxMAVAIL_interrupts_enabled(dw, &val);

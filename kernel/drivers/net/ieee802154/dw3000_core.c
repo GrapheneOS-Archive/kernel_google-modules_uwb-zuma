@@ -42,23 +42,23 @@
 /* Table of supported chip version and associated chip operations */
 const struct dw3000_chip_version dw3000_chip_versions[] = {
 	{ .id = DW3000_C0_DEV_ID,
-	  .ver = 0,
+	  .ver = DW3000_C0_VERSION,
 	  .ops = &dw3000_chip_c0_ops,
 	  .name = "C0" },
 	{ .id = DW3000_C0_PDOA_DEV_ID,
-	  .ver = 0,
+	  .ver = DW3000_C0_VERSION,
 	  .ops = &dw3000_chip_c0_ops,
 	  .name = "C0" },
 	{ .id = DW3000_D0_DEV_ID,
-	  .ver = 1,
+	  .ver = DW3000_D0_VERSION,
 	  .ops = &dw3000_chip_d0_ops,
 	  .name = "D0" },
 	{ .id = DW3000_D0_PDOA_DEV_ID,
-	  .ver = 1,
+	  .ver = DW3000_D0_VERSION,
 	  .ops = &dw3000_chip_d0_ops,
 	  .name = "D0" },
 	{ .id = DW3000_E0_PDOA_DEV_ID,
-	  .ver = 2,
+	  .ver = DW3000_E0_VERSION,
 	  .ops = &dw3000_chip_e0_ops,
 	  .name = "E0" },
 };
@@ -2666,7 +2666,6 @@ static int dw3000_enable_rf_tx(struct dw3000 *dw, u32 chan, u8 switch_ctrl)
 static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 {
 	int rc;
-
 	if (clocks == DW3000_FORCE_CLK_SYS_TX) {
 		/* TX_BUF_CLK = ON & RX_BUF_CLK = ON */
 		u16 regvalue0 = DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK |
@@ -2692,7 +2691,7 @@ static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 			      DW3000_CLK_CTRL_RX_BUFF_AUTO_CLK_BIT_MASK |
 			      DW3000_CLK_CTRL_CODE_MEM_AUTO_CLK_BIT_MASK));
 	}
-	return 0;
+	return -EINVAL;
 }
 
 /**
@@ -4099,13 +4098,20 @@ static inline int dw3000_lock_pll(struct dw3000 *dw, u8 sys_status)
 		dw3000_set_operational_state(dw, DW3000_OP_STATE_IDLE_PLL);
 		goto resync_dtu;
 	}
-
+	if (__dw3000_chip_version == DW3000_E0_VERSION) {
+		/* Verify PLL lock bit is cleared */
+		int rc = dw3000_reg_write8(
+			dw, DW3000_SYS_STATUS_ID, 0,
+			DW3000_SYS_STATUS_CLK_PLL_LOCK_BIT_MASK);
+		if (rc)
+			return rc;
+	}
 	rc = dw3000_setdwstate(dw, DW3000_OP_STATE_IDLE_PLL);
 	if (rc)
 		return rc;
 
 	/* For C0, wait for PLL lock, else SYS_TIME is 0 */
-	if (__dw3000_chip_version == 0) {
+	if (__dw3000_chip_version == DW3000_C0_VERSION) {
 		udelay(DW3000_PLL_LOCK_DELAY_US);
 		goto resync_dtu;
 	}
@@ -4208,7 +4214,7 @@ static int dw3000_pgf_cal(struct dw3000 *dw, bool ldoen)
 	u16 val;
 	int rc;
 
-	if (__dw3000_chip_version > 0) {
+	if (__dw3000_chip_version >= DW3000_D0_VERSION) {
 		u32 resi;
 		/* Enable reading of CAL result */
 		rc = dw3000_reg_or8(dw, DW3000_RX_CAL_CFG_ID, 0x2, 0x1);
@@ -4219,7 +4225,7 @@ static int dw3000_pgf_cal(struct dw3000 *dw, bool ldoen)
 		if (rc)
 			return rc;
 		/* If not D0 and not soft reset, no need to continue */
-		if ((__dw3000_chip_version != 1) && (resi != 0))
+		if ((__dw3000_chip_version != DW3000_D0_VERSION) && (resi != 0))
 			return 0;
 	}
 
@@ -4942,7 +4948,7 @@ static int dw3000_read_otp(struct dw3000 *dw, int mode)
 		return rc;
 	otp->rev = val & 0xff;
 	/* Some chip depending adjustment */
-	if (__dw3000_chip_version) {
+	if (__dw3000_chip_version >= DW3000_D0_VERSION) {
 		if (otp->xtal_trim == 0)
 			/* Set the default value for D0 if none set in OTP. */
 			otp->xtal_trim = DW3000_DEFAULT_XTAL_TRIM;
@@ -5291,7 +5297,7 @@ static int dw3000_set_lna_pa_mode(struct dw3000 *dw, int lna_pa)
 			 DW3000_GPIO_MODE_MSGP5_MODE_BIT_MASK);
 	u32 gpio_mode = 0;
 
-	if (__dw3000_chip_version) {
+	if (__dw3000_chip_version >= DW3000_D0_VERSION) {
 		if (lna_pa & (DW3000_LNA_ENABLE | DW3000_TXRX_ENABLE))
 			gpio_mode |= DW3000_GPIO_PIN5_EXTRXE;
 		if (lna_pa & (DW3000_PA_ENABLE | DW3000_TXRX_ENABLE))
@@ -6552,7 +6558,6 @@ spi_err:
 	return;
 }
 
-
 static u32 dw3000_calc_pgcount(struct dw3000 *dw, u32 pg_delay)
 {
 	u8 val;
@@ -6569,7 +6574,7 @@ static u32 dw3000_calc_pgcount(struct dw3000 *dw, u32 pg_delay)
 			   pg_delay & DW3000_TX_CTRL_HI_TX_PG_DELAY_BIT_MASK);
 
 	dw3000_reg_write8(dw, DW3000_PGC_CTRL_ID, 0, 0x91);
-	
+
 	do {
 		dw3000_reg_read8(dw, DW3000_PGC_CTRL_ID, 0, &val);
 	} while (val & DW3000_PGC_CTRL_PGC_START_BIT_MASK);
@@ -6617,6 +6622,81 @@ static u8 dw3000_calc_bandwithadj(struct dw3000 *dw, int target_count)
 
 }
 
+int dw3000_testmode_continuous_tx_start(struct dw3000 *dw, u32 frame_length,
+					u32 rate)
+{
+	int rc;
+	int i;
+	static u8 tx_buf[DW3000_EXT_FRAME_LEN] = { 0 };
+
+	tx_buf[0] = 0xC5; /* 802.15.4 "blink" frame */
+
+	if (dw->txconfig.smart) {
+		rc = dw3000_adjust_tx_power(dw, frame_length);
+		if (rc)
+			return rc;
+	}
+
+	if (frame_length > dw->data.max_frames_len)
+		return -EINVAL;
+
+	for (i = 2; i < frame_length - IEEE802154_FCS_LEN; i++)
+		tx_buf[i] = i & 0xFF;
+
+	rc = dw3000_enable_rf_tx(dw, dw->config.chan, 1);
+	if (rc)
+		return rc;
+	rc = dw3000_ctrl_rftx_blocks(dw, dw->config.chan,
+				     DW3000_RF_CTRL_MASK_ID);
+	if (rc)
+		return rc;
+	rc = dw3000_force_clocks(dw, DW3000_FORCE_CLK_SYS_TX);
+	if (rc)
+		return rc;
+
+	/* enable repeated frames */
+	rc = dw3000_reg_or8(dw, DW3000_TEST_CTRL0_ID, 0x0,
+			    DW3000_TEST_CTRL0_TX_PSTM_BIT_MASK);
+	if (rc)
+		return rc;
+
+	if (rate < 2)
+		rate = 2;
+
+	rc = dw3000_reg_write32(dw, DW3000_DX_TIME_ID, 0x0, rate);
+	if (rc)
+		return rc;
+	rc = dw3000_tx_write_data(dw, tx_buf, frame_length, 0);
+	if (rc)
+		return rc;
+	rc = dw3000_writetxfctrl(dw, frame_length, 0, false);
+	if (rc)
+		return rc;
+
+	trace_dw3000_testmode_continuous_tx_start(dw, dw->config.chan,
+						  frame_length, rate);
+	/* start TX immediately */
+	return dw3000_write_fastcmd(dw, DW3000_CMD_TX);
+}
+
+int dw3000_testmode_continuous_tx_stop(struct dw3000 *dw)
+{
+	int rc;
+
+	trace_dw3000_testmode_continuous_tx_stop(dw);
+	/* disable repeated frames */
+	rc = dw3000_reg_and8(dw, DW3000_TEST_CTRL0_ID, 0x0,
+			     (uint8_t)(~DW3000_TEST_CTRL0_TX_PSTM_BIT_MASK));
+	rc |= dw3000_force_clocks(dw, DW3000_FORCE_CLK_AUTO);
+	rc |= dw3000_reg_write32(dw, DW3000_LDO_CTRL_ID, 0, 0x00000000);
+	/* Disable RF blocks for TX (configure RF_ENABLE_ID reg) */
+	rc |= dw3000_reg_write32(dw, DW3000_RF_ENABLE_ID, 0, 0x00000000);
+	/* Restore the TXRX switch to auto */
+	rc |= dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0x0,
+				 DW3000_TXRXSWITCH_AUTO);
+	rc |= dw3000_reg_write32(dw, DW3000_RF_CTRL_MASK_ID, 0x0, 0x00000000);
+	return rc;
+}
 
 static int dw3000_spi_tests;
 module_param_named(spitests, dw3000_spi_tests, int, 0644);

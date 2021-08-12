@@ -138,9 +138,12 @@ struct dw3000_chip_version {
 /* DW3000 device model IDs (with or non PDOA) */
 #define DW3000_C0_DEV_ID 0xdeca0302
 #define DW3000_C0_PDOA_DEV_ID 0xdeca0312
+#define DW3000_C0_VERSION 0
 #define DW3000_D0_DEV_ID 0xdeca0303
 #define DW3000_D0_PDOA_DEV_ID 0xdeca0313
+#define DW3000_D0_VERSION 1
 #define DW3000_E0_PDOA_DEV_ID 0xdeca0314
+#define DW3000_E0_VERSION 2
 
 /* Declaration of version specific chip operations */
 extern const struct dw3000_chip_ops dw3000_chip_c0_ops;
