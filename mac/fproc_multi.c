@@ -239,7 +239,7 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 				return r;
 		}
 
-		r = llhw_rx_enable(local, &frame->rx.info, 0);
+		r = llhw_rx_enable(local, &frame->rx.info, frame_idx, 0);
 		if (r)
 			return r;
 
@@ -263,7 +263,8 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 			}
 		}
 
-		r = llhw_tx_frame(local, skb, &frame->tx_frame_info, 0);
+		r = llhw_tx_frame(local, skb, &frame->tx_frame_info, frame_idx,
+				  0);
 		if (r) {
 			access->ops->tx_return(
 				access, frame_idx, skb,

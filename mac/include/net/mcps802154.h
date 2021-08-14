@@ -450,6 +450,10 @@ struct mcps802154_ops {
 	 * as specified in info. Receiver should be disabled automatically
 	 * unless a frame is being received.
 	 *
+	 * The &frame_idx parameter gives the index of the frame in a "block".
+	 * Frames from the same block (aka frame_idx > 0) should maintain the
+	 * same synchronization.
+	 *
 	 * The &next_delay_dtu parameter gives the expected delay between the
 	 * start of the transmitted frame and the next action.
 	 *
@@ -458,9 +462,13 @@ struct mcps802154_ops {
 	 */
 	int (*tx_frame)(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 			const struct mcps802154_tx_frame_info *info,
-			int next_delay_dtu);
+			int frame_idx, int next_delay_dtu);
 	/**
 	 * @rx_enable: Enable receiver.
+	 *
+	 * The &frame_idx parameter gives the index of the frame in a "block".
+	 * Frames from the same block (aka frame_idx > 0) should maintain the
+	 * same synchronization.
 	 *
 	 * The &next_delay_dtu parameter gives the expected delay between the
 	 * start of the received frame or timeout event and the next action.
@@ -469,7 +477,7 @@ struct mcps802154_ops {
 	 * timestamp, or any other error.
 	 */
 	int (*rx_enable)(struct mcps802154_llhw *llhw,
-			 const struct mcps802154_rx_info *info,
+			 const struct mcps802154_rx_info *info, int frame_idx,
 			 int next_delay_dtu);
 	/**
 	 * @rx_disable: Disable receiver, or a programmed receiver enabling,

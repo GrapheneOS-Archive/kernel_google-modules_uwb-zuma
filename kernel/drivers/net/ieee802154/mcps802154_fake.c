@@ -75,7 +75,7 @@ static void stop(struct mcps802154_llhw *llhw)
 }
 
 static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
-		    const struct mcps802154_tx_frame_info *info,
+		    const struct mcps802154_tx_frame_info *info, int frame_idx,
 		    int next_delay_dtu)
 {
 	if (!started) {
@@ -90,7 +90,8 @@ static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 }
 
 static int rx_enable(struct mcps802154_llhw *llhw,
-		     const struct mcps802154_rx_info *info, int next_delay_dtu)
+		     const struct mcps802154_rx_info *info, int frame_idx,
+		     int next_delay_dtu)
 {
 	if (!started) {
 		pr_err("fake_mcps: %s called and not started\n", __func__);

@@ -205,21 +205,25 @@ static void stop(struct mcps802154_llhw *llhw)
 struct do_tx_frame_params {
 	struct sk_buff *skb;
 	const struct mcps802154_tx_frame_info *info;
+	int frame_idx;
 };
 
 static int do_tx_frame(struct dw3000 *dw, const void *in, void *out)
 {
 	const struct do_tx_frame_params *params = in;
 
-	return dw3000_do_tx_frame(dw, params->info, params->skb);
+	return dw3000_do_tx_frame(dw, params->info, params->skb,
+				  params->frame_idx);
 }
 
 static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
-		    const struct mcps802154_tx_frame_info *info,
+		    const struct mcps802154_tx_frame_info *info, int frame_idx,
 		    int next_delay_dtu)
 {
 	struct dw3000 *dw = llhw->priv;
-	struct do_tx_frame_params params = { skb, info };
+	struct do_tx_frame_params params = { .skb = skb,
+					     .info = info,
+					     .frame_idx = frame_idx };
 	struct dw3000_stm_command cmd = { do_tx_frame, &params, NULL };
 
 	/* Check data : no data if SP3, must have data otherwise */
@@ -230,11 +234,29 @@ static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 	return dw3000_enqueue_generic(dw, &cmd);
 }
 
+struct do_rx_frame_params {
+	const struct mcps802154_rx_info *info;
+	int frame_idx;
+};
+
 static int do_rx_enable(struct dw3000 *dw, const void *in, void *out)
 {
-	const struct mcps802154_rx_info *info = in;
+	const struct do_rx_frame_params *params =
+		(const struct do_rx_frame_params *)in;
 
-	return dw3000_do_rx_enable(dw, info);
+	return dw3000_do_rx_enable(dw, params->info, params->frame_idx);
+}
+
+static int rx_enable(struct mcps802154_llhw *llhw,
+		     const struct mcps802154_rx_info *info, int frame_idx,
+		     int next_delay_dtu)
+{
+	struct dw3000 *dw = llhw->priv;
+	struct do_rx_frame_params params = { .info = info,
+					     .frame_idx = frame_idx };
+	struct dw3000_stm_command cmd = { do_rx_enable, &params, NULL };
+
+	return dw3000_enqueue_generic(dw, &cmd);
 }
 
 static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
@@ -248,15 +270,6 @@ static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
 	dw3000_reset_rctu_conv_state(dw);
 	trace_dw3000_return_int(dw, ret);
 	return ret;
-}
-
-static int rx_enable(struct mcps802154_llhw *llhw,
-		     const struct mcps802154_rx_info *info, int next_delay_dtu)
-{
-	struct dw3000 *dw = llhw->priv;
-	struct dw3000_stm_command cmd = { do_rx_enable, (void *)info, NULL };
-
-	return dw3000_enqueue_generic(dw, &cmd);
 }
 
 static int rx_disable(struct mcps802154_llhw *llhw)

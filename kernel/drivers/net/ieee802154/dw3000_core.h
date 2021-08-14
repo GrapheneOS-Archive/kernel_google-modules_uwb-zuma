@@ -302,7 +302,7 @@ int dw3000_poweroff(struct dw3000 *dw);
 int dw3000_forcetrxoff(struct dw3000 *dw);
 
 int dw3000_do_rx_enable(struct dw3000 *dw,
-			const struct mcps802154_rx_info *info);
+			const struct mcps802154_rx_info *info, int frame_idx);
 int dw3000_rx_enable(struct dw3000 *dw, bool rx_delayed, u32 date_dtu,
 		     u32 timeout_pac);
 int dw3000_rx_disable(struct dw3000 *dw);
@@ -316,7 +316,7 @@ int dw3000_disable_autoack(struct dw3000 *dw, bool force);
 struct mcps802154_tx_frame_info;
 int dw3000_do_tx_frame(struct dw3000 *dw,
 		       const struct mcps802154_tx_frame_info *info,
-		       struct sk_buff *skb);
+		       struct sk_buff *skb, int frame_idx);
 
 int dw3000_tx_setcwtone(struct dw3000 *dw, bool on);
 

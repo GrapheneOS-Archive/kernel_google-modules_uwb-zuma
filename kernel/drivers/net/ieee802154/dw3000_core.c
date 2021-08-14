@@ -2056,6 +2056,7 @@ void dw3000_wakeup_and_wait(struct dw3000 *dw)
  * dw3000_check_operational_state() - Check current device operational state
  * @dw: the DW device to execute an RX/TX/configuration operation
  * @delay_dtu: delay before expected operation
+ * @can_sync: true when it's possible to sync the clock
  *
  * This function will decide if device should enter/leave DEEP SLEEP
  * state according current state and delay before next operation.
@@ -2064,7 +2065,8 @@ void dw3000_wakeup_and_wait(struct dw3000 *dw)
  * Return: 0 if ready, 1 if in deep-sleep or waking-up, or a negative error
  *         code.
  */
-int dw3000_check_operational_state(struct dw3000 *dw, int delay_dtu)
+int dw3000_check_operational_state(struct dw3000 *dw, int delay_dtu,
+				   bool can_sync)
 {
 	int delay_us = DTU_TO_US(delay_dtu);
 	int rc;
@@ -2105,7 +2107,7 @@ int dw3000_check_operational_state(struct dw3000 *dw, int delay_dtu)
 		return 1;
 	default:
 		/* May need to resync when deep sleep is not enabled */
-		if (!dw->need_ranging_clock)
+		if (can_sync)
 			dw3000_may_resync(dw);
 		/* Update delay_us with wakeup margin */
 		delay_us = dw3000_can_deep_sleep(dw, delay_us);
@@ -2228,6 +2230,7 @@ stop_coex:
  * dw3000_do_rx_enable() - handle RX enable MCPS operation
  * @dw: the DW device to put in RX mode
  * @info: RX enable parameters from MCPS
+ * @frame_idx: Frame index in a continuous block
  *
  * This function is called to execute all required operation to enable RX on
  * the device using provided parameters.
@@ -2244,7 +2247,7 @@ stop_coex:
  * Return: 0 on success, else a negative error code.
  */
 int dw3000_do_rx_enable(struct dw3000 *dw,
-			const struct mcps802154_rx_info *info)
+			const struct mcps802154_rx_info *info, int frame_idx)
 {
 	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
 	struct mcps802154_llhw *llhw = dw->llhw;
@@ -2253,6 +2256,7 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 	u32 timeout_pac = 0;
 	bool rx_delayed = true;
 	int delay_dtu = 0;
+	bool can_sync = false;
 	int rc;
 	bool pdoa_enabled;
 	u8 sts_mode;
@@ -2284,8 +2288,15 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 			return -ETIME;
 		}
 	}
+
+	/* We are always allowed to sleep & sync at the beginning of a block. */
+	if (frame_idx == 0) {
+		dw->need_ranging_clock = false;
+		can_sync = true;
+	}
+
 	/* For delayed RX, where delay_dtu != 0, enter/leave deep sleep */
-	rc = dw3000_check_operational_state(dw, delay_dtu);
+	rc = dw3000_check_operational_state(dw, delay_dtu, can_sync);
 	if (rc) {
 		/* Handle error cases first */
 		if (rc < 0)
@@ -2294,6 +2305,7 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 		   wakeup later */
 		dss->next_operational_state = DW3000_OP_STATE_RX;
 		dss->rx_info = *info;
+		dss->frame_idx = frame_idx;
 		return 0;
 	}
 	/* All operation below require the DW chip is in IDLE_PLL state */
@@ -2966,6 +2978,7 @@ stop_coex:
  * @dw: the device on which transmit frame
  * @info: TX parameters from MCPS
  * @skb: the frame to transmit
+ * @frame_idx: Frame index in a continuous block
  *
  * This function is called to execute all required operation to transmit the
  * given frame using provided parameters.
@@ -2984,7 +2997,7 @@ stop_coex:
  */
 int dw3000_do_tx_frame(struct dw3000 *dw,
 		       const struct mcps802154_tx_frame_info *info,
-		       struct sk_buff *skb)
+		       struct sk_buff *skb, int frame_idx)
 {
 	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
 	struct mcps802154_llhw *llhw = dw->llhw;
@@ -2995,6 +3008,7 @@ int dw3000_do_tx_frame(struct dw3000 *dw,
 	bool tx_delayed = true;
 	bool ranging = false;
 	int delay_dtu = 0;
+	bool can_sync = false;
 	int rc;
 	u8 sts_mode;
 
@@ -3020,8 +3034,15 @@ int dw3000_do_tx_frame(struct dw3000 *dw,
 			return -ETIME;
 		}
 	}
+
+	/* We are always allowed to sleep & sync at the beginning of a block. */
+	if (!frame_idx) {
+		dw->need_ranging_clock = false;
+		can_sync = true;
+	}
+
 	/* For delayed TX, where delay_dtu != 0, enter/leave deep sleep */
-	rc = dw3000_check_operational_state(dw, delay_dtu);
+	rc = dw3000_check_operational_state(dw, delay_dtu, can_sync);
 	if (rc) {
 		/* Handle error cases first */
 		if (rc < 0)
@@ -3031,6 +3052,7 @@ int dw3000_do_tx_frame(struct dw3000 *dw,
 		dss->next_operational_state = DW3000_OP_STATE_TX;
 		dss->tx_info = *info;
 		dss->tx_skb = skb;
+		dss->frame_idx = frame_idx;
 		return 0;
 	}
 	/* All operation below require the DW chip is in IDLE_PLL state */
@@ -6203,11 +6225,12 @@ setuperror:
 	} else if (dss->next_operational_state == DW3000_OP_STATE_RX) {
 		/* Entered DEEP SLEEP from dw3000_do_rx_enable() */
 		dss->next_operational_state = dw->current_operational_state;
-		rc = dw3000_do_rx_enable(dw, &dss->rx_info);
+		rc = dw3000_do_rx_enable(dw, &dss->rx_info, dss->frame_idx);
 	} else if (dss->next_operational_state == DW3000_OP_STATE_TX) {
 		/* Entered DEEP SLEEP from dw3000_do_tx_frame() */
 		dss->next_operational_state = dw->current_operational_state;
-		rc = dw3000_do_tx_frame(dw, &dss->tx_info, dss->tx_skb);
+		rc = dw3000_do_tx_frame(dw, &dss->tx_info, dss->tx_skb,
+					dss->frame_idx);
 	} else if (dw->call_timer_expired) {
 		/* Entered DEEP SLEEP from do_idle() */
 		schedule_work(&dw->timer_expired_work);

@@ -390,6 +390,7 @@ struct dw3000_power {
  * struct dw3000_deep_sleep_state - Useful data to restore on wake up
  * @next_operational_state: operational state to enter after DEEP SLEEP mode
  * @config_changed: bitfield of configuration changed during DEEP-SLEEP
+ * @frame_idx: saved frame index to use for deferred TX/RX
  * @tx_skb: saved frame to transmit for deferred TX
  * @tx_info: saved info to use for deferred TX
  * @rx_info: saved parameter for deferred RX
@@ -399,6 +400,7 @@ struct dw3000_power {
 struct dw3000_deep_sleep_state {
 	enum operational_state next_operational_state;
 	unsigned long config_changed;
+	int frame_idx;
 	struct sk_buff *tx_skb;
 	union {
 		struct mcps802154_tx_frame_info tx_info;
