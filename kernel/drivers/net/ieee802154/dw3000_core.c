@@ -2678,7 +2678,6 @@ static int dw3000_enable_rf_tx(struct dw3000 *dw, u32 chan, u8 switch_ctrl)
  */
 static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 {
-	int rc;
 	if (clocks == DW3000_FORCE_CLK_SYS_TX) {
 		/* TX_BUF_CLK = ON & RX_BUF_CLK = ON */
 		u16 regvalue0 = DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK |
@@ -2689,12 +2688,8 @@ static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 		/* TX_CLK_SEL = ON */
 		regvalue0 |= (u16)DW3000_FORCE_CLK_PLL
 			     << DW3000_CLK_CTRL_TX_CLK_SEL_BIT_OFFSET;
-
-		regvalue0 |= DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK;
-
-		rc = dw3000_reg_write16(dw, DW3000_CLK_CTRL_ID, 0x0, 0x1822);
-		if (rc)
-			return rc;
+		return dw3000_reg_write16(dw, DW3000_CLK_CTRL_ID, 0x0,
+					  regvalue0);
 	}
 	if (clocks == DW3000_FORCE_CLK_AUTO) {
 		/* Restore auto clock mode */
