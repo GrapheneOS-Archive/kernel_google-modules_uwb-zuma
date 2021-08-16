@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,10 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * MCPS interface.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #ifndef NET_MCPS802154_H
@@ -137,6 +134,9 @@ struct mcps802154_llhw {
  * @MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK:
  *      Request that the ranging clock be kept valid after the transmission of
  *      this frame (RDEV only).
+ * @MCPS802154_TX_FRAME_RANGING_PDOA:
+ *	Enable phase difference of arrival measurement for the response frame
+ *	(RDEV only).
  * @MCPS802154_TX_FRAME_SP1:
  *	Enable STS for the transmitted frame and its response, mode 1 (STS after
  *	SFD and before PHR, ERDEV only).
@@ -156,10 +156,11 @@ enum mcps802154_tx_frame_info_flags {
 	MCPS802154_TX_FRAME_CCA = BIT(1),
 	MCPS802154_TX_FRAME_RANGING = BIT(2),
 	MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK = BIT(3),
-	MCPS802154_TX_FRAME_SP1 = BIT(4),
-	MCPS802154_TX_FRAME_SP2 = BIT(5),
-	MCPS802154_TX_FRAME_SP3 = BIT(4) | BIT(5),
-	MCPS802154_TX_FRAME_STS_MODE_MASK = BIT(4) | BIT(5),
+	MCPS802154_TX_FRAME_RANGING_PDOA = BIT(4),
+	MCPS802154_TX_FRAME_SP1 = BIT(5),
+	MCPS802154_TX_FRAME_SP2 = BIT(6),
+	MCPS802154_TX_FRAME_SP3 = BIT(5) | BIT(6),
+	MCPS802154_TX_FRAME_STS_MODE_MASK = BIT(5) | BIT(6),
 };
 
 /**
@@ -203,6 +204,8 @@ struct mcps802154_tx_frame_info {
  * @MCPS802154_RX_INFO_KEEP_RANGING_CLOCK:
  *      Request that the ranging clock be kept valid after the reception of the
  *      frame (RDEV only).
+ * @MCPS802154_RX_INFO_RANGING_PDOA:
+ *	Enable phase difference of arrival measurement (RDEV only).
  * @MCPS802154_RX_INFO_SP1:
  *	Enable STS for the received frame, mode 1 (STS after SFD and before PHR,
  *	ERDEV only).
@@ -222,10 +225,11 @@ enum mcps802154_rx_info_flags {
 	MCPS802154_RX_INFO_AACK = BIT(1),
 	MCPS802154_RX_INFO_RANGING = BIT(2),
 	MCPS802154_RX_INFO_KEEP_RANGING_CLOCK = BIT(3),
-	MCPS802154_RX_INFO_SP1 = BIT(4),
-	MCPS802154_RX_INFO_SP2 = BIT(5),
-	MCPS802154_RX_INFO_SP3 = BIT(4) | BIT(5),
-	MCPS802154_RX_INFO_STS_MODE_MASK = BIT(4) | BIT(5),
+	MCPS802154_RX_INFO_RANGING_PDOA = BIT(4),
+	MCPS802154_RX_INFO_SP1 = BIT(5),
+	MCPS802154_RX_INFO_SP2 = BIT(6),
+	MCPS802154_RX_INFO_SP3 = BIT(5) | BIT(6),
+	MCPS802154_RX_INFO_STS_MODE_MASK = BIT(5) | BIT(6),
 };
 
 /**
@@ -342,6 +346,11 @@ struct mcps802154_rx_frame_info {
 	 * multiplied by 2048 (RDEV only).
 	 */
 	int ranging_pdoa_spacing_mm_q11;
+	/**
+	 * @ranging_aoa_rad_q11: AoA interpolated by the driver from its
+	 * calibration LUT. unit is rad multiplied by 2048 (RDEV only).
+	 */
+	int ranging_aoa_rad_q11;
 	/**
 	 * @ranging_sts_timestamp_diffs_rctu: For each SRMARKERx, difference
 	 * between the measured timestamp and the expected timestamp relative to
@@ -478,6 +487,8 @@ struct mcps802154_ops {
 	 * this handler after a frame rejection has been signaled by the
 	 * low-level driver.
 	 *
+	 * In case of error, info flags must be cleared by this callback.
+	 *
 	 * Return: 0, -EBUSY if no longer available, or any other error.
 	 */
 	int (*rx_get_error_frame)(struct mcps802154_llhw *llhw,
@@ -519,18 +530,6 @@ struct mcps802154_ops {
 	 */
 	int (*get_current_timestamp_dtu)(struct mcps802154_llhw *llhw,
 					 u32 *timestamp_dtu);
-	/**
-	 * @timestamp_dtu_to_rctu: Convert a timestamp in device time unit to
-	 * a timestamp in ranging counter time unit.
-	 */
-	u64 (*timestamp_dtu_to_rctu)(struct mcps802154_llhw *llhw,
-				     u32 timestamp_dtu);
-	/**
-	 * @timestamp_rctu_to_dtu: Convert a timestamp in ranging counter time
-	 * unit to a timestamp in device time unit.
-	 */
-	u32 (*timestamp_rctu_to_dtu)(struct mcps802154_llhw *llhw,
-				     u64 timestamp_rctu);
 	/**
 	 * @tx_timestamp_dtu_to_rmarker_rctu: Compute the RMARKER timestamp in
 	 * ranging counter time unit for a frame transmitted at given timestamp
@@ -681,6 +680,10 @@ struct mcps802154_ops {
 
 /**
  * enum mcps802154_rx_error_type - Type of reception errors.
+ * @MCPS802154_RX_ERROR_NONE:
+ *      RX successful.
+ * @MCPS802154_RX_ERROR_TIMEOUT:
+ *      RX timeout.
  * @MCPS802154_RX_ERROR_BAD_CKSUM:
  *	Checksum is not correct.
  * @MCPS802154_RX_ERROR_UNCORRECTABLE:
@@ -694,11 +697,13 @@ struct mcps802154_ops {
  *	Other error, frame reception is aborted.
  */
 enum mcps802154_rx_error_type {
-	MCPS802154_RX_ERROR_BAD_CKSUM = 0,
-	MCPS802154_RX_ERROR_UNCORRECTABLE = 1,
-	MCPS802154_RX_ERROR_FILTERED = 2,
-	MCPS802154_RX_ERROR_SFD_TIMEOUT = 3,
-	MCPS802154_RX_ERROR_OTHER = 4,
+	MCPS802154_RX_ERROR_NONE = 0,
+	MCPS802154_RX_ERROR_TIMEOUT = 1,
+	MCPS802154_RX_ERROR_BAD_CKSUM = 2,
+	MCPS802154_RX_ERROR_UNCORRECTABLE = 3,
+	MCPS802154_RX_ERROR_FILTERED = 4,
+	MCPS802154_RX_ERROR_SFD_TIMEOUT = 5,
+	MCPS802154_RX_ERROR_OTHER = 6,
 };
 
 /**

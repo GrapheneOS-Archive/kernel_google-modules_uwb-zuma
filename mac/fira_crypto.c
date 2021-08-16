@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2021 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,7 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.  Please contact Qorvo to inquire about licensing terms.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #include "fira_crypto.h"
@@ -257,6 +257,8 @@ int fira_crypto_test(void)
 	skb_put_data(skb, frame_enc, sizeof(frame_enc));
 	skb_pull(skb, frame_header_len);
 
+	/* Prepare cannot fail. */
+	fira_aead_decrypt_prepare(skb);
 	r = fira_aead_decrypt(&aead, skb, frame_header_len,
 			      frame_src_short_addr, frame_counter);
 	skb_push(skb, frame_header_len);
@@ -282,6 +284,8 @@ int fira_crypto_test(void)
 	skb_pull(skb, frame_header_len);
 	skb->data[skb->len - 1]++;
 
+	/* Prepare cannot fail. */
+	fira_aead_decrypt_prepare(skb);
 	r = fira_aead_decrypt(&aead, skb, frame_header_len,
 			      frame_src_short_addr, frame_counter);
 	if (r != -EBADMSG) {
