@@ -145,8 +145,11 @@ static int fira_report_measurement(struct fira_local *local,
 	    nla_put_u8(msg, A(STATUS), ranging_info->status))
 		goto nla_put_failure;
 
-	if (ranging_info->status)
+	if (ranging_info->status) {
+		if (nla_put_u8(msg, A(SLOT_INDEX), ranging_info->slot_index))
+			goto nla_put_failure;
 		return 0;
+	}
 
 	if (ranging_info->tof_present) {
 		static const s64 speed_of_light_mm_per_s = 299702547000ull;

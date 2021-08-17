@@ -43,8 +43,9 @@ static void nfcc_coex_stop_by_vendor_cmd_failure(struct nfcc_coex_local *local)
 	local->state = NFCC_COEX_STATE_STOPPING;
 }
 
-static int nfcc_coex_vendor_cmd(struct mcps802154_llhw *llhw, u32 subcmd,
-				void *data, size_t data_len)
+static int nfcc_coex_vendor_cmd(struct mcps802154_llhw *llhw,
+				enum dw3000_vendor_cmd subcmd, void *data,
+				size_t data_len)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
 	/* Qorvo OUI in big endian. */
@@ -152,8 +153,6 @@ struct mcps802154_access *nfcc_coex_get_access(struct mcps802154_region *region,
 {
 	struct nfcc_coex_local *local = region_to_local(region);
 	struct nfcc_coex_session *session;
-
-	WARN_ON(next_in_region_dtu);
 
 	/* Get unique session. */
 	session = nfcc_coex_session_next(local, next_timestamp_dtu,
