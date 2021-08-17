@@ -599,6 +599,8 @@ static int do_tm_cmd_start_cont_tx(struct dw3000 *dw, const void *in, void *out)
 
 	frame_length = nla_get_u32(
 		params->nl_attr[DW3000_TM_ATTR_CONTTX_FRAME_LENGHT]);
+	if (frame_length < 4)
+		return -EINVAL;
 	rate = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CONTTX_RATE]);
 
 	/* Disable receiver */
