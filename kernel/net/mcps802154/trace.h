@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,10 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * 802.15.4 mac common part sublayer, trace points definitions.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #undef TRACE_SYSTEM
@@ -39,6 +36,49 @@
 #define LOCAL_ASSIGN __entry->hw_idx = local->hw_idx
 #define LOCAL_PR_FMT "hw%d"
 #define LOCAL_PR_ARG __entry->hw_idx
+
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_TIMESTAMP_DTU);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_CCA);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_RANGING);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_RANGING_PDOA);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_SP1);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_SP2);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_SP3);
+TRACE_DEFINE_ENUM(MCPS802154_TX_FRAME_STS_MODE_MASK);
+
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_TIMESTAMP_DTU);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_AACK);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_RANGING);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_KEEP_RANGING_CLOCK);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_RANGING_PDOA);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_SP1);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_SP2);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_SP3);
+TRACE_DEFINE_ENUM(MCPS802154_RX_INFO_STS_MODE_MASK);
+
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_TIMESTAMP_RCTU);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_LQI);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_RSSI);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_RANGING_FOM);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_RANGING_OFFSET);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_RANGING_PDOA);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_RANGING_STS_TIMESTAMP_RCTU);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_RANGING_STS_FOM);
+TRACE_DEFINE_ENUM(MCPS802154_RX_FRAME_INFO_AACK);
+
+TRACE_DEFINE_ENUM(MCPS802154_RX_ERROR_BAD_CKSUM);
+TRACE_DEFINE_ENUM(MCPS802154_RX_ERROR_UNCORRECTABLE);
+TRACE_DEFINE_ENUM(MCPS802154_RX_ERROR_FILTERED);
+TRACE_DEFINE_ENUM(MCPS802154_RX_ERROR_SFD_TIMEOUT);
+TRACE_DEFINE_ENUM(MCPS802154_RX_ERROR_OTHER);
+
+TRACE_DEFINE_ENUM(IEEE802154_AFILT_SADDR_CHANGED);
+TRACE_DEFINE_ENUM(IEEE802154_AFILT_IEEEADDR_CHANGED);
+TRACE_DEFINE_ENUM(IEEE802154_AFILT_PANID_CHANGED);
+TRACE_DEFINE_ENUM(IEEE802154_AFILT_PANC_CHANGED);
 
 #define RX_FRAME_INFO_FLAGS_ENTRY \
 	__field(u16, flags)
@@ -77,8 +117,8 @@
 	__entry->ranging_sts_fom0 = info->ranging_sts_fom[0];   \
 	RX_FRAME_INFO_FLAGS_ASSIGN
 #define RX_FRAME_INFO_PR_FMT                                                \
-	"timestamp_dtu=0x%08x timestamp_rctu=0x%llx frame_duration_dtu=%d " \
-	"ranging_sts_fom[0]=0x%02x "                                        \
+	"timestamp_dtu=0x%08x timestamp_rctu=%#llx frame_duration_dtu=%d " \
+	"ranging_sts_fom[0]=%#02x "                                        \
 	RX_FRAME_INFO_FLAGS_PR_FMT
 #define RX_FRAME_INFO_PR_ARG         \
 	__entry->timestamp_dtu,      \
@@ -155,7 +195,7 @@ TRACE_EVENT(llhw_return_timestamp_dtu,
 		__entry->ret = ret;
 		__entry->timestamp_dtu = timestamp_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " returned=%d timestamp_dtu=0x%08x",
+	TP_printk(LOCAL_PR_FMT " returned=%d timestamp_dtu=%#08x",
 		  LOCAL_PR_ARG, __entry->ret, __entry->timestamp_dtu)
 	);
 
@@ -173,7 +213,7 @@ TRACE_EVENT(llhw_return_timestamp_rctu,
 		__entry->ret = ret;
 		__entry->timestamp_rctu = timestamp_rctu;
 		),
-	TP_printk(LOCAL_PR_FMT " returned=%d timestamp_rctu=0x%llx",
+	TP_printk(LOCAL_PR_FMT " returned=%d timestamp_rctu=%#llx",
 		  LOCAL_PR_ARG, __entry->ret, __entry->timestamp_rctu)
 	);
 
@@ -210,7 +250,7 @@ TRACE_EVENT(llhw_tx_frame,
 		__entry->flags = info->flags;
 		__entry->next_delay_dtu = next_delay_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x rx_enable_after_tx_dtu=%d rx_enable_after_tx_timeout_dtu=%d"
+	TP_printk(LOCAL_PR_FMT " timestamp_dtu=%#08x rx_enable_after_tx_dtu=%d rx_enable_after_tx_timeout_dtu=%d"
 		  " ant_id=%d flags=%s next_delay_dtu=%d", LOCAL_PR_ARG,
 		  __entry->timestamp_dtu, __entry->rx_enable_after_tx_dtu,
 		  __entry->rx_enable_after_tx_timeout_dtu, __entry->ant_id,
@@ -219,6 +259,7 @@ TRACE_EVENT(llhw_tx_frame,
 			{ MCPS802154_TX_FRAME_CCA, "CCA" },
 			{ MCPS802154_TX_FRAME_RANGING, "RANGING" },
 			{ MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK, "KEEP_RANGING_CLOCK" },
+			{ MCPS802154_TX_FRAME_RANGING_PDOA, "RANGING_PDOA" },
 			{ MCPS802154_TX_FRAME_SP3, "SP3" },
 			{ MCPS802154_TX_FRAME_SP2, "SP2" },
 			{ MCPS802154_TX_FRAME_SP1, "SP1" }),
@@ -247,7 +288,7 @@ TRACE_EVENT(llhw_rx_enable,
 		__entry->ant_pair_id = info->ant_pair_id;
 		__entry->next_delay_dtu = next_delay_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x timeout_dtu=%d ant_pair_id=%d"
+	TP_printk(LOCAL_PR_FMT " timestamp_dtu=%#08x timeout_dtu=%d ant_pair_id=%d"
 		  " flags=%s next_delay_dtu=%d",
 		  LOCAL_PR_ARG,
 		  __entry->timestamp_dtu, __entry->timeout_dtu,
@@ -257,6 +298,7 @@ TRACE_EVENT(llhw_rx_enable,
 			{ MCPS802154_RX_INFO_AACK, "AACK" },
 			{ MCPS802154_RX_INFO_RANGING, "RANGING" },
 			{ MCPS802154_RX_INFO_KEEP_RANGING_CLOCK, "KEEP_RANGING_CLOCK" },
+			{ MCPS802154_RX_INFO_RANGING_PDOA, "RANGING_PDOA" },
 			{ MCPS802154_RX_INFO_SP3, "SP3" },
 			{ MCPS802154_RX_INFO_SP2, "SP2" },
 			{ MCPS802154_RX_INFO_SP1, "SP1" }),
@@ -314,7 +356,7 @@ TRACE_EVENT(llhw_idle_timestamp,
 		LOCAL_ASSIGN;
 		__entry->timestamp_dtu = timestamp_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " timestamp_dtu=0x%08x",
+	TP_printk(LOCAL_PR_FMT " timestamp_dtu=%#08x",
 		  LOCAL_PR_ARG,
 		  __entry->timestamp_dtu
 		  )
@@ -424,7 +466,7 @@ TRACE_EVENT(llhw_set_hw_addr_filt,
 		__entry->pan_coord = filt->pan_coord;
 		__entry->changed = changed;
 		),
-	TP_printk(LOCAL_PR_FMT " pan_id=0x%04x short_addr=0x%04x extended_addr=0x%016llx pan_coord=%s changed=%s",
+	TP_printk(LOCAL_PR_FMT " pan_id=%#04x short_addr=%#04x extended_addr=%#016llx pan_coord=%s changed=%s",
 		  LOCAL_PR_ARG, __entry->pan_id, __entry->short_addr,
 		  __entry->extended_addr,
 		  __entry->pan_coord ? "true" : "false",
@@ -581,6 +623,11 @@ DEFINE_EVENT(local_only_evt, llhw_event_broken,
 	TP_ARGS(local)
 	);
 
+DEFINE_EVENT(local_only_evt, llhw_event_timer_expired,
+	TP_PROTO(const struct mcps802154_local *local),
+	TP_ARGS(local)
+	);
+
 DEFINE_EVENT(local_only_evt, llhw_event_done,
 	TP_PROTO(const struct mcps802154_local *local),
 	TP_ARGS(local)
@@ -597,7 +644,7 @@ TRACE_EVENT(ca_set_scheduler,
 		LOCAL_ASSIGN;
 		__assign_str(name, name);
 		),
-	TP_printk(LOCAL_PR_FMT " name=\"%s\"", LOCAL_PR_ARG, __get_str(name))
+	TP_printk(LOCAL_PR_FMT " name=%s", LOCAL_PR_ARG, __get_str(name))
 	);
 
 TRACE_EVENT(ca_set_scheduler_parameters,
@@ -611,7 +658,7 @@ TRACE_EVENT(ca_set_scheduler_parameters,
 		LOCAL_ASSIGN;
 		__assign_str(name, name);
 		),
-	TP_printk(LOCAL_PR_FMT " name=\"%s\"", LOCAL_PR_ARG, __get_str(name))
+	TP_printk(LOCAL_PR_FMT " name=%s", LOCAL_PR_ARG, __get_str(name))
 	);
 
 TRACE_EVENT(ca_scheduler_set_region_parameters,
@@ -631,7 +678,7 @@ TRACE_EVENT(ca_scheduler_set_region_parameters,
 		__entry->region_id = region_id;
 		__assign_str(region_name, region_name);
 		),
-	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=%u region_name=\"%s\"",
+	TP_printk(LOCAL_PR_FMT " scheduler=%s region_id=%u region_name=%s",
 		  LOCAL_PR_ARG, __get_str(scheduler_name), __entry->region_id,
 		  __get_str(region_name))
 	);
@@ -650,7 +697,7 @@ TRACE_EVENT(ca_scheduler_call,
 		__assign_str(scheduler_name, scheduler_name);
 		__entry->call_id = call_id;
 		),
-	TP_printk(LOCAL_PR_FMT" scheduler=\"%s\" call_id=0x%x",
+	TP_printk(LOCAL_PR_FMT" scheduler=%s call_id=%#x",
 		  LOCAL_PR_ARG, __get_str(scheduler_name), __entry->call_id)
 	);
 
@@ -673,7 +720,7 @@ TRACE_EVENT(ca_scheduler_call_region,
 		__assign_str(region_name, region_name);
 		__entry->call_id = call_id;
 		),
-	TP_printk(LOCAL_PR_FMT " scheduler=\"%s\" region_id=%u region_name=\"%s\" call_id=0x%x",
+	TP_printk(LOCAL_PR_FMT " scheduler=%s region_id=%u region_name=%s call_id=%#x",
 		  LOCAL_PR_ARG, __get_str(scheduler_name), __entry->region_id,
 		  __get_str(region_name), __entry->call_id)
 	);
@@ -689,8 +736,22 @@ TRACE_EVENT(ca_get_access,
 		LOCAL_ASSIGN;
 		__entry->next_timestamp_dtu = next_timestamp_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " next_timestamp_dtu=0x%08x", LOCAL_PR_ARG,
+	TP_printk(LOCAL_PR_FMT " next_timestamp_dtu=%#08x", LOCAL_PR_ARG,
 		  __entry->next_timestamp_dtu)
+	);
+
+TRACE_EVENT(ca_return_int,
+	TP_PROTO(const struct mcps802154_local *local, int r),
+	TP_ARGS(local, r),
+	TP_STRUCT__entry(
+		LOCAL_ENTRY
+		__field(int, r)
+		),
+	TP_fast_assign(
+		LOCAL_ASSIGN;
+		__entry->r = r;
+		),
+	TP_printk(LOCAL_PR_FMT " r=%d", LOCAL_PR_ARG, __entry->r)
 	);
 
 TRACE_EVENT(schedule_update,
@@ -704,7 +765,7 @@ TRACE_EVENT(schedule_update,
 		LOCAL_ASSIGN;
 		__entry->next_timestamp_dtu = next_timestamp_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " next_timestamp_dtu=0x%08x", LOCAL_PR_ARG,
+	TP_printk(LOCAL_PR_FMT " next_timestamp_dtu=%#08x", LOCAL_PR_ARG,
 		  __entry->next_timestamp_dtu)
 	);
 
@@ -724,7 +785,7 @@ TRACE_EVENT(schedule_update_done,
 		__entry->duration_dtu = sched->duration_dtu;
 		__entry->n_regions = sched->n_regions;
 		),
-	TP_printk(LOCAL_PR_FMT " start_timestamp_dtu=0x%08x duration_dtu=%d n_regions=%lu",
+	TP_printk(LOCAL_PR_FMT " start_timestamp_dtu=%#08x duration_dtu=%d n_regions=%lu",
 		  LOCAL_PR_ARG, __entry->start_timestamp_dtu,
 		  __entry->duration_dtu, __entry->n_regions)
 	);
@@ -750,7 +811,7 @@ TRACE_EVENT(region_get_access,
 		__entry->next_in_region_dtu = next_in_region_dtu;
 		__entry->region_duration_dtu = region_duration_dtu;
 		),
-	TP_printk(LOCAL_PR_FMT " region=\"%s\" next_timestamp_dtu=0x%08x next_in_region_dtu=%d region_duration_dtu=%d",
+	TP_printk(LOCAL_PR_FMT " region=%s next_timestamp_dtu=%#08x next_in_region_dtu=%d region_duration_dtu=%d",
 		  LOCAL_PR_ARG,
 		  __get_str(region_name), __entry->next_timestamp_dtu,
 		  __entry->next_in_region_dtu, __entry->region_duration_dtu)
