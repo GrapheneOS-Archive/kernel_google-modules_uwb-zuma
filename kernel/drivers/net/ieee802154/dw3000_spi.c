@@ -51,7 +51,7 @@ MODULE_PARM_DESC(qos_latency,
 		 "Latency request to PM QoS on active ranging in microsecond");
 
 
-static int dw3000_wifi_coex_gpio = -1;
+static int dw3000_wifi_coex_gpio = 4;
 module_param_named(wificoex_gpio, dw3000_wifi_coex_gpio, int, 0444);
 MODULE_PARM_DESC(wificoex_gpio,
 		 "WiFi coexistence GPIO number, -1 for disabled (default)");
@@ -62,7 +62,7 @@ MODULE_PARM_DESC(wificoex_delay_us,
 		 "Delay between WiFi coexistence GPIO activation and TX in us "
 		 "(default is 1000us)");
 
-static unsigned dw3000_wifi_coex_margin_us = 300;
+static unsigned dw3000_wifi_coex_margin_us = 400;
 module_param_named(wificoex_margin_us, dw3000_wifi_coex_margin_us, uint, 0444);
 MODULE_PARM_DESC(wificoex_margin_us,
 		 "Margin to add to the WiFi Coex delay for SPI transactions "
