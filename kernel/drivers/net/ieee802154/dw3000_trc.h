@@ -730,6 +730,23 @@ TRACE_EVENT(dw3000_power_stats,
 		  (unsigned)__entry->len_or_date)
 );
 
+TRACE_EVENT(dw3000_prog_xtrim,
+	TP_PROTO(struct dw3000 *dw, int res, int value),
+	TP_ARGS(dw, res, value),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(int, res)
+		__field(int, value)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->res = res;
+		__entry->value = value;
+	),
+	TP_printk(DW_PR_FMT ", res: %d, xtrim: %d",
+		DW_PR_ARG, __entry->res, __entry->value)
+);
+
 TRACE_EVENT(dw3000_set_antenna_gpio,
 	TP_PROTO(struct dw3000 *dw, int res, u8 gpio, u8 value),
 	TP_ARGS(dw, res, gpio, value),
@@ -808,24 +825,36 @@ TRACE_EVENT(dw3000_coex_gpio_stop,
 );
 
 TRACE_EVENT(dw3000_adjust_tx_power,
-	TP_PROTO(struct dw3000 *dw, int len, u32 base_power,
-		 u32 adjusted_power),
-	TP_ARGS(dw, len, base_power, adjusted_power),
+	TP_PROTO(struct dw3000 *dw, u32 base_power, u32 adjusted_power,
+		 u32 frm_dur, u16 pl_len, u8 chan, u16 th_boost,
+		 u16 app_boost),
+	TP_ARGS(dw, base_power, adjusted_power, frm_dur, pl_len, chan,
+		th_boost, app_boost),
 	TP_STRUCT__entry(
 		DW_ENTRY
-		__field(int, len)
 		__field(u32, base_power)
 		__field(u32, adjusted_power)
+		__field(u32, frm_dur)
+		__field(u16, pl_len)
+		__field(u8, chan)
+		__field(u16, th_boost)
+		__field(u16, app_boost)
 	),
 	TP_fast_assign(
 		DW_ASSIGN;
-		__entry->len = len;
 		__entry->base_power = base_power;
 		__entry->adjusted_power = adjusted_power;
+		__entry->frm_dur = frm_dur;
+		__entry->pl_len = pl_len;
+		__entry->chan = chan;
+		__entry->th_boost = th_boost;
+		__entry->app_boost = app_boost;
 	),
-	TP_printk(DW_PR_FMT ", len: %d, base pwr: %#08x, adjusted: %#08x",
-		DW_PR_ARG, __entry->len,  __entry->base_power,
-		__entry->adjusted_power)
+	TP_printk(DW_PR_FMT " base pwr: 0x%08x, adjusted: 0x%08x (chan: %u,"
+		  "frm_dur: %u, PL_len: %u, th. boost: %u, applied boost: %u)",
+		  DW_PR_ARG, __entry->base_power, __entry->adjusted_power,
+		  __entry->chan, __entry->frm_dur, __entry->pl_len,
+		  __entry->th_boost, __entry->app_boost)
 );
 
 TRACE_EVENT(dw3000_rx_rssi,
@@ -1031,8 +1060,6 @@ TRACE_EVENT(dw3000_tm_cmd,
 );
 #endif
 
-
-
 TRACE_EVENT(dw3000_set_pdoa,
 	TP_PROTO(struct dw3000 *dw, u32 mode),
 	TP_ARGS(dw, mode),
@@ -1061,6 +1088,54 @@ TRACE_EVENT(dw3000_read_pdoa,
 		),
 	TP_printk(DW_PR_FMT " pdoa=%#08x", DW_PR_ARG,
 		  __entry->pdoa)
+	);
+
+TRACE_EVENT(dw3000_testmode_continuous_tx_start,
+	TP_PROTO(struct dw3000 *dw, u8 chan, u32 len, u32 rate),
+	TP_ARGS(dw, chan, len, rate),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u8, chan)
+		__field(u32, len)
+		__field(u32, rate)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->chan = chan;
+		__entry->len = len;
+		__entry->rate = rate;
+		),
+	TP_printk(DW_PR_FMT " chan=%d, len=%d, rate=%d", DW_PR_ARG,
+		  __entry->chan,
+		  __entry->len,
+		  __entry->rate)
+	);
+
+TRACE_EVENT(dw3000_testmode_continuous_tx_stop,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		),
+	TP_printk(DW_PR_FMT, DW_PR_ARG)
+	);
+
+TRACE_EVENT(dw3000_read_clockoffset,
+	TP_PROTO(struct dw3000 *dw, s16 cfo),
+	TP_ARGS(dw, cfo),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(s16, cfo)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->cfo = cfo;
+		),
+	TP_printk(DW_PR_FMT " clockoffset=%d", DW_PR_ARG,
+		  __entry->cfo)
 	);
 
 /* clang-format on */

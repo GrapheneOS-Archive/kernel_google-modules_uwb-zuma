@@ -145,7 +145,7 @@ int mcps802154_fproc_tx_handle(struct mcps802154_local *local,
 					  local->llhw.symbol_dtu :
 				  0,
 	};
-	r = llhw_tx_frame(local, skb, &tx_info, 0);
+	r = llhw_tx_frame(local, skb, &tx_info, 0, 0);
 	if (r) {
 		access->ops->tx_return(
 			access, 0, skb,

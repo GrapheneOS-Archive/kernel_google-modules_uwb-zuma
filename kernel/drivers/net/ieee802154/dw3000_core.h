@@ -173,6 +173,7 @@ enum spi_modes {
 #define DW3000_DGC_CFG 0x32
 #define DW3000_DGC_CFG0 0x10000240
 #define DW3000_DGC_CFG1 0x1b6da489
+
 /* DW3000 SLEEP and WAKEUP configuration parameters */
 #define DW3000_PGFCAL 0x0800
 #define DW3000_GOTORX 0x0200
@@ -199,25 +200,8 @@ enum spi_modes {
 #define DW3000_BIAS_TUNE_ADDRESS (0xA)
 #define DW3000_DGC_TUNE_ADDRESS (0x20)
 
-#define DW3000_GPIO0_FUNC_MASK 0x0000007
-#define DW3000_GPIO1_FUNC_MASK 0x0000038
-#define DW3000_GPIO2_FUNC_MASK 0x00001c0
-#define DW3000_GPIO3_FUNC_MASK 0x0000e00
-#define DW3000_GPIO4_FUNC_MASK 0x0007000
-#define DW3000_GPIO5_FUNC_MASK 0x0038000
-#define DW3000_GPIO6_FUNC_MASK 0x01c0000
-#define DW3000_GPIO7_FUNC_MASK 0x0e00000
-#define DW3000_GPIO8_FUNC_MASK 0x7000000
-
-#define DW3000_GPIO0_DIR_OUT_MASK 0x0000001
-#define DW3000_GPIO1_DIR_OUT_MASK 0x0000002
-#define DW3000_GPIO2_DIR_OUT_MASK 0x0000004
-#define DW3000_GPIO3_DIR_OUT_MASK 0x0000008
-#define DW3000_GPIO4_DIR_OUT_MASK 0x0000010
-#define DW3000_GPIO5_DIR_OUT_MASK 0x0000020
-#define DW3000_GPIO6_DIR_OUT_MASK 0x0000040
-#define DW3000_GPIO7_DIR_OUT_MASK 0x0000080
-#define DW3000_GPIO8_DIR_OUT_MASK 0x0000100
+/* Clock offset value under which the PDoA value is assumed bad. */
+#define DW3000_CFO_THRESHOLD ((s16)(4 * (1 << 26) / 1000000))
 
 void dw3000_init_config(struct dw3000 *dw);
 
@@ -318,7 +302,7 @@ int dw3000_poweroff(struct dw3000 *dw);
 int dw3000_forcetrxoff(struct dw3000 *dw);
 
 int dw3000_do_rx_enable(struct dw3000 *dw,
-			const struct mcps802154_rx_info *info);
+			const struct mcps802154_rx_info *info, int frame_idx);
 int dw3000_rx_enable(struct dw3000 *dw, bool rx_delayed, u32 date_dtu,
 		     u32 timeout_pac);
 int dw3000_rx_disable(struct dw3000 *dw);
@@ -332,7 +316,7 @@ int dw3000_disable_autoack(struct dw3000 *dw, bool force);
 struct mcps802154_tx_frame_info;
 int dw3000_do_tx_frame(struct dw3000 *dw,
 		       const struct mcps802154_tx_frame_info *info,
-		       struct sk_buff *skb);
+		       struct sk_buff *skb, int frame_idx);
 
 int dw3000_tx_setcwtone(struct dw3000 *dw, bool on);
 
@@ -345,6 +329,8 @@ s16 dw3000_read_pdoa(struct dw3000 *dw);
 s16 dw3000_pdoa_to_aoa_lut(struct dw3000 *dw, s16 pdoa_rad_q11);
 int dw3000_read_sts_timestamp(struct dw3000 *dw, u64 *sts_ts);
 int dw3000_read_sts_quality(struct dw3000 *dw, s16 *acc_qual);
+int dw3000_read_clockoffset(struct dw3000 *dw, s16 *cfo);
+int dw3000_prog_xtrim(struct dw3000 *dw);
 
 int dw3000_set_gpio_mode(struct dw3000 *dw, u32 mask, u32 mode);
 int dw3000_set_gpio_dir(struct dw3000 *dw, u16 mask, u16 dir);
@@ -362,8 +348,11 @@ void dw3000_wakeup_timer_start(struct dw3000 *dw, int delay_us);
 void dw3000_wakeup_and_wait(struct dw3000 *dw);
 int dw3000_deep_sleep_and_wakeup(struct dw3000 *dw, int delay_us);
 int dw3000_can_deep_sleep(struct dw3000 *dw, int delay_us);
-int dw3000_configure_pulse_shape(struct dw3000 *dw, bool isalternate);
 int dw3000_trace_rssi_info(struct dw3000 *dw, u32 regid, char *chipver);
+
+int dw3000_testmode_continuous_tx_start(struct dw3000 *dw, u32 frame_length,
+					u32 rate);
+int dw3000_testmode_continuous_tx_stop(struct dw3000 *dw);
 
 /* Preamble length related information. */
 struct dw3000_plen_info {

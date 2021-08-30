@@ -148,6 +148,9 @@ struct mcps802154_llhw {
  *	SFD, no PHR, no payload, ERDEV only).
  * @MCPS802154_TX_FRAME_STS_MODE_MASK:
  *      Mask covering all the STS mode configuration values.
+ * @MCPS802154_TX_FRAME_RANGING_ROUND:
+ *	Inform low-level driver the transmitted frame is the start of a ranging
+ *	round (RDEV only).
  *
  * If no timestamp flag is given, transmit as soon as possible.
  */
@@ -161,6 +164,7 @@ enum mcps802154_tx_frame_info_flags {
 	MCPS802154_TX_FRAME_SP2 = BIT(6),
 	MCPS802154_TX_FRAME_SP3 = BIT(5) | BIT(6),
 	MCPS802154_TX_FRAME_STS_MODE_MASK = BIT(5) | BIT(6),
+	MCPS802154_TX_FRAME_RANGING_ROUND = BIT(7),
 };
 
 /**
@@ -217,6 +221,9 @@ struct mcps802154_tx_frame_info {
  *	payload, ERDEV only).
  * @MCPS802154_RX_INFO_STS_MODE_MASK:
  *      Mask covering all the STS mode configuration values.
+ * @MCPS802154_RX_INFO_RANGING_ROUND:
+ *	Inform low-level driver the expected received frame is the start of a
+ *	ranging round (RDEV only).
  *
  * If no timestamp flag is given, enable receiver as soon as possible.
  */
@@ -230,6 +237,7 @@ enum mcps802154_rx_info_flags {
 	MCPS802154_RX_INFO_SP2 = BIT(6),
 	MCPS802154_RX_INFO_SP3 = BIT(5) | BIT(6),
 	MCPS802154_RX_INFO_STS_MODE_MASK = BIT(5) | BIT(6),
+	MCPS802154_RX_INFO_RANGING_ROUND = BIT(7),
 };
 
 /**
@@ -442,6 +450,10 @@ struct mcps802154_ops {
 	 * as specified in info. Receiver should be disabled automatically
 	 * unless a frame is being received.
 	 *
+	 * The &frame_idx parameter gives the index of the frame in a "block".
+	 * Frames from the same block (aka frame_idx > 0) should maintain the
+	 * same synchronization.
+	 *
 	 * The &next_delay_dtu parameter gives the expected delay between the
 	 * start of the transmitted frame and the next action.
 	 *
@@ -450,9 +462,13 @@ struct mcps802154_ops {
 	 */
 	int (*tx_frame)(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 			const struct mcps802154_tx_frame_info *info,
-			int next_delay_dtu);
+			int frame_idx, int next_delay_dtu);
 	/**
 	 * @rx_enable: Enable receiver.
+	 *
+	 * The &frame_idx parameter gives the index of the frame in a "block".
+	 * Frames from the same block (aka frame_idx > 0) should maintain the
+	 * same synchronization.
 	 *
 	 * The &next_delay_dtu parameter gives the expected delay between the
 	 * start of the received frame or timeout event and the next action.
@@ -461,7 +477,7 @@ struct mcps802154_ops {
 	 * timestamp, or any other error.
 	 */
 	int (*rx_enable)(struct mcps802154_llhw *llhw,
-			 const struct mcps802154_rx_info *info,
+			 const struct mcps802154_rx_info *info, int frame_idx,
 			 int next_delay_dtu);
 	/**
 	 * @rx_disable: Disable receiver, or a programmed receiver enabling,

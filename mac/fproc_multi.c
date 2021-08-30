@@ -140,10 +140,7 @@ mcps802154_fproc_multi_rx_rx_error(struct mcps802154_local *local,
 	struct mcps802154_rx_frame_info info = {
 		.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU,
 	};
-	if (error == MCPS802154_RX_ERROR_FILTERED) {
-		mcps802154_fproc_multi_next(local, access, frame_idx);
-		return;
-	}
+
 	llhw_rx_get_error_frame(local, &info);
 	access->ops->rx_frame(access, frame_idx, NULL, &info, error);
 
@@ -242,7 +239,7 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 				return r;
 		}
 
-		r = llhw_rx_enable(local, &frame->rx.info, 0);
+		r = llhw_rx_enable(local, &frame->rx.info, frame_idx, 0);
 		if (r)
 			return r;
 
@@ -266,7 +263,8 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 			}
 		}
 
-		r = llhw_tx_frame(local, skb, &frame->tx_frame_info, 0);
+		r = llhw_tx_frame(local, skb, &frame->tx_frame_info, frame_idx,
+				  0);
 		if (r) {
 			access->ops->tx_return(
 				access, frame_idx, skb,

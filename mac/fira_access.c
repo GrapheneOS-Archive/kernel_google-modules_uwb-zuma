@@ -66,6 +66,7 @@ static void fira_access_setup_frame(struct fira_local *local,
 
 	bool is_rframe = slot->message_id <= FIRA_MESSAGE_ID_RFRAME_MAX;
 	bool is_last_rframe = slot->message_id == FIRA_MESSAGE_ID_RANGING_FINAL;
+	bool is_first_frame = slot->message_id == FIRA_MESSAGE_ID_CONTROL;
 
 	if (is_rframe) {
 		memcpy(sts_params->v, session->crypto.sts_v, AES_BLOCK_SIZE);
@@ -102,10 +103,10 @@ static void fira_access_setup_frame(struct fira_local *local,
 				flags |= MCPS802154_TX_FRAME_SP3;
 			else
 				flags |= MCPS802154_TX_FRAME_SP1;
-		}
-		if (slot->message_id == FIRA_MESSAGE_ID_CONTROL || is_rframe) {
-			flags |= MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK;
-		}
+		  if (!is_last_rframe)
+			  flags |= MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK;
+		} else if (is_first_frame)
+			flags |= MCPS802154_TX_FRAME_RANGING_ROUND;
 		*frame = (struct mcps802154_access_frame){
 			.is_tx = true,
 			.tx_frame_info = {
@@ -136,13 +137,12 @@ static void fira_access_setup_frame(struct fira_local *local,
 					MCPS802154_RX_FRAME_INFO_RANGING_PDOA_FOM;
 			}
 		}
-
 		*frame = (struct mcps802154_access_frame){
 			.is_tx = false,
 			.rx = {
 				.info = {
 					.timestamp_dtu = frame_dtu,
-					.flags = flags,
+				  .flags = flags,
 					.ant_pair_id = slot->rx_ant_pair,
 				},
 				.frame_info_flags_request = request,
@@ -263,6 +263,7 @@ static void fira_rx_frame_control(struct fira_local *local,
 
 	if (stop_ranging) {
 		session->stop_inband = true;
+		return;
 	}
 
 	last_slot_index = 0;
@@ -739,7 +740,8 @@ fira_access_controlee(struct fira_local *local, struct fira_session *session)
 			.info = {
 				.timestamp_dtu = access->timestamp_dtu,
 				.timeout_dtu = access->duration_dtu ? access->duration_dtu : -1,
-				.flags = MCPS802154_RX_INFO_KEEP_RANGING_CLOCK,
+				.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU |
+					MCPS802154_RX_INFO_RANGING_ROUND,
 				.ant_pair_id = s->rx_ant_pair,
 			},
 			.frame_info_flags_request
@@ -785,14 +787,22 @@ void fira_session_get_demand(struct fira_local *local,
 			     struct fira_session *session,
 			     struct mcps802154_region_demand *demand)
 {
-	demand->timestamp_dtu = session->block_start_dtu +
-				fira_session_get_round_slot(session) *
-					session->params.slot_duration_dtu;
-	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLLER)
+	u32 base_timestamp_dtu = session->block_start_dtu +
+				 fira_session_get_round_slot(session) *
+					 session->params.slot_duration_dtu;
+	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLLER) {
+		demand->timestamp_dtu = base_timestamp_dtu;
 		demand->duration_dtu =
 			(4 + 2 * session->current_controlees.size) *
 			session->params.slot_duration_dtu;
-	else
-		/* Min size for DSTWR. */
-		demand->duration_dtu = 6 * session->params.slot_duration_dtu;
+	} else {
+		int block_duration_margin_dtu =
+			fira_session_get_block_duration_margin(local, session);
+		demand->timestamp_dtu =
+			base_timestamp_dtu - block_duration_margin_dtu;
+		demand->duration_dtu =
+			session->params.round_duration_slots *
+				session->params.slot_duration_dtu +
+			2 * block_duration_margin_dtu;
+	}
 }

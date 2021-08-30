@@ -580,7 +580,8 @@ twr_responder_get_access(struct mcps802154_region *region,
 					MCPS802154_RX_INFO_RANGING |
 					MCPS802154_RX_INFO_KEEP_RANGING_CLOCK |
 					MCPS802154_RX_INFO_RANGING_PDOA |
-					MCPS802154_RX_INFO_SP1,
+					MCPS802154_RX_INFO_SP1 |
+					MCPS802154_RX_INFO_RANGING_ROUND,
 				.ant_pair_id = local->rx_ant_pair_azimuth,
 			},
 			.frame_info_flags_request =
@@ -668,7 +669,8 @@ twr_get_access(struct mcps802154_region *region, u32 next_timestamp_dtu,
 			.flags = MCPS802154_TX_FRAME_TIMESTAMP_DTU |
 				MCPS802154_TX_FRAME_RANGING |
 				MCPS802154_TX_FRAME_KEEP_RANGING_CLOCK |
-				MCPS802154_TX_FRAME_SP1,
+				MCPS802154_TX_FRAME_SP1 |
+				MCPS802154_TX_FRAME_RANGING_ROUND,
 			.ant_id = local->tx_ant,
 		},
 		.sts_params = &local->sts_params,
