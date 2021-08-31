@@ -199,6 +199,7 @@ enum spi_modes {
 #define DW3000_OTPREV_ADDRESS (0x1F)
 #define DW3000_BIAS_TUNE_ADDRESS (0xA)
 #define DW3000_DGC_TUNE_ADDRESS (0x20)
+#define DW3000_PLL_CC_ADDRESS (0x35)
 
 /* Clock offset value under which the PDoA value is assumed bad. */
 #define DW3000_CFO_THRESHOLD ((s16)(4 * (1 << 26) / 1000000))

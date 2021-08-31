@@ -104,6 +104,8 @@ struct dw3000_chip_register_priv {
  * @pre_read_sys_time: Workaround before the SYS_TIME register reads
  * @adc_offset_calibration: Workaround to calibrate ADC offset
  * @pll_calibration_from_scratch: Workaround to calibrate the PLL from scratch
+ * @pll_coarse_code: Workaround to set PLL coarse code
+ * @prog_pll_coarse_code: Program PLL coarse code from OTP
  * @get_registers: Return known registers table and it's size
  */
 struct dw3000_chip_ops {
@@ -117,6 +119,8 @@ struct dw3000_chip_ops {
 	int (*pre_read_sys_time)(struct dw3000 *dw);
 	int (*adc_offset_calibration)(struct dw3000 *dw);
 	int (*pll_calibration_from_scratch)(struct dw3000 *dw);
+	int (*pll_coarse_code)(struct dw3000 *dw);
+	int (*prog_pll_coarse_code)(struct dw3000 *dw);
 	const struct dw3000_chip_register *(*get_registers)(struct dw3000 *dw,
 							    size_t *count);
 };

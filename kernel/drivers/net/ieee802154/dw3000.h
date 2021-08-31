@@ -112,6 +112,7 @@ struct dw3000_isr_data {
  * @tempP: tempP
  * @rev: OTP revision
  * @mode: Saved last OTP read mode to avoid multiple read
+ * @pll_coarse_code: PLL coarse code use by chip->prog_pll_coarse_code
  */
 struct dw3000_otp_data {
 	u32 partID;
@@ -125,6 +126,7 @@ struct dw3000_otp_data {
 	u8 tempP;
 	u8 rev;
 	int mode;
+	u32 pll_coarse_code;
 };
 
 /**

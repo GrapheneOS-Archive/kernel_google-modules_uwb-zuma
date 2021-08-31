@@ -3712,16 +3712,13 @@ static inline int dw3000_configure_rf(struct dw3000 *dw)
 		return rc;
 
 	/* Extend the lock delay */
-	rc = dw3000_reg_write8(dw, DW3000_PLL_CAL_ID, 0,
- 				 DW3000_RF_PLL_CFG_LD);
+	rc = dw3000_reg_write8(dw, DW3000_PLL_CAL_ID, 0, DW3000_RF_PLL_CFG_LD);
 	if (unlikely(rc))
 		return rc;
 
-	if (__dw3000_chip_version > 0) {
-		/* Verify PLL lock bit is cleared */
-		int rc = dw3000_reg_write8(
-			dw, DW3000_SYS_STATUS_ID, 0,
-			DW3000_SYS_STATUS_CLK_PLL_LOCK_BIT_MASK);
+	/* Configure PLL coarse code, if needed. */
+	if (dw->chip_ops->pll_coarse_code) {
+		rc = dw->chip_ops->pll_coarse_code(dw);
 		if (rc)
 			return rc;
 	}
@@ -5057,7 +5054,9 @@ static int dw3000_read_otp(struct dw3000 *dw, int mode)
 		if (rc)
 			return rc;
 	}
-	return 0;
+	/* PLL coarse code : starting code for calibration procedure */
+	return dw3000_otp_read32(dw, DW3000_PLL_CC_ADDRESS,
+				 &otp->pll_coarse_code);
 }
 
 /**
@@ -5880,6 +5879,17 @@ int dw3000_init(struct dw3000 *dw, bool check_idlerc)
 	if (unlikely(rc)) {
 		dev_err(dw->dev, "device XTRIM setup has failed (%d)\n", rc);
 		return rc;
+	}
+	/* Read and init coarse code from OTP*/
+	/* Configure PLL coarse code, if needed. */
+	if (dw->chip_ops->prog_pll_coarse_code) {
+		rc = dw->chip_ops->prog_pll_coarse_code(dw);
+		if (unlikely(rc)) {
+			dev_err(dw->dev,
+				"device coarse code setup has failed (%d)\n",
+				rc);
+			return rc;
+		}
 	}
 	/* Ensure STS fields are double-buffered if enabled, also enable stats
 	 * if configured in module parameters */
