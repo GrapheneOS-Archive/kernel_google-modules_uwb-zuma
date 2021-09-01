@@ -312,9 +312,6 @@ static const u16 dw3000_sts_length_factors[DW3000_STS_LEN_SUPPORTED] = {
  * in case it is not present, the default would be used instead. */
 #define DW3000_DEFAULT_XTAL_TRIM 0x2E
 
-/* The XTAL TRIM BIAS value for +/- 5PPM offset */
-#define DW3000_XTAL_BIAS_5PPM 9
-
 /* SYS_STATE_LO register errors */
 /* TSE is in TX but TX is in IDLE in SYS_STATE_LO register */
 #define DW3000_SYS_STATE_TXERR 0xD0000
@@ -1236,6 +1233,18 @@ int dw3000_clear_sys_status(struct dw3000 *dw, u32 clear_bits)
 	return dw3000_spi_sync(dw, msg);
 }
 
+static int dw3000_clear_all_sys_status(struct dw3000 *dw, u64 clear_bits)
+{
+	/* Use a prebuilt SPI message to be as fast as possible. */
+	struct spi_message *msg = dw->msg_write_all_sys_status;
+	struct spi_transfer *tr = list_first_entry(
+		&msg->transfers, struct spi_transfer, transfer_list);
+	const int hlen = tr->len - sizeof(clear_bits);
+	/* Prepared message have only header & length set, need to set data part */
+	put_unaligned_le64(clear_bits, (void *)tr->tx_buf + hlen);
+	return dw3000_spi_sync(dw, msg);
+}
+
 /**
  * dw3000_read_sys_status() - Fast read of SYS_STATUS register (4 low bytes upon 6)
  * @dw: the DW device on which the SPI transfer will occurs
@@ -1253,45 +1262,6 @@ int dw3000_read_sys_status(struct dw3000 *dw, u32 *status)
 	int rc = dw3000_spi_sync(dw, msg);
 	if (!rc)
 		*status = get_unaligned_le32(tr->rx_buf + hlen);
-	return rc;
-}
-
-/**
- * dw3000_clear_all_sys_status() - Fast clearing of SYS_STATUS register
- * @dw: the DW device on which the SPI transfer will occurs
- * @clear_bits: the bitmask of bits to clear
- *
- * Return: 0 on success, else a negative error code.
- */
-static int dw3000_clear_all_sys_status(struct dw3000 *dw, u64 clear_bits)
-{
-	/* Use a prebuilt SPI message to be as fast as possible. */
-	struct spi_message *msg = dw->msg_write_all_sys_status;
-	struct spi_transfer *tr = list_first_entry(
-		&msg->transfers, struct spi_transfer, transfer_list);
-	const int hlen = tr->len - sizeof(clear_bits);
-	/* Prepared message have only header & length set, need to set data part */
-	put_unaligned_le64(clear_bits, (void *)tr->tx_buf + hlen);
-	return dw3000_spi_sync(dw, msg);
-}
-
-/**
- * dw3000_read_all_sys_status() - Fast read of SYS_STATUS register
- * @dw: the DW device on which the SPI transfer will occurs
- * @status: address where to put read status
- *
- * Return: 0 on success, else a negative error code.
- */
-int dw3000_read_all_sys_status(struct dw3000 *dw, u64 *status)
-{
-	/* Use a prebuilt SPI message to be as fast as possible. */
-	struct spi_message *msg = dw->msg_read_all_sys_status;
-	struct spi_transfer *tr = list_first_entry(
-		&msg->transfers, struct spi_transfer, transfer_list);
-	const int hlen = tr->len - sizeof(*status);
-	int rc = dw3000_spi_sync(dw, msg);
-	if (!rc)
-		*status = get_unaligned_le64(tr->rx_buf + hlen);
 	return rc;
 }
 
@@ -1361,6 +1331,26 @@ int dw3000_clear_spi_collision_status(struct dw3000 *dw, u8 clear_bits)
 	rc = spi_sync(dw->spi, msg);
 	if (rc)
 		dev_err(dw->dev, "could not transfer : %d\n", rc);
+	return rc;
+}
+
+/*
+ * dw3000_read_all_sys_status() - Fast read of SYS_STATUS register
+ * @dw: the DW device on which the SPI transfer will occurs
+ * @status: address where to put read status
+ *
+ * Return: 0 on success, else a negative error code.
+ */
+int dw3000_read_all_sys_status(struct dw3000 *dw, u64 *status)
+{
+	/* Use a prebuilt SPI message to be as fast as possible. */
+	struct spi_message *msg = dw->msg_read_all_sys_status;
+	struct spi_transfer *tr = list_first_entry(
+		&msg->transfers, struct spi_transfer, transfer_list);
+	const int hlen = tr->len - sizeof(*status);
+	int rc = dw3000_spi_sync(dw, msg);
+	if (!rc)
+		*status = get_unaligned_le64(tr->rx_buf + hlen);
 	return rc;
 }
 
@@ -2263,8 +2253,6 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 
 	trace_dw3000_mcps_rx_enable(dw, info->flags, info->timeout_dtu);
 
-	/* Ensure CFO is checked if responder wait first frame of round. */
-	dw->data.check_cfo = !!(info->flags & MCPS802154_RX_INFO_RANGING_ROUND);
 	/* Calculate the transfer date. */
 	if (info->flags & MCPS802154_RX_INFO_TIMESTAMP_DTU)
 		date_dtu = info->timestamp_dtu - DW3000_RX_ENABLE_STARTUP_DTU;
@@ -3091,15 +3079,6 @@ int dw3000_do_tx_frame(struct dw3000 *dw,
 	}
 	/* All operation below require the DW chip is in IDLE_PLL state */
 
-	/* Oscillate XTAL around calibrated value to maximise successful PDoA probability */
-	if (info->flags & MCPS802154_TX_FRAME_RANGING_ROUND) {
-		dw->data.xtal_bias = (dw->data.xtal_bias > 0 ?
-					      -DW3000_XTAL_BIAS_5PPM :
-					      DW3000_XTAL_BIAS_5PPM);
-		rc = dw3000_prog_xtrim(dw);
-		if (unlikely(rc))
-			goto fail;
-	}
 	/* Enable STS */
 	sts_mode = FIELD_GET(MCPS802154_TX_FRAME_STS_MODE_MASK, info->flags);
 	rc = dw3000_set_sts_pdoa(
@@ -4579,73 +4558,6 @@ static inline int dw3000_framefilter_disable(struct dw3000 *dw)
 }
 
 /**
- * dw3000_set_pdoa() - set device's PDOA mode
- * @dw: the DW device
- * @mode: the PDOA mode
- *
- * Return: zero on success, else a negative error code.
- */
-int dw3000_set_pdoa(struct dw3000 *dw, u8 mode)
-{
-	struct dw3000_config *config = &dw->config;
-	int rc;
-	/* This configuration is reserved or not supported
-	 * (c.f DW3000 User Manual) */
-	if (mode == DW3000_PDOA_M2)
-		return -EOPNOTSUPP;
-	if (config->pdoaMode == mode)
-		return 0;
-	rc = dw3000_reg_modify32(
-		dw, DW3000_SYS_CFG_ID, 0,
-		~(u32)(DW3000_SYS_CFG_PDOA_MODE_BIT_MASK),
-		(((u32)config->pdoaMode & DW3000_PDOA_CONFIG_MASK)
-		 << DW3000_SYS_CFG_PDOA_MODE_BIT_OFFSET));
-	if (rc)
-		return rc;
-	trace_dw3000_set_pdoa(dw, mode);
-	config->pdoaMode = mode;
-	/* Re-configure the device with new PDOA mode */
-	/* TODO: Changing both PDOA & STS will result in the following called twice */
-	return dw3000_configure_sys_cfg(dw, config);
-}
-
-/**
- * dw3000_read_clockoffset() - Read the clock offset for last frame received
- * @dw: the DW device on which the SPI transfer will occurs
- * @cfo: the address where to store read CFO
- *
- * This is used to read the crystal offset (relating to the frequency offset of
- * the far DW3720 device compared to this one).
- *
- * Note: the returned signed number must be divided by 2^26 to get ppm offset.
- * Return: 0 on success, else a negative error code.
- */
-int dw3000_read_clockoffset(struct dw3000 *dw, s16 *cfo)
-{
-	int rc;
-	switch (dw->data.dblbuffon) {
-	case DW3000_DBL_BUFF_ACCESS_BUFFER_B:
-		/* !!! Assumes that Indirect pointer register B was already set. */
-		rc = dw3000_reg_read16(dw, DW3000_INDIRECT_POINTER_B_ID,
-				       DW3000_DB_DIAG_CIA_DIAG0, (u16 *)cfo);
-		break;
-	case DW3000_DBL_BUFF_ACCESS_BUFFER_A:
-		rc = dw3000_reg_read16(dw, DW3000_DB_DIAG_SET_1,
-				       DW3000_DB_DIAG_CIA_DIAG0, (u16 *)cfo);
-		break;
-	default:
-		rc = dw3000_reg_read16(dw, DW3000_CIA_DIAG0_ID, 0, (u16 *)cfo);
-	}
-	if (rc)
-		return rc;
-	/* Bit 12 is sign, make the number to be sign extended if this bit is '1' */
-	*cfo <<= sizeof(*cfo) * 8 - DW3000_CIA_DIAG0_COE_PPM_BIT_LEN;
-	*cfo >>= sizeof(*cfo) * 8 - DW3000_CIA_DIAG0_COE_PPM_BIT_LEN;
-	trace_dw3000_read_clockoffset(dw, *cfo);
-	return 0;
-}
-
-/**
 * dw3000_read_pdoa() - Read the PDOA result.
 * @dw: The DW device.
 *
@@ -5017,7 +4929,8 @@ static int dw3000_read_otp(struct dw3000 *dw, int mode)
 	rc = dw3000_otp_read32(dw, DW3000_XTRIM_ADDRESS, &val);
 	if (unlikely(rc))
 		return rc;
-	otp->xtal_trim = val & DW3000_XTAL_TRIM_BIT_MASK;
+	/* TODO: avoid hard number, and replace it. */
+	otp->xtal_trim = val & 0x7f;
 	/* Load optional values according to mode parameter */
 	if (mode & DW3000_READ_OTP_PID) {
 		rc = dw3000_otp_read32(dw, DW3000_PARTID_ADDRESS, &otp->partID);
@@ -5330,21 +5243,14 @@ int dw3000_otp_write32(struct dw3000 *dw, u16 addr, u32 data)
  *
  * Return: zero on success, else a negative error code.
  */
-int dw3000_prog_xtrim(struct dw3000 *dw)
+static int dw3000_prog_xtrim(struct dw3000 *dw)
 {
 	struct dw3000_otp_data *otp = &dw->otp_data;
-	struct dw3000_local_data *local = &dw->data;
 	int rc;
 
 	if (otp->xtal_trim) {
-		int value = (int)otp->xtal_trim + local->xtal_bias;
-		if (value < 0)
-			value = 0;
-		else if (value > DW3000_XTAL_TRIM_BIT_MASK)
-			value = DW3000_XTAL_TRIM_BIT_MASK;
-		/* Set the XTAL trim value */
-		rc = dw3000_reg_write8(dw, DW3000_XTAL_ID, 0, (u8)value);
-		trace_dw3000_prog_xtrim(dw, rc, value);
+		/* set the XTAL trim value as read from OTP */
+		rc = dw3000_reg_write8(dw, DW3000_XTAL_ID, 0, otp->xtal_trim);
 		if (unlikely(rc))
 			return rc;
 	}

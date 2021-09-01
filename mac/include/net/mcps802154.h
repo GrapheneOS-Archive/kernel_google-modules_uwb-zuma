@@ -173,9 +173,6 @@ struct mcps802154_llhw {
  *	SFD, no PHR, no payload, ERDEV only).
  * @MCPS802154_TX_FRAME_STS_MODE_MASK:
  *      Mask covering all the STS mode configuration values.
- * @MCPS802154_TX_FRAME_RANGING_ROUND:
- *	Inform low-level driver the transmitted frame is the start of a ranging
- *	round (RDEV only).
  *
  * If no timestamp flag is given, transmit as soon as possible.
  */
@@ -189,7 +186,6 @@ enum mcps802154_tx_frame_info_flags {
 	MCPS802154_TX_FRAME_SP2 = BIT(6),
 	MCPS802154_TX_FRAME_SP3 = BIT(5) | BIT(6),
 	MCPS802154_TX_FRAME_STS_MODE_MASK = BIT(5) | BIT(6),
-	MCPS802154_TX_FRAME_RANGING_ROUND = BIT(7),
 };
 
 /**
@@ -246,9 +242,6 @@ struct mcps802154_tx_frame_info {
  *	payload, ERDEV only).
  * @MCPS802154_RX_INFO_STS_MODE_MASK:
  *      Mask covering all the STS mode configuration values.
- * @MCPS802154_RX_INFO_RANGING_ROUND:
- *	Inform low-level driver the expected received frame is the start of a
- *	ranging round (RDEV only).
  *
  * If no timestamp flag is given, enable receiver as soon as possible.
  */
@@ -262,7 +255,6 @@ enum mcps802154_rx_info_flags {
 	MCPS802154_RX_INFO_SP2 = BIT(6),
 	MCPS802154_RX_INFO_SP3 = BIT(5) | BIT(6),
 	MCPS802154_RX_INFO_STS_MODE_MASK = BIT(5) | BIT(6),
-	MCPS802154_RX_INFO_RANGING_ROUND = BIT(7),
 };
 
 /**
