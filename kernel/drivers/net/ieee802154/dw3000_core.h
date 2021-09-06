@@ -274,6 +274,7 @@ int dw3000_enable(struct dw3000 *dw);
 int dw3000_disable(struct dw3000 *dw);
 
 int dw3000_configure_chan(struct dw3000 *dw);
+int dw3000_configure_pcode(struct dw3000 *dw);
 
 int dw3000_set_eui64(struct dw3000 *dw, __le64 val);
 int dw3000_set_panid(struct dw3000 *dw, __le16 val);

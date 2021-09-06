@@ -34,13 +34,36 @@ static int
 mcps802154_fproc_multi_restore_hw_addr_filt(struct mcps802154_local *local,
 					    struct mcps802154_access *access)
 {
-	struct ieee802154_hw_addr_filt hw_addr_filt;
+	int r = 0;
 
-	hw_addr_filt.pan_id = local->pib.mac_pan_id;
-	hw_addr_filt.short_addr = local->pib.mac_short_addr;
-	hw_addr_filt.ieee_addr = local->pib.mac_extended_addr;
-	return llhw_set_hw_addr_filt(local, &hw_addr_filt,
-				     access->hw_addr_filt_changed);
+	if (access->hw_addr_filt_changed) {
+		struct ieee802154_hw_addr_filt hw_addr_filt;
+
+		hw_addr_filt.pan_id = local->pib.mac_pan_id;
+		hw_addr_filt.short_addr = local->pib.mac_short_addr;
+		hw_addr_filt.ieee_addr = local->pib.mac_extended_addr;
+		r = llhw_set_hw_addr_filt(local, &hw_addr_filt,
+					  access->hw_addr_filt_changed);
+	}
+
+	return r;
+}
+
+static int mcps802154_fproc_multi_restore(struct mcps802154_local *local,
+					  struct mcps802154_access *access)
+{
+	if (access->channel) {
+		int r;
+		const struct mcps802154_channel *channel =
+			&local->pib.phy_current_channel;
+
+		r = llhw_set_channel(local, channel->page, channel->channel,
+				     channel->preamble_code);
+		if (r)
+			return r;
+	}
+
+	return mcps802154_fproc_multi_restore_hw_addr_filt(local, access);
 }
 
 /**
@@ -72,14 +95,11 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 			}
 		}
 	} else {
-		if (access->hw_addr_filt_changed) {
-			r = mcps802154_fproc_multi_restore_hw_addr_filt(local,
-									access);
-			if (r) {
-				mcps802154_fproc_access_done(local, r);
-				mcps802154_fproc_broken_handle(local);
-				return;
-			}
+		r = mcps802154_fproc_multi_restore(local, access);
+		if (r) {
+			mcps802154_fproc_access_done(local, r);
+			mcps802154_fproc_broken_handle(local);
+			return;
 		}
 		/* Next access. */
 		mcps802154_fproc_access_done(local, 0);
@@ -300,6 +320,16 @@ int mcps802154_fproc_multi_handle(struct mcps802154_local *local,
 					  access->hw_addr_filt_changed);
 		if (r)
 			return r;
+	}
+	if (access->channel) {
+		r = llhw_set_channel(local, access->channel->page,
+				     access->channel->channel,
+				     access->channel->preamble_code);
+		if (r) {
+			mcps802154_fproc_multi_restore_hw_addr_filt(local,
+								    access);
+			return r;
+		}
 	}
 	return mcps802154_fproc_multi_handle_frame(local, access, 0);
 }

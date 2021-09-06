@@ -373,6 +373,24 @@ enum power_state {
 };
 
 /**
+ * enum config_changed_flags - values for configuration changed bitfield
+ * @DW3000_AFILT_SADDR_CHANGED: same as IEEE802154_AFILT_SADDR_CHANGED
+ * @DW3000_AFILT_IEEEADDR_CHANGED: same as IEEE802154_AFILT_IEEEADDR_CHANGED
+ * @DW3000_AFILT_PANID_CHANGED: same as IEEE802154_AFILT_PANID_CHANGED
+ * @DW3000_AFILT_PANC_CHANGED: same as IEEE802154_AFILT_PANC_CHANGED
+ * @DW3000_CHANNEL_CHANGED: channel configuration changed
+ * @DW3000_PCODE_CHANGED: preamble code configuration changed
+ */
+enum config_changed_flags {
+	DW3000_AFILT_SADDR_CHANGED = IEEE802154_AFILT_SADDR_CHANGED,
+	DW3000_AFILT_IEEEADDR_CHANGED = IEEE802154_AFILT_IEEEADDR_CHANGED,
+	DW3000_AFILT_PANID_CHANGED = IEEE802154_AFILT_PANID_CHANGED,
+	DW3000_AFILT_PANC_CHANGED = IEEE802154_AFILT_PANC_CHANGED,
+	DW3000_CHANNEL_CHANGED = BIT(4),
+	DW3000_PCODE_CHANGED = BIT(5),
+};
+
+/**
  * struct dw3000_power - DW3000 device power related data
  * @stats: accumulated statistics defined by struct sysfs_power_stats
  * @start_time: timestamp of current state start

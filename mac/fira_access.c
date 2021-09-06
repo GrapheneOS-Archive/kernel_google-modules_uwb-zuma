@@ -568,6 +568,27 @@ static __le16 fira_access_set_short_address(struct fira_local *local,
 	}
 }
 
+static const struct mcps802154_channel *
+fira_access_channel(struct fira_local *local,
+		    const struct fira_session *session)
+{
+	if (session->params.channel_number ||
+	    session->params.preamble_code_index) {
+		const struct mcps802154_channel *channel =
+			mcps802154_get_current_channel(local->llhw);
+
+		local->channel = *channel;
+		if (session->params.channel_number)
+			local->channel.channel = session->params.channel_number;
+		if (session->params.preamble_code_index)
+			local->channel.preamble_code =
+				session->params.preamble_code_index;
+		return &local->channel;
+	}
+
+	return NULL;
+}
+
 static struct mcps802154_access *
 fira_access_controller(struct fira_local *local, struct fira_session *session)
 {
@@ -595,6 +616,7 @@ fira_access_controller(struct fira_local *local, struct fira_session *session)
 				fira_session_get_round_slot(session) *
 					session->params.slot_duration_dtu;
 	access->frames = local->frames;
+	access->channel = fira_access_channel(local, session);
 
 	fira_update_antennas_id(session);
 
@@ -718,6 +740,7 @@ fira_access_controlee(struct fira_local *local, struct fira_session *session)
 	access->duration_dtu = session->last_access_duration_dtu;
 	access->frames = local->frames;
 	access->n_frames = 1;
+	access->channel = fira_access_channel(local, session);
 	fira_update_antennas_id(session);
 
 	ri = local->ranging_info;
