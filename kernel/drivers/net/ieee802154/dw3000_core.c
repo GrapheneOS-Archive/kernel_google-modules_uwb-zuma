@@ -3905,9 +3905,22 @@ static int dw3000_setdwstate(struct dw3000 *dw, enum operational_state state)
 		/* Store the current DTU  */
 		dw->sleep_enter_dtu = dw3000_get_dtu_time(dw);
 		trace_dw3000_deep_sleep_enter(dw, dw->sleep_enter_dtu);
-		/**
-		 * Set up the deep sleep configuration:
-		 * Step 1:
+		/*
+		 * Set up the deep sleep configuration
+		 */
+		/* Step 1:
+		 * - enable configuration copy from AON memory to host registers.
+		 * - set ONW_GO2IDLE to get DW3000_OP_STATE_IDLE_PLL on wakeup.
+		 */
+		rc = dw3000_reg_write16(
+			dw, DW3000_AON_DIG_CFG_ID, 0,
+			dw->data.sleep_mode |
+				DW3000_AON_DIG_CFG_ONW_AONDLD_MASK |
+				DW3000_AON_DIG_CFG_ONW_GO2IDLE_MASK);
+		if (rc)
+			return rc;
+		/*
+		 * Step 2:
 		 * - enable the sleep configuration bit.
 		 * - disable sleep counter to get deep sleep.
 		 * - enable wake up using SPI access.
@@ -3917,45 +3930,29 @@ static int dw3000_setdwstate(struct dw3000 *dw, enum operational_state state)
 					       DW3000_AON_WAKE_CSN_MASK);
 		if (rc)
 			return rc;
-		/* Step 2: Set INIT2IDLE bit, to get DW3000_OP_STATE_IDLE_PLL on wakeup. */
+		/*
+		 * Step 3
+		 * - Set INIT2IDLE bit, to get DW3000_OP_STATE_IDLE_PLL on wakeup.
+		 */
 		rc = dw3000_reg_or8(dw, DW3000_SEQ_CTRL_ID, 0x01,
 				    DW3000_SEQ_CTRL_AUTO_INIT2IDLE_BIT_MASK >>
 					    8);
 		if (rc)
 			return rc;
-		/* Step 3:
-		 * - enable configuration copy from AON memory to host registers.
-		 * - set ONW_GO2IDLE to get DW3000_OP_STATE_IDLE_PLL on wakeup.
+		/* Step 4
+		 * - backup ALL registers to AON memory (include AON config block)
+		 * - and enter DEEP-SLEEP
 		 */
-		rc = dw3000_reg_or16(
-			dw, DW3000_AON_DIG_CFG_ID, 0,
-			dw->data.sleep_mode |
-				DW3000_AON_DIG_CFG_ONW_AONDLD_MASK |
-				DW3000_AON_DIG_CFG_ONW_GO2IDLE_MASK);
+		rc = dw3000_reg_write8(dw, DW3000_AON_CTRL_ID, 0, 0);
 		if (rc)
 			return rc;
-		/* Step 4: backup ALL registers to AON memory */
 		rc = dw3000_reg_write8(dw, DW3000_AON_CTRL_ID, 0,
 				       DW3000_AON_CTRL_ARRAY_UPLOAD_BIT_MASK);
 		if (rc)
 			return rc;
-		/* Loop until backup is complete (bit has been reset) */
-		do {
-			u8 val;
-			udelay(10);
-			rc = dw3000_reg_read8(dw, DW3000_AON_CTRL_ID, 0, &val);
-			if (rc)
-				return rc;
-			if (val & DW3000_AON_CTRL_ARRAY_UPLOAD_BIT_MASK)
-				rc = -EAGAIN;
-		} while (rc);
-		/* Step 5: Upload the AON block configurations to the AON to go in DW3000_OP_STATE_DEEP_SLEEP. */
-		rc = dw3000_reg_or8(dw, DW3000_AON_CTRL_ID, 0,
-				    DW3000_AON_CTRL_CONFIG_UPLOAD_BIT_MASK);
-		if (rc)
-			return rc;
-		/* Step 6: Here the chip is in DW3000_OP_STATE_DEEP_SLEEP.
-		 * Update power statistics and operational state.
+		/* Step 5
+		 * Here the chip is in DW3000_OP_STATE_DEEP_SLEEP so now
+		 * update power statistics and operational state.
 		 */
 		dw3000_power_stats(dw, DW3000_PWR_DEEPSLEEP, 0);
 		dw3000_set_operational_state(dw, DW3000_OP_STATE_DEEP_SLEEP);
