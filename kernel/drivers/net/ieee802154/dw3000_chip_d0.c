@@ -23,10 +23,12 @@
 #include "dw3000.h"
 #include "dw3000_core.h"
 #include "dw3000_core_reg.h"
+#include "dw3000_chip_d0.h"
 #include "dw3000_nfcc_coex_core.h"
 #include "dw3000_trc.h"
 
 int dw3000_c0_get_dgc_dec(struct dw3000 *dw, u8 *value);
+int dw3000_c0_prog_pll_coarse_code(struct dw3000 *dw);
 
 static const struct dw3000_chip_register d0_registers[] = {
 	/* registres virtuels pour dump des fileID */
@@ -195,6 +197,30 @@ int dw3000_d0_prog_ldo_and_bias_tune(struct dw3000 *dw)
 	return 0;
 }
 
+/**
+ * dw3000_d0_pll_calibration_from_scratch() - Calibrate the PLL from scratch
+ * @dw: the DW device
+ *
+ * Return: zero on success, else a negative error code.
+ */
+static int dw3000_d0_pll_calibration_from_scratch(struct dw3000 *dw)
+{
+	int rc = 0;
+
+	/* Run the PLL calibration from scratch.
+	 * The USE_OLD_BIT_MASK tells the chip to use the an old PLL_CAL_ID to start
+	 * its calculation. This is just in order to fasten the process.
+	 */
+	rc = dw3000_reg_or32(dw, DW3000_PLL_CAL_ID, 0,
+			     DW3000_PLL_CAL_PLL_USE_OLD_BIT_MASK);
+	if (rc)
+		return rc;
+	/* Wait for the PLL calibration (needed before read the calibration status register) */
+	usleep_range(DW3000_D0_PLL_CALIBRATION_FROM_SCRATCH_DELAY_US,
+		     DW3000_D0_PLL_CALIBRATION_FROM_SCRATCH_DELAY_US + 10);
+	return rc;
+}
+
 const struct dw3000_chip_ops dw3000_chip_d0_ops = {
 	.softreset = dw3000_d0_softreset,
 	.init = dw3000_d0_init,
@@ -203,5 +229,7 @@ const struct dw3000_chip_ops dw3000_chip_d0_ops = {
 	.prog_ldo_and_bias_tune = dw3000_d0_prog_ldo_and_bias_tune,
 	.get_config_mrxlut_chan = dw3000_d0_get_config_mrxlut_chan,
 	.get_dgc_dec = dw3000_c0_get_dgc_dec,
+	.pll_calibration_from_scratch = dw3000_d0_pll_calibration_from_scratch,
+	.prog_pll_coarse_code = dw3000_c0_prog_pll_coarse_code,
 	.get_registers = dw3000_d0_get_registers,
 };

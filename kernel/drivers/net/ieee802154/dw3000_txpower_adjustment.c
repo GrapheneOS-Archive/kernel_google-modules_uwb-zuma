@@ -495,7 +495,7 @@ int dw3000_adjust_tx_power(struct dw3000 *dw, int payload_bytes)
 	u16 th_boost, app_boost;
 	u8 chan = dw->config.chan;
 	u16 frm_dur =
-		DTU_TO_US(dw3000_frame_duration_dtu(dw, payload_bytes, false));
+		DTU_TO_US(dw3000_frame_duration_dtu(dw, payload_bytes, true));
 	u32 adjusted_tx_power = adjust_tx_power(frm_dur, dw->txconfig.power,
 						chan, &th_boost, &app_boost);
 

@@ -608,6 +608,8 @@ static int do_tm_cmd_start_cont_tx(struct dw3000 *dw, const void *in, void *out)
 	if (rc)
 		return rc;
 
+	dw->config.stsMode = DW3000_STS_MODE_OFF;
+
 	rc = dw3000_testmode_continuous_tx_start(dw, frame_length, rate);
 	if (rc)
 		return rc;

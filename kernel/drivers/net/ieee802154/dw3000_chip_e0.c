@@ -26,6 +26,7 @@
 #include "dw3000_chip_e0.h"
 #include "dw3000_trc.h"
 
+int dw3000_c0_prog_pll_coarse_code(struct dw3000 *dw);
 int dw3000_d0_softreset(struct dw3000 *dw);
 int dw3000_d0_init(struct dw3000 *dw);
 int dw3000_d0_coex_init(struct dw3000 *dw);
@@ -546,7 +547,7 @@ int dw3000_e0_adc_offset_calibration(struct dw3000 *dw)
  *
  * Return: zero on success, else a negative error code.
  */
-int dw3000_e0_pll_calibration_from_scratch(struct dw3000 *dw)
+static int dw3000_e0_pll_calibration_from_scratch(struct dw3000 *dw)
 {
 	int rc = 0;
 
@@ -555,8 +556,7 @@ int dw3000_e0_pll_calibration_from_scratch(struct dw3000 *dw)
 	 * its calculation. This is just in order to faster the process.
 	 */
 	rc = dw3000_reg_or32(dw, DW3000_PLL_CAL_ID, 0,
-			     DW3000_PLL_CAL_PLL_CAL_EN_BIT_MASK |
-				     DW3000_PLL_CAL_PLL_USE_OLD_BIT_MASK);
+			     DW3000_PLL_CAL_PLL_CAL_EN_BIT_MASK);
 	if (rc)
 		return rc;
 	/* Wait for the PLL calibration (needed before read the calibration status register) */
@@ -587,6 +587,29 @@ static int dw3000_e0_get_dgc_dec(struct dw3000 *dw, u8 *value)
 	return 0;
 }
 
+/**
+ * dw3000_e0_pll_coarse_code() - Calibrate the PLL from scratch
+ * @dw: the DW device
+ *
+ * Return: zero on success, else a negative error code.
+ */
+static int dw3000_e0_pll_coarse_code(struct dw3000 *dw)
+{
+	int rc = 0;
+	u8 tmp;
+
+	/* Disable Pre-buffer-enable for Ch9 PLL calibration for E0.
+	 * Clear CH9_CAL_WITH_PREBUF
+	 */
+	tmp = (u8)(~(DW3000_PLL_COARSE_CODE_CH5_CAL_WITH_PREBUF_BIT_MASK |
+		     DW3000_PLL_COARSE_CODE_CH9_ICAS_BIT_MASK |
+		     DW3000_PLL_COARSE_CODE_CH9_RCAS_BIT_MASK ) >>
+		   24);
+	rc = dw3000_reg_and8(dw, DW3000_PLL_COARSE_CODE_ID, 3, tmp);
+
+	return rc;
+}
+
 const struct dw3000_chip_ops dw3000_chip_e0_ops = {
 	.softreset = dw3000_d0_softreset,
 	.init = dw3000_e0_init,
@@ -597,5 +620,7 @@ const struct dw3000_chip_ops dw3000_chip_e0_ops = {
 	.get_dgc_dec = dw3000_e0_get_dgc_dec,
 	.adc_offset_calibration = dw3000_e0_adc_offset_calibration,
 	.pll_calibration_from_scratch = dw3000_e0_pll_calibration_from_scratch,
+	.prog_pll_coarse_code = dw3000_c0_prog_pll_coarse_code,
+	.pll_coarse_code = dw3000_e0_pll_coarse_code,
 	.get_registers = dw3000_d0_get_registers,
 };

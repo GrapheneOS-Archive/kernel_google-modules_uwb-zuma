@@ -199,6 +199,7 @@ enum spi_modes {
 #define DW3000_OTPREV_ADDRESS (0x1F)
 #define DW3000_BIAS_TUNE_ADDRESS (0xA)
 #define DW3000_DGC_TUNE_ADDRESS (0x20)
+#define DW3000_PLL_CC_ADDRESS (0x35)
 
 /* Clock offset value under which the PDoA value is assumed bad. */
 #define DW3000_CFO_THRESHOLD ((s16)(4 * (1 << 26) / 1000000))
@@ -444,16 +445,18 @@ static inline int dw3000_frame_duration_dtu(struct dw3000 *dw,
 	const struct dw3000_bitrate_info *bitrate_info =
 		&_bitrate_info[dw->config.dataRate];
 	/* STS part */
-	const int sts_symb = dw->config.stsMode == DW3000_STS_MODE_OFF ?
-				     0 :
-				     8 << dw->config.stsLength;
+	const u8 sts_mode = dw->config.stsMode & DW3000_STS_BASIC_MODES_MASK;
+	const int sts_symb =
+		sts_mode == DW3000_STS_MODE_OFF ? 0 : 8 << dw->config.stsLength;
 	const int sts_chips = sts_symb * prf_info->chip_per_symb;
 	/* PHR part. */
-	static const int phr_tail_bits = 19 + 2;
+	const int phr_tail_bits = sts_mode == DW3000_STS_MODE_ND ? 0 : 19 + 2;
 	const int phr_chips = phr_tail_bits /* 1 bit/symbol */
 			      * bitrate_info->phr_chip_per_symb;
 	/* Data part, 48 Reed-Solomon bits per 330 bits. */
-	const int data_bits = (payload_bytes + IEEE802154_FCS_LEN) * 8;
+	const int data_bits = sts_mode == DW3000_STS_MODE_ND ?
+				      0 :
+				      (payload_bytes + IEEE802154_FCS_LEN) * 8;
 
 	const int data_rs_bits = data_bits + (data_bits + 329) / 330 * 48;
 	const int data_chips = data_rs_bits /* 1 bit/symbol */
