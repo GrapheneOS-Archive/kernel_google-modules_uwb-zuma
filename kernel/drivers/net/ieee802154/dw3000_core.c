@@ -2247,6 +2247,9 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 	bool rx_delayed = true;
 	int delay_dtu = 0;
 	bool can_sync = false;
+	bool override_rx_antenna = dw->sp0_rx_antenna > -1 &&
+		!(info-> flags & MCPS802154_RX_INFO_RANGING);
+	u8 rx_antenna = info->ant_pair_id;
 	int rc;
 	bool pdoa_enabled;
 	u8 sts_mode;
@@ -2306,7 +2309,9 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 	if (unlikely(rc))
 		goto fail;
 	/* Ensure correct RX antenna are selected. */
-	rc = dw3000_set_rx_antennas(dw, info->ant_pair_id, pdoa_enabled);
+	if (override_rx_antenna)
+		rx_antenna = ANTPAIR_OFFSET(dw->sp0_rx_antenna);
+	rc = dw3000_set_rx_antennas(dw, rx_antenna, pdoa_enabled);
 	if (unlikely(rc))
 		goto fail;
 

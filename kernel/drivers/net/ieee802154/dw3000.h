@@ -491,6 +491,7 @@ struct dw3000_rctu_conv {
  *		      under which WiFi coexistence GPIO is kept active
  * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
  * @coex_status: WiFi coexistence GPIO status, 1 if activated
+ * @sp0_rx_antenna: Special rx antenna to use for SP0, -1 if deactivated
  * @lna_pa_mode: LNA/PA configuration to use
  * @autoack: auto-ack status, true if activated
  * @ccc: CCC related data
@@ -582,6 +583,7 @@ struct dw3000 {
 	unsigned coex_interval_us;
 	s8 coex_gpio;
 	int coex_status;
+	s8 sp0_rx_antenna;
 	/* LNA/PA mode */
 	s8 lna_pa_mode;
 	/* Is auto-ack activated? */

@@ -50,6 +50,10 @@ module_param_named(qos_latency, dw3000_qos_latency, int, 0660);
 MODULE_PARM_DESC(qos_latency,
 		 "Latency request to PM QoS on active ranging in microsecond");
 
+static int dw3000_sp0_rx_antenna = 0;
+module_param_named(sp0_rx_antenna, dw3000_sp0_rx_antenna, int, 0660);
+MODULE_PARM_DESC(sp0_rx_antenna,
+		 "override antenna to use to receive SP0");
 
 static int dw3000_wifi_coex_gpio = 4;
 module_param_named(wificoex_gpio, dw3000_wifi_coex_gpio, int, 0444);
@@ -112,6 +116,12 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	/* Initialization of the deep sleep timer */
 	hrtimer_init(&dw->deep_sleep_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	dw->deep_sleep_timer.function = dw3000_wakeup_timer;
+
+	if (dw3000_sp0_rx_antenna >= ANTMAX) {
+		dev_warn(dw->dev, "sp0 rx antenna is out of antenna range");
+		dw3000_sp0_rx_antenna = -1;
+	}
+	dw->sp0_rx_antenna = dw3000_sp0_rx_antenna;
 
 	dev_info(dw->dev, "Loading driver vP2-S4-1-21090801");
 	dw3000_sysfs_init(dw);
