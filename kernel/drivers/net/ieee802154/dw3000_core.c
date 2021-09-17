@@ -502,6 +502,40 @@ static inline bool _dw3000_sts_is_enabled(struct dw3000 *dw);
 static u8 dw3000_calc_bandwithadj(struct dw3000 *dw, int target_count);
 static u32 dw3000_calc_pgcount(struct dw3000 *dw, u32 pg_delay);
 
+
+void dw3000_enable_counters(struct dw3000 *dw)
+{
+	dw3000_reg_write32(dw, 0xf0000, 0, 1);
+}
+
+void dw3000_reset_counters(struct dw3000 *dw)
+{
+	dw3000_reg_write32(dw, 0xf0000, 0, 2);
+}
+
+void dw3000_read_counters(struct dw3000 *dw)
+{
+	uint16_t buffer[16];
+
+	dw3000_reg_read_fast(dw, 0xf0004, 0, sizeof(buffer), buffer);
+
+	trace_dw3000_get_counters_first_part(dw,
+			buffer[0],
+			buffer[1],
+			buffer[2],
+			buffer[5],
+			buffer[6],
+			buffer[7],
+			buffer[8],
+			buffer[9],
+			buffer[10],
+			buffer[11]);
+	trace_dw3000_get_counters_second_part(dw,
+			buffer[3],
+			buffer[14],
+			buffer[15]);
+}
+
 /**
  * dw3000_get_dtu_time() - compute current DTU time
  * @dw: the DW device
@@ -1417,6 +1451,8 @@ static inline u8 dw3000_check_idlerc(struct dw3000 *dw)
 
 	if (dw3000_read_sys_status(dw, &reg))
 		return 0;
+	dw3000_reset_counters(dw);
+	dw3000_enable_counters(dw);
 	dev_notice(dw->dev, "sys_status : 0x%x\n", reg);
 
 	return ((reg & (DW3000_SYS_STATUS_RCINIT_BIT_MASK)) ==
@@ -6460,6 +6496,8 @@ void dw3000_isr(struct dw3000 *dw)
 	int rc = 0;
 	bool stsnd = ((dw->config.stsMode & DW3000_STS_BASIC_MODES_MASK) ==
 		      DW3000_STS_MODE_ND);
+	if (dw3000_stats_enabled)
+		dw3000_read_counters(dw);
 
 	/* Don't read if spurious DEEP-SLEEP IRQ */
 	if (dw->current_operational_state == DW3000_OP_STATE_DEEP_SLEEP) {
