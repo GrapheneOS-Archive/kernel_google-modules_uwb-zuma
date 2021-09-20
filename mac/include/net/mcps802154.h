@@ -36,6 +36,26 @@
 #define MCPS802154_STS_N_SEGS_MAX 4
 
 /**
+ * struct mcps802154_channel - Channel parameters.
+ */
+struct mcps802154_channel {
+	/**
+	 * @page: Channel page used in conjunction with channel to uniquely
+	 * identify the channel.
+	 */
+	int page;
+	/**
+	 * @channel: RF channel to use for all transmissions and receptions.
+	 */
+	int channel;
+	/**
+	 * @preamble_code: Preamble code index for HRP UWB. Must be zero for
+	 * other PHYs.
+	 */
+	int preamble_code;
+};
+
+/**
  * enum mcps802154_llhw_flags - Low-level hardware without MCPS flags.
  * @MCPS802154_LLHW_RDEV:
  *	Support for ranging (RDEV). TODO: move to &ieee802154_hw.
@@ -95,6 +115,11 @@ struct mcps802154_llhw {
 	 * rather than trying to find a valid access.
 	 */
 	int idle_dtu;
+	/**
+	 * @current_preamble_code: Current value of preamble code index for HRP
+	 * UWB. Must be zero for other PHYs.
+	 */
+	int current_preamble_code;
 	/**
 	 * @flags: Low-level hardware flags, see &enum mcps802154_llhw_flags.
 	 */

@@ -245,6 +245,15 @@ __le16 mcps802154_get_pan_id(struct mcps802154_llhw *llhw);
 __le16 mcps802154_get_short_addr(struct mcps802154_llhw *llhw);
 
 /**
+ * mcps802154_get_current_channel() - Get current channel.
+ * @llhw: Low-level device pointer.
+ *
+ * Return: Channel parameters.
+ */
+const struct mcps802154_channel *
+mcps802154_get_current_channel(struct mcps802154_llhw *llhw);
+
+/**
  * mcps802154_get_current_timestamp_dtu() - Get current timestamp in device time
  * unit.
  * @llhw: Low-level device pointer.

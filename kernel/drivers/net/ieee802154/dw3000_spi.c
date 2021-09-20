@@ -113,7 +113,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	hrtimer_init(&dw->deep_sleep_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	dw->deep_sleep_timer.function = dw3000_wakeup_timer;
 
-	dev_info(dw->dev, "Loading driver vP2-S4-rc21");
+	dev_info(dw->dev, "Loading driver vP2-S4-1-21090801");
 	dw3000_sysfs_init(dw);
 
 	/* Setup SPI parameters */

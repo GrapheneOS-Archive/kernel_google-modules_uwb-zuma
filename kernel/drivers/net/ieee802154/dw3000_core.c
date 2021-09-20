@@ -3645,17 +3645,20 @@ static inline int dw3000_configure_chan_ctrl(struct dw3000 *dw,
 	u32 temp;
 	int rc;
 
+	/* Adjust configuration according channel/txCode and calib_data */
+	dw3000_calib_update_config(dw);
+
+	/* Read current CHAN_CTRL register value*/
 	rc = dw3000_reg_read32(dw, DW3000_CHAN_CTRL_ID, 0, &temp);
 	if (rc)
 		return rc;
+	/* Change value */
 	temp &= (~(DW3000_CHAN_CTRL_RX_PCODE_BIT_MASK |
 		   DW3000_CHAN_CTRL_TX_PCODE_BIT_MASK |
 		   DW3000_CHAN_CTRL_SFD_TYPE_BIT_MASK |
 		   DW3000_CHAN_CTRL_RF_CHAN_BIT_MASK));
-
 	if (chan == 9)
 		temp |= DW3000_CHAN_CTRL_RF_CHAN_BIT_MASK;
-
 	temp |= (DW3000_CHAN_CTRL_RX_PCODE_BIT_MASK &
 		 ((u32)config->rxCode << DW3000_CHAN_CTRL_RX_PCODE_BIT_OFFSET));
 	temp |= (DW3000_CHAN_CTRL_TX_PCODE_BIT_MASK &
@@ -3663,7 +3666,7 @@ static inline int dw3000_configure_chan_ctrl(struct dw3000 *dw,
 	temp |= (DW3000_CHAN_CTRL_SFD_TYPE_BIT_MASK &
 		 ((u32)config->sfdType
 		  << DW3000_CHAN_CTRL_SFD_TYPE_BIT_OFFSET));
-
+	/* Reprogram new value */
 	return dw3000_reg_write32(dw, DW3000_CHAN_CTRL_ID, 0, temp);
 }
 
@@ -3830,8 +3833,6 @@ int dw3000_configure_chan(struct dw3000 *dw)
 {
 	struct dw3000_config *config = &dw->config;
 	int rc;
-	/* Adjust configuration according channel/txCode and calib_data */
-	dw3000_calib_update_config(dw);
 	/* Configure the CHAN_CTRL register */
 	rc = dw3000_configure_chan_ctrl(dw, config);
 	if (rc)
@@ -3842,6 +3843,18 @@ int dw3000_configure_chan(struct dw3000 *dw)
 		return rc;
 	/* Configure DGC. */
 	return dw3000_configure_dgc(dw);
+}
+
+/**
+ * dw3000_configure_pcode() - change the device's RF preamble code
+ * @dw: the DW device
+ *
+ * Return: zero on success, else a negative error code.
+ */
+int dw3000_configure_pcode(struct dw3000 *dw)
+{
+	/* Just reconfigure the CHAN_CTRL register */
+	return dw3000_configure_chan_ctrl(dw, &dw->config);
 }
 
 static int dw3000_setdwstate(struct dw3000 *dw, enum operational_state state)
@@ -4523,8 +4536,10 @@ static int dw3000_reconfigure_hw_addr_filt(struct dw3000 *dw)
 	/* Always force setup of ieee_addr if non 0 on wakeup
 	   since not saved in AON. */
 	if (filt->ieee_addr)
-		changed |= IEEE802154_AFILT_IEEEADDR_CHANGED;
-	dss->config_changed = 0;
+		changed |= DW3000_AFILT_IEEEADDR_CHANGED;
+	dss->config_changed &=
+		~(DW3000_AFILT_SADDR_CHANGED | DW3000_AFILT_IEEEADDR_CHANGED |
+		  DW3000_AFILT_PANID_CHANGED | DW3000_AFILT_PANC_CHANGED);
 	return dw3000_configure_hw_addr_filt(dw, changed);
 }
 
@@ -6137,6 +6152,28 @@ static inline int dw3000_isr_handle_spi_ready(struct dw3000 *dw,
 	 * The AON memory was copied to register, so only STS & AES keys
 	 * and some others non saved register need to be re-initialised.
 	 */
+
+	if (dss->config_changed &
+	    (DW3000_CHANNEL_CHANGED | DW3000_PCODE_CHANGED)) {
+		/* Channel or preamble code was changed during DEEP-SLEEP.
+		 * Need to apply required configuration BEFORE PLL LOCK */
+		if (dss->config_changed & DW3000_CHANNEL_CHANGED)
+			/* Reconfigure all channel dependent */
+			rc = dw3000_configure_chan(dw);
+		else if (dss->config_changed & DW3000_PCODE_CHANGED)
+			/* Only change CHAN_CTRL with new code */
+			rc = dw3000_configure_pcode(dw);
+		else
+			rc = 0; /* remove uninit variable error */
+		if (rc)
+			return rc;
+		dss->config_changed &=
+			~(DW3000_CHANNEL_CHANGED | DW3000_PCODE_CHANGED);
+		/* TODO: If channel is changed, the ongoing automatic PLL
+		 * locking (see SEQ_CTRL & AON_DIG_CFG) might be stopped!
+		 * If required, do it here and let the call below redo it
+		 * properly. */
+	}
 
 	/* Auto calibrate the PLL and change to IDLE_PLL state */
 	rc = dw3000_lock_pll(dw, isr->status);

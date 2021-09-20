@@ -445,6 +445,7 @@ static int __init fake_init(void)
 	/* fake driver phy channel 5 as default */
 	driver_llhw->hw->phy->current_page = 4;
 	driver_llhw->hw->phy->current_channel = 5;
+	driver_llhw->current_preamble_code = 9;
 
 	r = mcps802154_register_llhw(driver_llhw);
 	if (r) {

@@ -59,6 +59,10 @@ struct mcps802154_pib {
 	 * @mac_max_frame_retries: Number of retries on TX.
 	 */
 	s8 mac_max_frame_retries;
+	/**
+	 * @phy_current_channel: Current channel parameters.
+	 */
+	struct mcps802154_channel phy_current_channel;
 };
 
 /**

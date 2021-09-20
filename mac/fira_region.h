@@ -228,6 +228,10 @@ struct fira_local {
 	 */
 	struct mcps802154_sts_params sts_params[FIRA_FRAMES_MAX];
 	/**
+	 * @channel: Channel parameters for access.
+	 */
+	struct mcps802154_channel channel;
+	/**
 	 * @current_session: Pointer to the current session.
 	 */
 	struct fira_session *current_session;
