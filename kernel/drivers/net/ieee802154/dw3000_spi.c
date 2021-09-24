@@ -66,11 +66,11 @@ MODULE_PARM_DESC(wificoex_delay_us,
 		 "Delay between WiFi coexistence GPIO activation and TX in us "
 		 "(default is 1000us)");
 
-static unsigned dw3000_wifi_coex_margin_us = 400;
+static unsigned dw3000_wifi_coex_margin_us = 500;
 module_param_named(wificoex_margin_us, dw3000_wifi_coex_margin_us, uint, 0444);
 MODULE_PARM_DESC(wificoex_margin_us,
 		 "Margin to add to the WiFi Coex delay for SPI transactions "
-		 "(default is 300us)");
+		 "(default is 500us)");
 
 static unsigned dw3000_wifi_coex_interval_us = 2000;
 module_param_named(wificoex_interval_us, dw3000_wifi_coex_interval_us, uint,
