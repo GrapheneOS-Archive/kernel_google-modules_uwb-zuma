@@ -190,6 +190,8 @@ static const struct nla_policy fira_session_param_nla_policy[FIRA_SESSION_PARAM_
  * get_session_state() - Get state of the session.
  * @local: FiRa context.
  * @session_id: Fira session id.
+ *
+ * Return: current session state.
  */
 static enum fira_session_state get_session_state(struct fira_local *local, u32 session_id)
 {
@@ -284,8 +286,25 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 		if (r)
 			return r;
 
-		initiation_time_dtu = session->params.initiation_time_ms *
-				      (local->llhw->dtu_freq_hz / 1000);
+		if (session->params.initiation_time_ms) {
+			initiation_time_dtu =
+				session->params.initiation_time_ms *
+				(local->llhw->dtu_freq_hz / 1000);
+		} else if (session->params.device_type ==
+				   FIRA_DEVICE_TYPE_CONTROLLER &&
+			   local->llhw->anticip_dtu) {
+			/* In order to be able to generate a frame for
+			   sts_index = sts_index_init, add anticip_dtu two
+			   times, for mcps802154_fproc_access_now and for
+			   fira_get_access.
+			   Also add 5 ms delay since now_dtu will change between
+			   fira_session_start and fira_get_access. */
+			initiation_time_dtu =
+				2 * local->llhw->anticip_dtu +
+				5 * (local->llhw->dtu_freq_hz / 1000);
+		} else {
+			initiation_time_dtu = 0;
+		}
 		session->block_start_dtu = now_dtu + initiation_time_dtu;
 		session->block_index = 0;
 		session->sts_index = session->crypto.sts_index_init;
@@ -301,9 +320,8 @@ static int fira_session_start(struct fira_local *local, u32 session_id,
 		session->tx_ant = -1;
 		session->rx_ant_pair[0] = -1;
 		session->rx_ant_pair[1] = -1;
+		session->number_of_measurements = 0;
 		list_move(&session->entry, &local->active_sessions);
-
-		session->n_cm_sent = 0;
 
 		mcps802154_reschedule(local->llhw);
 	}

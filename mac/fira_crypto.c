@@ -176,6 +176,7 @@ int fira_crypto_test(void)
 	static const u8 zero_key[AES_KEYSIZE_128];
 	struct sk_buff *skb = NULL;
 	int r;
+	struct fira_round_hopping_sequence round_hopping_sequence;
 
 	static const u8 digest_data[] = { 0x02, 0x00, 0x00, 0x09, 0x07, 0xD0,
 					  0x00, 0x03, 0x0a, 0x02, 0x00, 0x01,
@@ -297,6 +298,12 @@ int fira_crypto_test(void)
 		r = -EINVAL;
 		goto out;
 	}
+
+	/* Test ecb(aes) presence for hopping. */
+	r = fira_round_hopping_crypto_init(&round_hopping_sequence);
+	if (r)
+		goto out;
+	fira_round_hopping_crypto_destroy(&round_hopping_sequence);
 
 	r = 0;
 out:

@@ -133,47 +133,6 @@ void fira_frame_control_payload_put(const struct fira_local *local,
 	u8 *p;
 	int i;
 
-	if (session->params.max_number_of_measurements != 0 &&
-	    session->n_cm_sent > session->params.max_number_of_measurements) {
-		/*
-		 * When the number of measurements is exceed, just
-		 * send a stop control message.
-		 */
-		n_mngt = session->current_controlees.size;
-
-		p = fira_frame_common_payload_put(
-			skb,
-			FIRA_IE_PAYLOAD_CONTROL_LEN(n_mngt),
-			FIRA_MESSAGE_ID_CONTROL);
-
-		*p++ = n_mngt;
-		*p++ = 0;
-		*p++ = 0;
-
-		for (i = 0 ; i < n_mngt; i++) {
-			__le16 short_addr =
-				session->current_controlees
-				.data[i].short_addr;
-			u32 mngt =
-				FIELD_PREP(FIRA_MNGT_SHORT_ADDR, short_addr) |
-				FIELD_PREP(FIRA_MNGT_STOP, 1);
-
-			put_unaligned_le32(mngt, p);
-			p += sizeof(u32);
-		}
-		{
-			/*
-			 * Borrowed from fira_session_stop, this is
-			 * ugly and break const.
-			 */
-			struct fira_session *s = local->current_session;
-
-			s->stop_request = true;
-			fira_session_access_done((struct fira_local *)local, s, true);
-		}
-		return;
-	}
-
 	n_mngt = local->access.n_frames - 1 +
 		 local->n_stopped_controlees_short_addr;
 
@@ -321,7 +280,9 @@ void fira_frame_result_report_payload_put(const struct fira_local *local,
 			  aoa_fom_present);
 
 	if (tof_present) {
-		put_unaligned_le32(ranging_info->tof_rctu, p);
+		put_unaligned_le32(
+			ranging_info->tof_rctu > 0 ? ranging_info->tof_rctu : 0,
+			p);
 		p += sizeof(u32);
 	}
 	if (aoa_azimuth_present) {
@@ -628,7 +589,7 @@ fira_frame_measurement_report_fill_ranging_info(struct fira_local *local,
 				  (s64)remote_reply_rctu * local_reply_rctu,
 			  (s64)remote_round_trip_rctu + local_round_trip_rctu +
 				  remote_reply_rctu + local_reply_rctu);
-	ranging_info->tof_rctu = tof_rctu;
+	ranging_info->tof_rctu = tof_rctu > 0 ? tof_rctu : 0;
 	ranging_info->tof_present = true;
 
 	return true;

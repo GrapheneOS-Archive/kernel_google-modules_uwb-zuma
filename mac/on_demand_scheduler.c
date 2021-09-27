@@ -166,6 +166,7 @@ static int mcps802154_on_demand_scheduler_update_schedule(
 		scheduler_to_plocal(scheduler);
 	struct mcps802154_region_demand demand;
 	struct mcps802154_region *next_region = NULL;
+	int max_duration_dtu = 0;
 	u32 start_dtu;
 	int r, i;
 
@@ -189,15 +190,29 @@ static int mcps802154_on_demand_scheduler_update_schedule(
 			return r;
 		}
 
-		if (!next_region ||
-		    (candidate.duration_dtu &&
-		     is_before_dtu(candidate.timestamp_dtu,
-				   demand.timestamp_dtu) &&
-		     is_before_dtu(candidate.timestamp_dtu +
-					   candidate.duration_dtu,
-				   demand.timestamp_dtu))) {
+		/* Reduce duration of candidate region with less priority. */
+		if (max_duration_dtu &&
+		    (!candidate.duration_dtu ||
+		     is_before_dtu(next_timestamp_dtu + max_duration_dtu,
+				   candidate.timestamp_dtu +
+					   candidate.duration_dtu)))
+			candidate.duration_dtu = max_duration_dtu -
+						 candidate.timestamp_dtu +
+						 next_timestamp_dtu;
+
+		/* Arbitrate between regions. */
+		if (!next_region || is_before_dtu(candidate.timestamp_dtu,
+						  demand.timestamp_dtu)) {
 			next_region = region;
 			demand = candidate;
+			/* Is there some time remaining for a region with
+			 * less priority? */
+			if (!is_before_dtu(next_timestamp_dtu,
+					   demand.timestamp_dtu))
+				break;
+			else
+				max_duration_dtu = demand.timestamp_dtu -
+						   next_timestamp_dtu;
 		}
 	}
 
