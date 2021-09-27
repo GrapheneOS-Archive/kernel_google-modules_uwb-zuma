@@ -148,33 +148,29 @@ enum dw3000_ciagdiag_reg_select {
 /**
  * struct dw3000_local_data - Local data and register cache
  * @spicrc: current SPI crc mode
- * @ciadiag_reg_select: CIA diagnostic register selector according to DW3000's
- *  config
- * @ciadiag_enabled: CIA diagnostic on/off
  * @dgc_otp_set: true if DGC info is programmed into OTP
- * @check_cfo: true when CFO checking is required for next RX frame
- * @ack_time: Auto ack turnaroud time
+ * @ciadiag_enabled: CIA diagnostic on/off
  * @dblbuffon: double buffering mode
- * @xtal_bias: XTAL trimming adjustment value
  * @max_frames_len: current configured max frame length
  * @sleep_mode: bitfield for work to be done on wakeup
  * @ststhreshold: current computed STS threshold
+ * @ciadiag_reg_select: CIA diagnostic register selector according to DW3000's
+ *  config
  * @tx_fctrl: Transmit frame control
  * @rx_timeout_pac: Preamble detection timeout period in units of PAC size
  *  symbols
  * @w4r_time: Wait-for-response time (RX after TX delay)
+ * @ack_time: Auto ack turnaroud time
  * @sts_key: STS Key
  * @sts_iv: STS IV
  */
 struct dw3000_local_data {
 	enum dw3000_spi_crc_mode spicrc;
-	enum dw3000_ciagdiag_reg_select ciadiag_reg_select;
-	bool ciadiag_enabled : 1;
 	bool dgc_otp_set : 1;
-	bool check_cfo : 1;
+	bool ciadiag_enabled : 1;
+	enum dw3000_ciagdiag_reg_select ciadiag_reg_select;
 	u8 dblbuffon;
 	u8 ack_time;
-	s8 xtal_bias;
 	u16 sleep_mode;
 	u16 max_frames_len;
 	s16 ststhreshold;
@@ -495,6 +491,7 @@ struct dw3000_rctu_conv {
  *		      under which WiFi coexistence GPIO is kept active
  * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
  * @coex_status: WiFi coexistence GPIO status, 1 if activated
+ * @sp0_rx_antenna: Special rx antenna to use for SP0, -1 if deactivated
  * @lna_pa_mode: LNA/PA configuration to use
  * @autoack: auto-ack status, true if activated
  * @ccc: CCC related data
@@ -586,6 +583,7 @@ struct dw3000 {
 	unsigned coex_interval_us;
 	s8 coex_gpio;
 	int coex_status;
+	s8 sp0_rx_antenna;
 	/* LNA/PA mode */
 	s8 lna_pa_mode;
 	/* Is auto-ack activated? */

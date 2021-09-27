@@ -730,23 +730,6 @@ TRACE_EVENT(dw3000_power_stats,
 		  (unsigned)__entry->len_or_date)
 );
 
-TRACE_EVENT(dw3000_prog_xtrim,
-	TP_PROTO(struct dw3000 *dw, int res, int value),
-	TP_ARGS(dw, res, value),
-	TP_STRUCT__entry(
-		DW_ENTRY
-		__field(int, res)
-		__field(int, value)
-	),
-	TP_fast_assign(
-		DW_ASSIGN;
-		__entry->res = res;
-		__entry->value = value;
-	),
-	TP_printk(DW_PR_FMT ", res: %d, xtrim: %d",
-		DW_PR_ARG, __entry->res, __entry->value)
-);
-
 TRACE_EVENT(dw3000_set_antenna_gpio,
 	TP_PROTO(struct dw3000 *dw, int res, u8 gpio, u8 value),
 	TP_ARGS(dw, res, gpio, value),
@@ -1060,6 +1043,8 @@ TRACE_EVENT(dw3000_tm_cmd,
 );
 #endif
 
+
+
 TRACE_EVENT(dw3000_set_pdoa,
 	TP_PROTO(struct dw3000 *dw, u32 mode),
 	TP_ARGS(dw, mode),
@@ -1137,6 +1122,69 @@ TRACE_EVENT(dw3000_read_clockoffset,
 	TP_printk(DW_PR_FMT " clockoffset=%d", DW_PR_ARG,
 		  __entry->cfo)
 	);
+
+TRACE_EVENT(dw3000_get_counters_first_part,
+		TP_PROTO(struct dw3000 *dw, u16 rxphe, u16 rxfsl, u16 rxcfg, u16 rxovrr, u16 rxsto, u16 rxpto, u16 fwto, u16 txfrs, u16 hpwarn, u16 spicrc),
+		TP_ARGS(dw, rxphe, rxfsl, rxcfg, rxovrr, rxsto, rxpto, fwto, txfrs, hpwarn, spicrc),
+		TP_STRUCT__entry(
+			DW_ENTRY
+			__field(u16, rxphe)
+			__field(u16, rxfsl)
+			__field(u16, rxcfg)
+			__field(u16, rxovrr)
+			__field(u16, rxsto)
+			__field(u16, rxpto)
+			__field(u16, fwto)
+			__field(u16, txfrs)
+			__field(u16, hpwarn)
+			__field(u16, spicrc)
+			),
+		TP_fast_assign(
+			DW_ASSIGN;
+			__entry->rxphe = rxphe;
+			__entry->rxfsl = rxfsl;
+			__entry->rxcfg = rxcfg;
+			__entry->rxovrr = rxovrr;
+			__entry->rxsto = rxsto;
+			__entry->rxpto = rxpto;
+			__entry->fwto = fwto;
+			__entry->txfrs = txfrs;
+			__entry->hpwarn = hpwarn;
+			__entry->spicrc = spicrc;
+			),
+		TP_printk(DW_PR_FMT " rxphe=%d rxfsl=%d rxcfg=%d, rxovrr=%d, rxsto=%d, rxpto=%d, fwto,=%d txfrs=%d, hpwarn=%d, spicrc=%d", DW_PR_ARG,
+			__entry->rxphe,
+			__entry->rxfsl,
+			__entry->rxcfg,
+			__entry->rxovrr,
+			__entry->rxsto,
+			__entry->rxpto,
+			__entry->fwto,
+			__entry->txfrs,
+			__entry->hpwarn,
+			__entry->spicrc)
+	   );
+
+TRACE_EVENT(dw3000_get_counters_second_part,
+		TP_PROTO(struct dw3000 *dw, u16 rxprej, u16 cperr, u16 vwarn ),
+		TP_ARGS(dw, rxprej, cperr, vwarn),
+		TP_STRUCT__entry(
+			DW_ENTRY
+			__field(u16, rxprej)
+			__field(u16, cperr)
+			__field(u16, vwarn)
+			),
+		TP_fast_assign(
+			DW_ASSIGN;
+			__entry->rxprej = rxprej;
+			__entry->cperr = cperr;
+			__entry->vwarn = vwarn;
+			),
+		TP_printk(DW_PR_FMT " rxfce=%d, sts_qual_err=%d, vwarn=%d", DW_PR_ARG,
+			__entry->rxprej,
+			__entry->cperr,
+			__entry->vwarn)
+	   );
 
 /* clang-format on */
 #endif /* !__DW3000_TRACE || TRACE_HEADER_MULTI_READ */

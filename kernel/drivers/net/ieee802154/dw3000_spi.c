@@ -50,6 +50,10 @@ module_param_named(qos_latency, dw3000_qos_latency, int, 0660);
 MODULE_PARM_DESC(qos_latency,
 		 "Latency request to PM QoS on active ranging in microsecond");
 
+static int dw3000_sp0_rx_antenna = 0;
+module_param_named(sp0_rx_antenna, dw3000_sp0_rx_antenna, int, 0660);
+MODULE_PARM_DESC(sp0_rx_antenna,
+		 "override antenna to use to receive SP0");
 
 static int dw3000_wifi_coex_gpio = 4;
 module_param_named(wificoex_gpio, dw3000_wifi_coex_gpio, int, 0444);
@@ -62,11 +66,11 @@ MODULE_PARM_DESC(wificoex_delay_us,
 		 "Delay between WiFi coexistence GPIO activation and TX in us "
 		 "(default is 1000us)");
 
-static unsigned dw3000_wifi_coex_margin_us = 400;
+static unsigned dw3000_wifi_coex_margin_us = 500;
 module_param_named(wificoex_margin_us, dw3000_wifi_coex_margin_us, uint, 0444);
 MODULE_PARM_DESC(wificoex_margin_us,
 		 "Margin to add to the WiFi Coex delay for SPI transactions "
-		 "(default is 300us)");
+		 "(default is 500us)");
 
 static unsigned dw3000_wifi_coex_interval_us = 2000;
 module_param_named(wificoex_interval_us, dw3000_wifi_coex_interval_us, uint,
@@ -113,7 +117,13 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	hrtimer_init(&dw->deep_sleep_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	dw->deep_sleep_timer.function = dw3000_wakeup_timer;
 
-	dev_info(dw->dev, "Loading driver vP2-S4-1-21090801");
+	if (dw3000_sp0_rx_antenna >= ANTMAX) {
+		dev_warn(dw->dev, "sp0 rx antenna is out of antenna range");
+		dw3000_sp0_rx_antenna = -1;
+	}
+	dw->sp0_rx_antenna = dw3000_sp0_rx_antenna;
+
+	dev_info(dw->dev, "Loading driver vP2-S4-1-21091301");
 	dw3000_sysfs_init(dw);
 
 	/* Setup SPI parameters */
