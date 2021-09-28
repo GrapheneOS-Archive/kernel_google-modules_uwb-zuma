@@ -119,9 +119,8 @@ static void ping_pong_report(struct ping_pong_local *local, u64 t_0, u64 t_3,
 {
 	struct mcps802154_nl_ranging_request *request =
 		&local->ping_pong_request;
-	int r;
 
-	r = mcps802154_nl_ping_pong_report(local->llhw, request->id, t_0, t_3,
+	mcps802154_nl_ping_pong_report(local->llhw, request->id, t_0, t_3,
 					   t_4);
 	/* Disable TX and force schedule update to change the region */
 	local->enable_init_tx = false;

@@ -1738,7 +1738,6 @@ static void dw3000_set_operational_state(struct dw3000 *dw,
  */
 int dw3000_poweron(struct dw3000 *dw)
 {
-	int timeout;
 	int rc;
 
 	if (dw->is_powered) {
@@ -1768,7 +1767,7 @@ stats:
 	enable_irq(dw->spi->irq);
 
 	/* Now, wait for SPI ready interrupt */
-	timeout = msecs_to_jiffies(500);
+	msecs_to_jiffies(500);
 
 	/* No IRQs after this point until device is enabled */
 	disable_irq(dw->spi->irq);
@@ -2668,18 +2667,6 @@ static int dw3000_force_clocks(struct dw3000 *dw, int clocks)
 	int rc;
 
 	if (clocks == DW3000_FORCE_CLK_SYS_TX) {
-		/* TX_BUF_CLK = ON & RX_BUF_CLK = ON */
-		u16 regvalue0 = DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK |
-				DW3000_CLK_CTRL_RX_BUF_CLK_ON_BIT_MASK;
-		/* SYS_CLK_SEL = PLL */
-		regvalue0 |= (u16)DW3000_FORCE_SYSCLK_PLL
-			     << DW3000_CLK_CTRL_SYS_CLK_SEL_BIT_OFFSET;
-		/* TX_CLK_SEL = ON */
-		regvalue0 |= (u16)DW3000_FORCE_CLK_PLL
-			     << DW3000_CLK_CTRL_TX_CLK_SEL_BIT_OFFSET;
-
-		regvalue0 |= DW3000_CLK_CTRL_TX_BUF_CLK_ON_BIT_MASK;
-
 		rc = dw3000_reg_write16(dw, DW3000_CLK_CTRL_ID, 0x0, 0x1822);
 		if (rc)
 			return rc;
