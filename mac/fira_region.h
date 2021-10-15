@@ -40,6 +40,10 @@
 #define FIRA_BOOLEAN_MAX 1
 #define FIRA_FRAMES_MAX (3 + 3 * FIRA_CONTROLEES_MAX)
 #define FIRA_CONTROLEE_FRAMES_MAX (3 + 3 + 1)
+/* IEEE 802.15.4z 2020 section 6.9.7.2 */
+#define UWB_BLOCK_DURATION_MARGIN_PPM 100
+/* FiRa Tx should arrive between 0 and 10 us, always add 2 us. */
+#define FIRA_TX_MARGIN_US 2
 
 /**
  * enum fira_message_id - Message identifiers, used in internal state and in
@@ -176,6 +180,10 @@ struct fira_ranging_info {
 	 */
 	enum fira_ranging_status status;
 	/**
+	 * @slot_index: In case of failure, the slot index where it has occured.
+	 */
+	u8 slot_index;
+	/**
 	 * @tof_present: true if time of flight information is present.
 	 */
 	bool tof_present;
@@ -225,6 +233,10 @@ struct fira_local {
 	 * @sts_params: STS parameters for access frames.
 	 */
 	struct mcps802154_sts_params sts_params[FIRA_FRAMES_MAX];
+	/**
+	 * @channel: Channel parameters for access.
+	 */
+	struct mcps802154_channel channel;
 	/**
 	 * @current_session: Pointer to the current session.
 	 */
@@ -284,6 +296,11 @@ struct fira_local {
 	 * controlees short addr table.
 	 */
 	int n_stopped_controlees_short_addr;
+	/**
+	 * @block_duration_rx_margin_ppm: Block duration rx margin for
+	 * controlees.
+	 */
+	int block_duration_rx_margin_ppm;
 };
 
 static inline struct fira_local *

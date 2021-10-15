@@ -198,6 +198,7 @@ enum spi_modes {
 #define DW3000_OTPREV_ADDRESS (0x1F)
 #define DW3000_BIAS_TUNE_ADDRESS (0xA)
 #define DW3000_DGC_TUNE_ADDRESS (0x20)
+#define DW3000_PLL_CC_ADDRESS (0x35)
 
 #define DW3000_GPIO0_FUNC_MASK 0x0000007
 #define DW3000_GPIO1_FUNC_MASK 0x0000038
@@ -289,6 +290,7 @@ int dw3000_enable(struct dw3000 *dw);
 int dw3000_disable(struct dw3000 *dw);
 
 int dw3000_configure_chan(struct dw3000 *dw);
+int dw3000_configure_pcode(struct dw3000 *dw);
 
 int dw3000_set_eui64(struct dw3000 *dw, __le64 val);
 int dw3000_set_panid(struct dw3000 *dw, __le16 val);
@@ -318,7 +320,7 @@ int dw3000_poweroff(struct dw3000 *dw);
 int dw3000_forcetrxoff(struct dw3000 *dw);
 
 int dw3000_do_rx_enable(struct dw3000 *dw,
-			const struct mcps802154_rx_info *info);
+			const struct mcps802154_rx_info *info, int frame_idx);
 int dw3000_rx_enable(struct dw3000 *dw, bool rx_delayed, u32 date_dtu,
 		     u32 timeout_pac);
 int dw3000_rx_disable(struct dw3000 *dw);
@@ -332,7 +334,7 @@ int dw3000_disable_autoack(struct dw3000 *dw, bool force);
 struct mcps802154_tx_frame_info;
 int dw3000_do_tx_frame(struct dw3000 *dw,
 		       const struct mcps802154_tx_frame_info *info,
-		       struct sk_buff *skb);
+		       struct sk_buff *skb, int frame_idx);
 
 int dw3000_tx_setcwtone(struct dw3000 *dw, bool on);
 
@@ -362,8 +364,11 @@ void dw3000_wakeup_timer_start(struct dw3000 *dw, int delay_us);
 void dw3000_wakeup_and_wait(struct dw3000 *dw);
 int dw3000_deep_sleep_and_wakeup(struct dw3000 *dw, int delay_us);
 int dw3000_can_deep_sleep(struct dw3000 *dw, int delay_us);
-int dw3000_configure_pulse_shape(struct dw3000 *dw, bool isalternate);
 int dw3000_trace_rssi_info(struct dw3000 *dw, u32 regid, char *chipver);
+
+int dw3000_testmode_continuous_tx_start(struct dw3000 *dw, u32 frame_length,
+					u32 rate);
+int dw3000_testmode_continuous_tx_stop(struct dw3000 *dw);
 
 /* Preamble length related information. */
 struct dw3000_plen_info {
@@ -455,16 +460,18 @@ static inline int dw3000_frame_duration_dtu(struct dw3000 *dw,
 	const struct dw3000_bitrate_info *bitrate_info =
 		&_bitrate_info[dw->config.dataRate];
 	/* STS part */
-	const int sts_symb = dw->config.stsMode == DW3000_STS_MODE_OFF ?
-				     0 :
-				     8 << dw->config.stsLength;
+	const u8 sts_mode = dw->config.stsMode & DW3000_STS_BASIC_MODES_MASK;
+	const int sts_symb =
+		sts_mode == DW3000_STS_MODE_OFF ? 0 : 8 << dw->config.stsLength;
 	const int sts_chips = sts_symb * prf_info->chip_per_symb;
 	/* PHR part. */
-	static const int phr_tail_bits = 19 + 2;
+	const int phr_tail_bits = sts_mode == DW3000_STS_MODE_ND ? 0 : 19 + 2;
 	const int phr_chips = phr_tail_bits /* 1 bit/symbol */
 			      * bitrate_info->phr_chip_per_symb;
 	/* Data part, 48 Reed-Solomon bits per 330 bits. */
-	const int data_bits = (payload_bytes + IEEE802154_FCS_LEN) * 8;
+	const int data_bits = sts_mode == DW3000_STS_MODE_ND ?
+				      0 :
+				      (payload_bytes + IEEE802154_FCS_LEN) * 8;
 
 	const int data_rs_bits = data_bits + (data_bits + 329) / 330 * 48;
 	const int data_chips = data_rs_bits /* 1 bit/symbol */

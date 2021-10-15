@@ -37,7 +37,11 @@ static int mcps802154_start(struct ieee802154_hw *hw)
 	WARN_ON(local->started);
 
 	mutex_lock(&local->fsm_lock);
-	r = mcps802154_ca_start(local);
+	r = llhw_set_channel(local, local->pib.phy_current_channel.page,
+			     local->pib.phy_current_channel.channel,
+			     local->pib.phy_current_channel.preamble_code);
+	if (!r)
+		r = mcps802154_ca_start(local);
 	mutex_unlock(&local->fsm_lock);
 
 	return r;
@@ -96,7 +100,12 @@ static int mcps802154_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 		return -EOPNOTSUPP;
 
 	mutex_lock(&local->fsm_lock);
-	r = llhw_set_channel(local, page, channel, 0);
+	r = llhw_set_channel(local, page, channel,
+			     local->pib.phy_current_channel.preamble_code);
+	if (!r) {
+		local->pib.phy_current_channel.page = page;
+		local->pib.phy_current_channel.channel = channel;
+	}
 	mutex_unlock(&local->fsm_lock);
 
 	return r;

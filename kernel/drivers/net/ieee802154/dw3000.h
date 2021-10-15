@@ -112,6 +112,7 @@ struct dw3000_isr_data {
  * @tempP: tempP
  * @rev: OTP revision
  * @mode: Saved last OTP read mode to avoid multiple read
+ * @pll_coarse_code: PLL coarse code use by chip->prog_pll_coarse_code
  */
 struct dw3000_otp_data {
 	u32 partID;
@@ -125,6 +126,7 @@ struct dw3000_otp_data {
 	u8 tempP;
 	u8 rev;
 	int mode;
+	u32 pll_coarse_code;
 };
 
 /**
@@ -367,6 +369,24 @@ enum power_state {
 };
 
 /**
+ * enum config_changed_flags - values for configuration changed bitfield
+ * @DW3000_AFILT_SADDR_CHANGED: same as IEEE802154_AFILT_SADDR_CHANGED
+ * @DW3000_AFILT_IEEEADDR_CHANGED: same as IEEE802154_AFILT_IEEEADDR_CHANGED
+ * @DW3000_AFILT_PANID_CHANGED: same as IEEE802154_AFILT_PANID_CHANGED
+ * @DW3000_AFILT_PANC_CHANGED: same as IEEE802154_AFILT_PANC_CHANGED
+ * @DW3000_CHANNEL_CHANGED: channel configuration changed
+ * @DW3000_PCODE_CHANGED: preamble code configuration changed
+ */
+enum config_changed_flags {
+	DW3000_AFILT_SADDR_CHANGED = IEEE802154_AFILT_SADDR_CHANGED,
+	DW3000_AFILT_IEEEADDR_CHANGED = IEEE802154_AFILT_IEEEADDR_CHANGED,
+	DW3000_AFILT_PANID_CHANGED = IEEE802154_AFILT_PANID_CHANGED,
+	DW3000_AFILT_PANC_CHANGED = IEEE802154_AFILT_PANC_CHANGED,
+	DW3000_CHANNEL_CHANGED = BIT(4),
+	DW3000_PCODE_CHANGED = BIT(5),
+};
+
+/**
  * struct dw3000_power - DW3000 device power related data
  * @stats: accumulated statistics defined by struct sysfs_power_stats
  * @start_time: timestamp of current state start
@@ -386,6 +406,7 @@ struct dw3000_power {
  * struct dw3000_deep_sleep_state - Useful data to restore on wake up
  * @next_operational_state: operational state to enter after DEEP SLEEP mode
  * @config_changed: bitfield of configuration changed during DEEP-SLEEP
+ * @frame_idx: saved frame index to use for deferred TX/RX
  * @tx_skb: saved frame to transmit for deferred TX
  * @tx_info: saved info to use for deferred TX
  * @rx_info: saved parameter for deferred RX
@@ -395,6 +416,7 @@ struct dw3000_power {
 struct dw3000_deep_sleep_state {
 	enum operational_state next_operational_state;
 	unsigned long config_changed;
+	int frame_idx;
 	struct sk_buff *tx_skb;
 	union {
 		struct mcps802154_tx_frame_info tx_info;
@@ -469,6 +491,7 @@ struct dw3000_rctu_conv {
  *		      under which WiFi coexistence GPIO is kept active
  * @coex_gpio: WiFi coexistence GPIO, >= 0 if activated
  * @coex_status: WiFi coexistence GPIO status, 1 if activated
+ * @sp0_rx_antenna: Special rx antenna to use for SP0, -1 if deactivated
  * @lna_pa_mode: LNA/PA configuration to use
  * @autoack: auto-ack status, true if activated
  * @ccc: CCC related data
@@ -560,6 +583,7 @@ struct dw3000 {
 	unsigned coex_interval_us;
 	s8 coex_gpio;
 	int coex_status;
+	s8 sp0_rx_antenna;
 	/* LNA/PA mode */
 	s8 lna_pa_mode;
 	/* Is auto-ack activated? */

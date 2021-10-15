@@ -205,21 +205,25 @@ static void stop(struct mcps802154_llhw *llhw)
 struct do_tx_frame_params {
 	struct sk_buff *skb;
 	const struct mcps802154_tx_frame_info *info;
+	int frame_idx;
 };
 
 static int do_tx_frame(struct dw3000 *dw, const void *in, void *out)
 {
 	const struct do_tx_frame_params *params = in;
 
-	return dw3000_do_tx_frame(dw, params->info, params->skb);
+	return dw3000_do_tx_frame(dw, params->info, params->skb,
+				  params->frame_idx);
 }
 
 static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
-		    const struct mcps802154_tx_frame_info *info,
+		    const struct mcps802154_tx_frame_info *info, int frame_idx,
 		    int next_delay_dtu)
 {
 	struct dw3000 *dw = llhw->priv;
-	struct do_tx_frame_params params = { skb, info };
+	struct do_tx_frame_params params = { .skb = skb,
+					     .info = info,
+					     .frame_idx = frame_idx };
 	struct dw3000_stm_command cmd = { do_tx_frame, &params, NULL };
 
 	/* Check data : no data if SP3, must have data otherwise */
@@ -230,11 +234,29 @@ static int tx_frame(struct mcps802154_llhw *llhw, struct sk_buff *skb,
 	return dw3000_enqueue_generic(dw, &cmd);
 }
 
+struct do_rx_frame_params {
+	const struct mcps802154_rx_info *info;
+	int frame_idx;
+};
+
 static int do_rx_enable(struct dw3000 *dw, const void *in, void *out)
 {
-	const struct mcps802154_rx_info *info = in;
+	const struct do_rx_frame_params *params =
+		(const struct do_rx_frame_params *)in;
 
-	return dw3000_do_rx_enable(dw, info);
+	return dw3000_do_rx_enable(dw, params->info, params->frame_idx);
+}
+
+static int rx_enable(struct mcps802154_llhw *llhw,
+		     const struct mcps802154_rx_info *info, int frame_idx,
+		     int next_delay_dtu)
+{
+	struct dw3000 *dw = llhw->priv;
+	struct do_rx_frame_params params = { .info = info,
+					     .frame_idx = frame_idx };
+	struct dw3000_stm_command cmd = { do_rx_enable, &params, NULL };
+
+	return dw3000_enqueue_generic(dw, &cmd);
 }
 
 static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
@@ -248,15 +270,6 @@ static int do_rx_disable(struct dw3000 *dw, const void *in, void *out)
 	dw3000_reset_rctu_conv_state(dw);
 	trace_dw3000_return_int(dw, ret);
 	return ret;
-}
-
-static int rx_enable(struct mcps802154_llhw *llhw,
-		     const struct mcps802154_rx_info *info, int next_delay_dtu)
-{
-	struct dw3000 *dw = llhw->priv;
-	struct dw3000_stm_command cmd = { do_rx_enable, (void *)info, NULL };
-
-	return dw3000_enqueue_generic(dw, &cmd);
 }
 
 static int rx_disable(struct mcps802154_llhw *llhw)
@@ -663,29 +676,41 @@ static int compute_frame_duration_dtu(struct mcps802154_llhw *llhw,
 
 static int do_set_channel(struct dw3000 *dw, const void *in, void *out)
 {
-	return dw3000_configure_chan(dw);
+	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
+	unsigned long changed = *(const unsigned long *)in;
+
+	if (dw->current_operational_state < DW3000_OP_STATE_IDLE_RC) {
+		/* Cannot configure device, save info and ensure it will be
+		   configured on wakeup */
+		dss->config_changed |= changed;
+		return 0;
+	}
+	if (changed & DW3000_CHANNEL_CHANGED)
+		/* Reconfigure all channel dependent */
+		return dw3000_configure_chan(dw);
+	else if (changed & DW3000_PCODE_CHANGED)
+		/* Only change CHAN_CTRL with new code */
+		return dw3000_configure_pcode(dw);
+	return 0;
 }
 
 static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 		       u8 preamble_code)
 {
+	unsigned long changed = 0;
 	struct dw3000 *dw = llhw->priv;
 	struct dw3000_config *config = &dw->config;
-	struct dw3000_stm_command cmd = { do_set_channel, NULL, NULL };
-	int ret;
+	struct dw3000_stm_command cmd = { do_set_channel, &changed, NULL };
+	int ret = 0;
 
 	trace_dw3000_mcps_set_channel(dw, page, channel, preamble_code);
 	/* Check parameters early */
 	if (page != 4 || (channel != 5 && channel != 9) ||
 	    (dw->restricted_channels & (1 << (channel % 16)))) {
 		ret = -EINVAL;
-		goto error;
+		goto trace;
 	}
 	switch (preamble_code) {
-	case 0:
-		/* Set default value if MCPS don't give one to driver */
-		preamble_code = 9;
-		break;
 	/* DW3000_PRF_16M */
 	case 3:
 	case 4:
@@ -697,15 +722,23 @@ static int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
 		break;
 	default:
 		ret = -EINVAL;
-		goto error;
+		goto trace;
 	}
+	/* Detect configuration change(s) */
+	if (config->chan != channel)
+		changed |= DW3000_CHANNEL_CHANGED;
+	if ((config->txCode != preamble_code) ||
+	    (config->rxCode != preamble_code))
+		changed |= DW3000_PCODE_CHANGED;
+	if (!changed)
+		goto trace;
 	/* Update configuration structure */
 	config->chan = channel;
 	config->txCode = preamble_code;
 	config->rxCode = preamble_code;
 	/* Reconfigure the chip with it if needed */
 	ret = dw3000_is_active(dw) ? dw3000_enqueue_generic(dw, &cmd) : 0;
-error:
+trace:
 	trace_dw3000_return_int(dw, ret);
 	return ret;
 }
@@ -1037,6 +1070,7 @@ struct dw3000 *dw3000_mcps_alloc(struct device *dev)
 	/* Driver phy page 4 as default, channel is copied from init config. */
 	llhw->hw->phy->current_channel = dw->config.chan;
 	llhw->hw->phy->current_page = 4;
+	llhw->current_preamble_code = dw->config.txCode;
 
 	return dw;
 }

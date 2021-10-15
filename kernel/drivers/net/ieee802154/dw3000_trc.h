@@ -808,24 +808,36 @@ TRACE_EVENT(dw3000_coex_gpio_stop,
 );
 
 TRACE_EVENT(dw3000_adjust_tx_power,
-	TP_PROTO(struct dw3000 *dw, int len, u32 base_power,
-		 u32 adjusted_power),
-	TP_ARGS(dw, len, base_power, adjusted_power),
+	TP_PROTO(struct dw3000 *dw, u32 base_power, u32 adjusted_power,
+		 u32 frm_dur, u16 pl_len, u8 chan, u16 th_boost,
+		 u16 app_boost),
+	TP_ARGS(dw, base_power, adjusted_power, frm_dur, pl_len, chan,
+		th_boost, app_boost),
 	TP_STRUCT__entry(
 		DW_ENTRY
-		__field(int, len)
 		__field(u32, base_power)
 		__field(u32, adjusted_power)
+		__field(u32, frm_dur)
+		__field(u16, pl_len)
+		__field(u8, chan)
+		__field(u16, th_boost)
+		__field(u16, app_boost)
 	),
 	TP_fast_assign(
 		DW_ASSIGN;
-		__entry->len = len;
 		__entry->base_power = base_power;
 		__entry->adjusted_power = adjusted_power;
+		__entry->frm_dur = frm_dur;
+		__entry->pl_len = pl_len;
+		__entry->chan = chan;
+		__entry->th_boost = th_boost;
+		__entry->app_boost = app_boost;
 	),
-	TP_printk(DW_PR_FMT ", len: %d, base pwr: %#08x, adjusted: %#08x",
-		DW_PR_ARG, __entry->len,  __entry->base_power,
-		__entry->adjusted_power)
+	TP_printk(DW_PR_FMT " base pwr: 0x%08x, adjusted: 0x%08x (chan: %u,"
+		  "frm_dur: %u, PL_len: %u, th. boost: %u, applied boost: %u)",
+		  DW_PR_ARG, __entry->base_power, __entry->adjusted_power,
+		  __entry->chan, __entry->frm_dur, __entry->pl_len,
+		  __entry->th_boost, __entry->app_boost)
 );
 
 TRACE_EVENT(dw3000_rx_rssi,
@@ -1062,6 +1074,117 @@ TRACE_EVENT(dw3000_read_pdoa,
 	TP_printk(DW_PR_FMT " pdoa=%#08x", DW_PR_ARG,
 		  __entry->pdoa)
 	);
+
+TRACE_EVENT(dw3000_testmode_continuous_tx_start,
+	TP_PROTO(struct dw3000 *dw, u8 chan, u32 len, u32 rate),
+	TP_ARGS(dw, chan, len, rate),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(u8, chan)
+		__field(u32, len)
+		__field(u32, rate)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->chan = chan;
+		__entry->len = len;
+		__entry->rate = rate;
+		),
+	TP_printk(DW_PR_FMT " chan=%d, len=%d, rate=%d", DW_PR_ARG,
+		  __entry->chan,
+		  __entry->len,
+		  __entry->rate)
+	);
+
+TRACE_EVENT(dw3000_testmode_continuous_tx_stop,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		),
+	TP_printk(DW_PR_FMT, DW_PR_ARG)
+	);
+
+TRACE_EVENT(dw3000_read_clockoffset,
+	TP_PROTO(struct dw3000 *dw, s16 cfo),
+	TP_ARGS(dw, cfo),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(s16, cfo)
+		),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->cfo = cfo;
+		),
+	TP_printk(DW_PR_FMT " clockoffset=%d", DW_PR_ARG,
+		  __entry->cfo)
+	);
+
+TRACE_EVENT(dw3000_get_counters_first_part,
+		TP_PROTO(struct dw3000 *dw, u16 rxphe, u16 rxfsl, u16 rxcfg, u16 rxovrr, u16 rxsto, u16 rxpto, u16 fwto, u16 txfrs, u16 hpwarn, u16 spicrc),
+		TP_ARGS(dw, rxphe, rxfsl, rxcfg, rxovrr, rxsto, rxpto, fwto, txfrs, hpwarn, spicrc),
+		TP_STRUCT__entry(
+			DW_ENTRY
+			__field(u16, rxphe)
+			__field(u16, rxfsl)
+			__field(u16, rxcfg)
+			__field(u16, rxovrr)
+			__field(u16, rxsto)
+			__field(u16, rxpto)
+			__field(u16, fwto)
+			__field(u16, txfrs)
+			__field(u16, hpwarn)
+			__field(u16, spicrc)
+			),
+		TP_fast_assign(
+			DW_ASSIGN;
+			__entry->rxphe = rxphe;
+			__entry->rxfsl = rxfsl;
+			__entry->rxcfg = rxcfg;
+			__entry->rxovrr = rxovrr;
+			__entry->rxsto = rxsto;
+			__entry->rxpto = rxpto;
+			__entry->fwto = fwto;
+			__entry->txfrs = txfrs;
+			__entry->hpwarn = hpwarn;
+			__entry->spicrc = spicrc;
+			),
+		TP_printk(DW_PR_FMT " rxphe=%d rxfsl=%d rxcfg=%d, rxovrr=%d, rxsto=%d, rxpto=%d, fwto,=%d txfrs=%d, hpwarn=%d, spicrc=%d", DW_PR_ARG,
+			__entry->rxphe,
+			__entry->rxfsl,
+			__entry->rxcfg,
+			__entry->rxovrr,
+			__entry->rxsto,
+			__entry->rxpto,
+			__entry->fwto,
+			__entry->txfrs,
+			__entry->hpwarn,
+			__entry->spicrc)
+	   );
+
+TRACE_EVENT(dw3000_get_counters_second_part,
+		TP_PROTO(struct dw3000 *dw, u16 rxprej, u16 cperr, u16 vwarn ),
+		TP_ARGS(dw, rxprej, cperr, vwarn),
+		TP_STRUCT__entry(
+			DW_ENTRY
+			__field(u16, rxprej)
+			__field(u16, cperr)
+			__field(u16, vwarn)
+			),
+		TP_fast_assign(
+			DW_ASSIGN;
+			__entry->rxprej = rxprej;
+			__entry->cperr = cperr;
+			__entry->vwarn = vwarn;
+			),
+		TP_printk(DW_PR_FMT " rxfce=%d, sts_qual_err=%d, vwarn=%d", DW_PR_ARG,
+			__entry->rxprej,
+			__entry->cperr,
+			__entry->vwarn)
+	   );
 
 /* clang-format on */
 #endif /* !__DW3000_TRACE || TRACE_HEADER_MULTI_READ */

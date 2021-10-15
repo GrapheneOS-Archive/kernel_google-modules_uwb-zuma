@@ -230,8 +230,8 @@ DEFINE_EVENT(local_only_evt, llhw_stop,
 TRACE_EVENT(llhw_tx_frame,
 	TP_PROTO(const struct mcps802154_local *local,
 		 const struct mcps802154_tx_frame_info *info,
-		 int next_delay_dtu),
-	TP_ARGS(local, info, next_delay_dtu),
+		 int frame_idx, int next_delay_dtu),
+	TP_ARGS(local, info, frame_idx, next_delay_dtu),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__field(u32, timestamp_dtu)
@@ -239,6 +239,7 @@ TRACE_EVENT(llhw_tx_frame,
 		__field(int, rx_enable_after_tx_timeout_dtu)
 		__field(int, ant_id)
 		__field(u8, flags)
+		__field(int, frame_idx)
 		__field(int, next_delay_dtu)
 		),
 	TP_fast_assign(
@@ -248,10 +249,11 @@ TRACE_EVENT(llhw_tx_frame,
 		__entry->rx_enable_after_tx_timeout_dtu = info->rx_enable_after_tx_timeout_dtu;
 		__entry->ant_id = info->ant_id;
 		__entry->flags = info->flags;
+		__entry->frame_idx = frame_idx;
 		__entry->next_delay_dtu = next_delay_dtu;
 		),
 	TP_printk(LOCAL_PR_FMT " timestamp_dtu=%#08x rx_enable_after_tx_dtu=%d rx_enable_after_tx_timeout_dtu=%d"
-		  " ant_id=%d flags=%s next_delay_dtu=%d", LOCAL_PR_ARG,
+		  " ant_id=%d flags=%s frame_idx=%d next_delay_dtu=%d", LOCAL_PR_ARG,
 		  __entry->timestamp_dtu, __entry->rx_enable_after_tx_dtu,
 		  __entry->rx_enable_after_tx_timeout_dtu, __entry->ant_id,
 		  __print_flags(__entry->flags, "|",
@@ -263,6 +265,7 @@ TRACE_EVENT(llhw_tx_frame,
 			{ MCPS802154_TX_FRAME_SP3, "SP3" },
 			{ MCPS802154_TX_FRAME_SP2, "SP2" },
 			{ MCPS802154_TX_FRAME_SP1, "SP1" }),
+		  __entry->frame_idx,
 		  __entry->next_delay_dtu
 		  )
 	);
@@ -270,14 +273,15 @@ TRACE_EVENT(llhw_tx_frame,
 TRACE_EVENT(llhw_rx_enable,
 	TP_PROTO(const struct mcps802154_local *local,
 		 const struct mcps802154_rx_info *info,
-		 int next_delay_dtu),
-	TP_ARGS(local, info, next_delay_dtu),
+		 int frame_idx, int next_delay_dtu),
+	TP_ARGS(local, info, frame_idx, next_delay_dtu),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__field(u32, timestamp_dtu)
 		__field(int, timeout_dtu)
 		__field(u8, flags)
 		__field(u8, ant_pair_id)
+		__field(int, frame_idx)
 		__field(int, next_delay_dtu)
 		),
 	TP_fast_assign(
@@ -286,10 +290,11 @@ TRACE_EVENT(llhw_rx_enable,
 		__entry->timeout_dtu = info->timeout_dtu;
 		__entry->flags = info->flags;
 		__entry->ant_pair_id = info->ant_pair_id;
+		__entry->frame_idx = frame_idx;
 		__entry->next_delay_dtu = next_delay_dtu;
 		),
 	TP_printk(LOCAL_PR_FMT " timestamp_dtu=%#08x timeout_dtu=%d ant_pair_id=%d"
-		  " flags=%s next_delay_dtu=%d",
+		  " flags=%s frame_idx=%d next_delay_dtu=%d",
 		  LOCAL_PR_ARG,
 		  __entry->timestamp_dtu, __entry->timeout_dtu,
 		  __entry->ant_pair_id,
@@ -302,6 +307,7 @@ TRACE_EVENT(llhw_rx_enable,
 			{ MCPS802154_RX_INFO_SP3, "SP3" },
 			{ MCPS802154_RX_INFO_SP2, "SP2" },
 			{ MCPS802154_RX_INFO_SP1, "SP1" }),
+		  __entry->frame_idx,
 		  __entry->next_delay_dtu
 		  )
 	);

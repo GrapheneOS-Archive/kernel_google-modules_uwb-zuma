@@ -196,6 +196,13 @@ struct mcps802154_access {
 	 * see &enum ieee802154_hw_addr_filt_flags.
 	 */
 	unsigned long hw_addr_filt_changed;
+	/**
+	 * @channel: If not %NULL, channel parameters for this access. This is
+	 * set at the start of multiple frames access. Parameters are restored
+	 * after the access. If %NULL, use default parameters set through
+	 * ieee802154 interface.
+	 */
+	const struct mcps802154_channel *channel;
 };
 
 /**

@@ -132,6 +132,11 @@ int mcps802154_register_llhw(struct mcps802154_llhw *llhw)
 	local->pib.mac_extended_addr = local->hw->phy->perm_extended_addr;
 	local->pib.mac_pan_id = IEEE802154_PAN_ID_BROADCAST;
 	local->pib.mac_short_addr = IEEE802154_ADDR_SHORT_BROADCAST;
+	local->pib.phy_current_channel.page = local->hw->phy->current_page;
+	local->pib.phy_current_channel.channel =
+		local->hw->phy->current_channel;
+	local->pib.phy_current_channel.preamble_code =
+		llhw->current_preamble_code;
 
 	mutex_lock(&registered_llhw_lock);
 	list_add(&local->registered_entry, &registered_llhw);
@@ -178,6 +183,15 @@ __le16 mcps802154_get_short_addr(struct mcps802154_llhw *llhw)
 	return local->pib.mac_short_addr;
 }
 EXPORT_SYMBOL(mcps802154_get_short_addr);
+
+const struct mcps802154_channel *
+mcps802154_get_current_channel(struct mcps802154_llhw *llhw)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	return &local->pib.phy_current_channel;
+}
+EXPORT_SYMBOL(mcps802154_get_current_channel);
 
 int mcps802154_get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
 					 u32 *timestamp_dtu)

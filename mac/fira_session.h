@@ -56,11 +56,11 @@ struct fira_session_params {
 	int block_duration_dtu;
 	int round_duration_slots;
 	/* Behaviour parameters. */
+	int max_number_of_measurements;
 	int max_rr_retry;
 	bool round_hopping;
 	int priority;
 	bool result_report_phase;
-	int max_number_of_measurements;
 	/* Radio. */
 	int channel_number;
 	int preamble_code_index;
@@ -160,6 +160,11 @@ struct fira_session {
 	 */
 	bool stop_no_response;
 	/**
+	 * @max_number_of_measurements_reached: Session has been requested to stop
+	 * because max_number_of_measurements was reached.
+	 */
+	bool max_number_of_measurements_reached;
+	/**
 	 * @crypto: Crypto context.
 	 */
 	struct fira_crypto crypto;
@@ -189,11 +194,7 @@ struct fira_session {
 	 */
 	u32 data_payload_seq_sent;
 	/**
-	 * @n_cm_sent: Number of control message sent
-	 */
-	int n_cm_sent;
-	/**
-	 *  @last_block_index: Block index of the last successful ranging.
+	 * @last_block_index: Block index of the last successful ranging.
 	 */
 	u32 last_block_index;
 	/**
@@ -211,7 +212,10 @@ struct fira_session {
 	 * &fira_session_controlee_management_flags.
 	 */
 	u32 controlee_management_flags;
-
+	/**
+	 * @number_of_measurements: Number of measurements.
+	 */
+	u32 number_of_measurements;
 };
 
 /**
@@ -363,6 +367,21 @@ static inline u32
 fira_session_get_round_sts_index(const struct fira_session *session)
 {
 	return session->sts_index + fira_session_get_round_slot(session);
+}
+
+/**
+ * fira_session_get_block_duration_margin() - Get block duration margin.
+ * @local: FiRa context.
+ * @session: Session.
+ *
+ * Return: Block duration margin in dtu.
+ */
+static inline int
+fira_session_get_block_duration_margin(struct fira_local *local,
+				       const struct fira_session *session)
+{
+	return (long long int)session->params.block_duration_dtu *
+	       local->block_duration_rx_margin_ppm / 1000000;
 }
 
 #endif /* NET_MCPS802154_FIRA_SESSION_H */

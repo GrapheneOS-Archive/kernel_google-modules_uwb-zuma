@@ -50,24 +50,26 @@ static inline void llhw_stop(struct mcps802154_local *local)
 static inline int llhw_tx_frame(struct mcps802154_local *local,
 				struct sk_buff *skb,
 				const struct mcps802154_tx_frame_info *info,
-				int next_delay_dtu)
+				int frame_idx, int next_delay_dtu)
 {
 	int r;
 
-	trace_llhw_tx_frame(local, info, next_delay_dtu);
-	r = local->ops->tx_frame(&local->llhw, skb, info, next_delay_dtu);
+	trace_llhw_tx_frame(local, info, frame_idx, next_delay_dtu);
+	r = local->ops->tx_frame(&local->llhw, skb, info, frame_idx,
+				 next_delay_dtu);
 	trace_llhw_return_int(local, r);
 	return r;
 }
 
 static inline int llhw_rx_enable(struct mcps802154_local *local,
 				 const struct mcps802154_rx_info *info,
-				 int next_delay_dtu)
+				 int frame_idx, int next_delay_dtu)
 {
 	int r;
 
-	trace_llhw_rx_enable(local, info, next_delay_dtu);
-	r = local->ops->rx_enable(&local->llhw, info, next_delay_dtu);
+	trace_llhw_rx_enable(local, info, frame_idx, next_delay_dtu);
+	r = local->ops->rx_enable(&local->llhw, info, frame_idx,
+				  next_delay_dtu);
 	trace_llhw_return_int(local, r);
 	return r;
 }
