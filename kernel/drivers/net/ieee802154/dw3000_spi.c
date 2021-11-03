@@ -123,7 +123,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	}
 	dw->sp0_rx_antenna = dw3000_sp0_rx_antenna;
 
-	dev_info(dw->dev, "Loading driver UWBM-2.2.2-21102101");
+	dev_info(dw->dev, "Loading driver UWBM-2.0.0-21112301");
 	dw3000_sysfs_init(dw);
 
 	/* Setup SPI parameters */
