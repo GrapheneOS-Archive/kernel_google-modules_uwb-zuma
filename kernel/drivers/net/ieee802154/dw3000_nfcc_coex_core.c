@@ -105,7 +105,7 @@ static int dw3000_nfcc_coex_enable_SPIxMAVAIL_interrupts(struct dw3000 *dw)
 		return rc;
 	/* Set SPI1MAVAIL and SPI2MAVAIL masks */
 	reg |= (DW3000_SPI_SEM_SPI1MAVAIL_BIT_MASK >> 8) |
-	      (DW3000_SPI_SEM_SPI2MAVAIL_BIT_MASK >> 8);
+	       (DW3000_SPI_SEM_SPI2MAVAIL_BIT_MASK >> 8);
 	return dw3000_reg_write8(dw, DW3000_SPI_SEM_ID, 1, reg);
 }
 
@@ -125,8 +125,8 @@ static int dw3000_nfcc_coex_disable_SPIxMAVAIL_interrupts(struct dw3000 *dw)
 	if (rc)
 		return rc;
 	/* Reset SPI1MAVAIL and SPI2MAVAIL masks. */
-	reg = reg & ~(DW3000_SPI_SEM_SPI1MAVAIL_BIT_MASK >> 8) &
-	      ~(DW3000_SPI_SEM_SPI2MAVAIL_BIT_MASK >> 8);
+	reg &= ~(DW3000_SPI_SEM_SPI1MAVAIL_BIT_MASK >> 8) &
+	       ~(DW3000_SPI_SEM_SPI2MAVAIL_BIT_MASK >> 8);
 	rc = dw3000_reg_write8(dw, DW3000_SPI_SEM_ID, 1, reg);
 	if (rc)
 		return rc;
@@ -150,7 +150,7 @@ static int dw3000_nfcc_coex_do_watchdog_timeout(struct dw3000 *dw,
 	dw->nfcc_coex.access_info.stop = true;
 	/* FIXME: The expected is a hard reset of decawave when the semaphore
 	 * haven't been released.
-	 * But CCC firmware can not currently provide a message with nb_tlv=0. */
+	 * But nfcc_coex firmware can not currently provide a message with nb_tlv=0. */
 	dw3000_nfcc_coex_disable(dw);
 	mcps802154_tx_done(dw->llhw);
 
@@ -336,7 +336,7 @@ int dw3000_nfcc_coex_disable(struct dw3000 *dw)
 		if (rc) {
 			trace_dw3000_nfcc_coex_err(
 				dw,
-				"ccc_disable error while restoring channel");
+				"nfcc_coex_disable error while restoring channel");
 			return rc;
 		}
 	}
