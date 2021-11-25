@@ -87,8 +87,8 @@ int dw3000_enqueue_generic(struct dw3000 *dw, struct dw3000_stm_command *cmd)
 	stm->pending_work |= work;
 	stm->generic_work = cmd;
 	wake_up_locked(&stm->work_wq);
-	while (-ERESTARTSYS == wait_event_interruptible_locked_irq(stm->work_wq,
-					    !(stm->pending_work & work))) {}
+	wait_event_interruptible_locked_irq(stm->work_wq,
+					    !(stm->pending_work & work));
 	spin_unlock_irqrestore(&stm->work_wq.lock, flags);
 	mutex_unlock(&stm->mtx);
 	return cmd->ret;

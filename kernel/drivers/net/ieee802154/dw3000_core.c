@@ -4128,7 +4128,7 @@ static int dw3000_backup_registers(struct dw3000 *dw, bool after)
  */
 void dw3000_wakeup_timer_start(struct dw3000 *dw, int delay_us)
 {
-	hrtimer_start(&dw->deep_sleep_timer, ns_to_ktime(delay_us * 1000),
+	hrtimer_start(&dw->deep_sleep_timer, ns_to_ktime(delay_us * 1000ull),
 		      HRTIMER_MODE_REL);
 	dw->call_timer_expired = true;
 	trace_dw3000_wakeup_timer_start(dw, delay_us);
@@ -6626,7 +6626,7 @@ void dw3000_isr(struct dw3000 *dw)
 			goto spi_err;
 	}
 
-	/* Handle the SPI1 Available events in CCC mode only */
+	/* Handle the SPI1 Available events in nfcc_coex mode only */
 	if (dw->nfcc_coex.enabled &&
 	    (isr.dss_stat & DW3000_DSS_STAT_SPI1_AVAIL_BIT_MASK)) {
 		rc = dw3000_clear_dss_status(
