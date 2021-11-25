@@ -494,7 +494,6 @@ struct dw3000_rctu_conv {
  * @sp0_rx_antenna: Special rx antenna to use for SP0, -1 if deactivated
  * @lna_pa_mode: LNA/PA configuration to use
  * @autoack: auto-ack status, true if activated
- * @ccc: CCC related data
  * @pgf_cal_running: true if pgf calibration is running
  * @stm: High-priority thread state machine
  * @rx: received skbuff and associated spinlock
