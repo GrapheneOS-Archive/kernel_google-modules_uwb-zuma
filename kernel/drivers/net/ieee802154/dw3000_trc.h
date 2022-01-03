@@ -93,7 +93,7 @@ TRACE_DEFINE_ENUM(DW3000_OP_STATE_RX);
 	}
 
 /* clang-format off */
-#define DW3000_OP_STATE_FLAGS             \
+#define DW3000_OP_STATE_SYMBOLS           \
 	dw3000_op_state_name(OFF),        \
 	dw3000_op_state_name(DEEP_SLEEP), \
 	dw3000_op_state_name(SLEEP),      \
@@ -275,6 +275,18 @@ TRACE_DEFINE_ENUM(DW3000_NFCC_COEX_TLV_TYPE_ERROR);
 TRACE_DEFINE_ENUM(DW3000_NFCC_COEX_TLV_TYPE_SLOT_LIST_UUS);
 #define DW3000_NFCC_COEX_TLV_TYPE_ARG \
 	__print_symbolic(__entry->type, DW3000_NFCC_COEX_TLV_TYPE_SYMBOLS)
+
+#define dw3000_dss_stats_name(name)                      \
+	{                                                \
+		DW3000_DSS_STAT_##name##_BIT_MASK, #name \
+	}
+/* clang-format off */
+#define DW3000_DSS_STATS_SYMBOLS                           \
+	dw3000_dss_stats_name(SPI1_AVAIL),                 \
+	dw3000_dss_stats_name(SPI2_AVAIL)
+/* clang-format on */
+TRACE_DEFINE_ENUM(DW3000_DSS_STAT_SPI1_AVAIL_BIT_MASK);
+TRACE_DEFINE_ENUM(DW3000_DSS_STAT_SPI2_AVAIL_BIT_MASK);
 
 /* We don't want clang-format to modify the following events definition!
    Look at net/wireless/trace.h for the required format. */
@@ -467,21 +479,42 @@ TRACE_EVENT(dw3000_mcps_rx_get_error_frame,
 		  DW_PR_ARG, RX_FRAME_INFO_FLAGS_PR_ARG)
 	);
 
-TRACE_EVENT(dw3000_mcps_idle,
-	TP_PROTO(struct dw3000 *dw, bool timeout, u32 timeout_dtu),
-	TP_ARGS(dw, timeout, timeout_dtu),
+DEFINE_EVENT(dw_only_evt, dw3000_wakeup_done_to_tx,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
+DEFINE_EVENT(dw_only_evt, dw3000_wakeup_done_to_rx,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
+DEFINE_EVENT(dw_only_evt, dw3000_wakeup_done_to_idle,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
+TRACE_EVENT(dw3000_idle,
+	TP_PROTO(struct dw3000 *dw, bool timeout, u32 timeout_dtu,
+		 enum operational_state next_operational_state),
+	TP_ARGS(dw, timeout, timeout_dtu, next_operational_state),
 	TP_STRUCT__entry(
 		DW_ENTRY
 		__field(bool, timeout)
 		__field(u32, timeout_dtu)
+		__field(enum operational_state, next_operational_state)
 	),
 	TP_fast_assign(
 		DW_ASSIGN;
 		__entry->timeout = timeout;
 		__entry->timeout_dtu = timeout_dtu;
+		__entry->next_operational_state = next_operational_state;
 	),
-	TP_printk(DW_PR_FMT ", timeout: %s, timeout_dtu: %#x", DW_PR_ARG,
-		__entry->timeout ? "true" : "false", __entry->timeout_dtu)
+	TP_printk(DW_PR_FMT ", timeout: %s, timeout_dtu: %#x, "
+		 "next_operational_state: %s" , DW_PR_ARG,
+		__entry->timeout ? "true" : "false", __entry->timeout_dtu,
+		__print_symbolic(__entry->next_operational_state,
+				 DW3000_OP_STATE_SYMBOLS))
 );
 
 DEFINE_EVENT(dw_only_evt, dw3000_mcps_reset,
@@ -651,6 +684,22 @@ TRACE_EVENT(dw3000_check_idlerc,
 		  DW_PR_ARG, __entry->low_sys_status)
 );
 
+TRACE_EVENT(dw3000_wakeup_and_wait,
+	TP_PROTO(struct dw3000 *dw, enum operational_state operational_state),
+	TP_ARGS(dw, operational_state),
+	TP_STRUCT__entry(
+		DW_ENTRY
+		__field(enum operational_state, operational_state)
+	),
+	TP_fast_assign(
+		DW_ASSIGN;
+		__entry->operational_state = operational_state;
+	),
+	TP_printk(DW_PR_FMT ", operational_state: %s", DW_PR_ARG,
+		  __print_symbolic(__entry->operational_state,
+				   DW3000_OP_STATE_SYMBOLS))
+);
+
 TRACE_EVENT(dw3000_set_operational_state,
 	TP_PROTO(struct dw3000 *dw, enum operational_state operational_state),
 	TP_ARGS(dw, operational_state),
@@ -664,7 +713,22 @@ TRACE_EVENT(dw3000_set_operational_state,
 	),
 	TP_printk(DW_PR_FMT ", operational_state: %s", DW_PR_ARG,
 		  __print_symbolic(__entry->operational_state,
-				   DW3000_OP_STATE_FLAGS))
+				   DW3000_OP_STATE_SYMBOLS))
+);
+
+DEFINE_EVENT(dw_only_evt, dw3000_deepsleep_wakeup,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
+DEFINE_EVENT(dw_only_evt, dw3000_idle_timeout,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
+DEFINE_EVENT(dw_only_evt, dw3000_idle_cancel_timer,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
 );
 
 TRACE_EVENT(dw3000_check_operational_state,
@@ -688,9 +752,9 @@ TRACE_EVENT(dw3000_check_operational_state,
 	TP_printk(DW_PR_FMT ", delay_dtu: %d, current_operational_state: %s, "
 		  "next_operational_state: %s", DW_PR_ARG, __entry->delay_dtu,
 		  __print_symbolic(__entry->current_operational_state,
-				   DW3000_OP_STATE_FLAGS),
+				   DW3000_OP_STATE_SYMBOLS),
 		  __print_symbolic(__entry->next_operational_state,
-				   DW3000_OP_STATE_FLAGS))
+				   DW3000_OP_STATE_SYMBOLS))
 );
 
 DEFINE_EVENT(dw_only_evt, dw3000_read_rx_timestamp,
@@ -785,7 +849,7 @@ TRACE_EVENT(dw3000_wakeup_done,
 		  "next_op_date: %#x, next_op: %s", DW_PR_ARG,
 		  __entry->sleep_time_us, __entry->sleep_enter_dtu,
 		  __entry->dtu_next_op,
-		  __print_symbolic(__entry->next_op, DW3000_OP_STATE_FLAGS))
+		  __print_symbolic(__entry->next_op, DW3000_OP_STATE_SYMBOLS))
 );
 
 TRACE_EVENT(dw3000_power_stats,
@@ -958,21 +1022,9 @@ TRACE_EVENT(dw3000_nfcc_coex_isr,
 		DW_ASSIGN;
 		__entry->dss_stat = dss_stat;
 	),
-	TP_printk(DW_PR_FMT ", dss_stat: 0x%x", DW_PR_ARG, __entry->dss_stat)
-);
-
-TRACE_EVENT(dw3000_nfcc_coex_sleep,
-	TP_PROTO(struct dw3000 *dw, u32 sleep_dtu),
-	TP_ARGS(dw, sleep_dtu),
-	TP_STRUCT__entry(
-		DW_ENTRY
-		__field(u32, sleep_dtu)
-	),
-	TP_fast_assign(
-		DW_ASSIGN;
-		__entry->sleep_dtu = sleep_dtu;
-	),
-	TP_printk(DW_PR_FMT ", sleep_dtu: 0x%08x", DW_PR_ARG, __entry->sleep_dtu)
+	TP_printk(DW_PR_FMT ", dss_stat: %s", DW_PR_ARG,
+		  __print_flags(__entry->dss_stat, "|",
+				DW3000_DSS_STATS_SYMBOLS))
 );
 
 TRACE_EVENT(dw3000_nfcc_coex_header_put,
@@ -1062,8 +1114,8 @@ TRACE_EVENT(dw3000_nfcc_coex_header_check,
 	),
 	TP_printk(DW_PR_FMT ", signature: %s, ver_id: %u, seq_num: %u"
 		  ", nb_tlv: %u", DW_PR_ARG,
-		  __print_array(__entry->signature,
-				DW3000_NFCC_COEX_SIGNATURE_LEN, sizeof(u8)),
+		  __print_hex(__entry->signature,
+			      DW3000_NFCC_COEX_SIGNATURE_LEN),
 		  __entry->ver_id, __entry->seq_num, __entry->nb_tlv)
 );
 
@@ -1088,11 +1140,13 @@ TRACE_EVENT(dw3000_nfcc_coex_tlv_check,
 );
 
 TRACE_EVENT(dw3000_nfcc_coex_handle_access,
-	TP_PROTO(struct dw3000 *dw, const struct dw3000_vendor_cmd_nfcc_coex_handle_access *info),
-	TP_ARGS(dw, info),
+	TP_PROTO(struct dw3000 *dw, const struct dw3000_vendor_cmd_nfcc_coex_handle_access *info,
+		 s32 idle_duration_dtu),
+	TP_ARGS(dw, info, idle_duration_dtu),
 	TP_STRUCT__entry(
 		DW_ENTRY
 		__field(bool, start)
+		__field(s32, idle_duration_dtu)
 		__field(u32, timestamp_dtu)
 		__field(int, duration_dtu)
 		__field(int, chan)
@@ -1100,13 +1154,17 @@ TRACE_EVENT(dw3000_nfcc_coex_handle_access,
 	TP_fast_assign(
 		DW_ASSIGN;
 		__entry->start = info->start;
+		__entry->idle_duration_dtu = idle_duration_dtu;
 		__entry->timestamp_dtu = info->timestamp_dtu;
 		__entry->duration_dtu = info->duration_dtu;
 		__entry->chan = info->chan;
 	),
-	TP_printk(DW_PR_FMT ", start: %s, timestamp_dtu: 0x%08x"
-		  ", duration_dtu: 0x%08x, chan: %d", DW_PR_ARG,
-		  __entry->start ? "true" : "false", __entry->timestamp_dtu,
+	TP_printk(DW_PR_FMT ", start: %s, idle_duration_dtu: 0x%08x"
+		  ", timestamp_dtu: 0x%08x, duration_dtu: 0x%08x,"
+		  " chan: %d", DW_PR_ARG,
+		  __entry->start ? "true" : "false",
+		  __entry->idle_duration_dtu,
+		  __entry->timestamp_dtu,
 		  __entry->duration_dtu, __entry->chan)
 );
 
@@ -1138,7 +1196,17 @@ TRACE_EVENT(dw3000_nfcc_coex_warn,
 	TP_printk(DW_PR_FMT ", warn: \"%s\"", DW_PR_ARG, __get_str(warn))
 );
 
+DEFINE_EVENT(dw_only_evt, dw3000_nfcc_coex_configure,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
 DEFINE_EVENT(dw_only_evt, dw3000_nfcc_coex_watchdog,
+	TP_PROTO(struct dw3000 *dw),
+	TP_ARGS(dw)
+);
+
+DEFINE_EVENT(dw_only_evt, dw3000_nfcc_coex_idle_timeout,
 	TP_PROTO(struct dw3000 *dw),
 	TP_ARGS(dw)
 );

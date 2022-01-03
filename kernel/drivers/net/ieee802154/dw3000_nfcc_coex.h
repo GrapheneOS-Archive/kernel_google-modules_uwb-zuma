@@ -169,6 +169,10 @@ struct dw3000_nfcc_coex {
 	 */
 	bool enabled;
 	/**
+	 * @configured: True when nfcc coex is configured.
+	 */
+	bool configured;
+	/**
 	 * @sync_time_needed: True when clock_sync frame must be send.
 	 */
 	bool sync_time_needed;

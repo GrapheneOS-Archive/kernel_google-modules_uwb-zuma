@@ -366,6 +366,8 @@ static const struct dw3000_ciadiag_reg_info _ciadiag_reg_info[] = {
 	},
 };
 
+static int dw3000_wakeup_done_to_tx(struct dw3000 *dw);
+static int dw3000_wakeup_done_to_rx(struct dw3000 *dw);
 /* sysfs variables handling */
 static ssize_t dw3000_sysfs_show(struct kobject *kobj,
 				 struct kobj_attribute *attr, char *buf);
@@ -1971,7 +1973,7 @@ static int dw3000_wakeup(struct dw3000 *dw)
 	int rc;
 
 	/* Avoid race condition with dw3000_poweroff while chip is stopped just
-	   when dw3000_wakeup_timer() HR timer callback is executed. Do nothing
+	   when dw3000_idle_timeout() HR timer callback is executed. Do nothing
 	   if not in DEEP-SLEEP state. */
 	if (dw->current_operational_state != DW3000_OP_STATE_DEEP_SLEEP)
 		return 0;
@@ -2002,27 +2004,55 @@ static int do_wakeup(struct dw3000 *dw, const void *in, void *out)
 	return dw3000_wakeup(dw);
 }
 
-static void dw3000_timer_expired(struct work_struct *work)
+int dw3000_deepsleep_wakeup_now(struct dw3000 *dw,
+				dw3000_idle_timeout_cb idle_timeout_cb,
+				enum operational_state next_operational_state)
 {
-	struct dw3000 *dw =
-		container_of(work, struct dw3000, timer_expired_work);
-	/* Entered DEEP SLEEP from mcps802154_ops.idle() */
-	mcps802154_timer_expired(dw->llhw);
+	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
+	int r;
+
+	r = dw3000_wakeup(dw);
+	if (r)
+		return r;
+
+	dss->next_operational_state = next_operational_state;
+	dw->idle_timeout_cb = idle_timeout_cb;
+	return 0;
 }
 
 /**
- * dw3000_wakeup_timer() - wake-up timer handler
- * @timer: the deep_sleep_timer field in struct dw3000
+ * dw3000_handle_idle_timeout() - Idle expired handler
+ * @dw: the DW device.
+ * @in: ignored input.
+ * @out: ignored output.
  *
- * Return: 0 on success, else a negative error code.
+ * Return: 0 on success, -errno otherwise.
  */
-enum hrtimer_restart dw3000_wakeup_timer(struct hrtimer *timer)
+static int dw3000_handle_idle_timeout(struct dw3000 *dw, const void *in,
+				      void *out)
 {
-	struct dw3000 *dw =
-		container_of(timer, struct dw3000, deep_sleep_timer);
-	if (dw->nfcc_coex.enabled ||
-	    (dw->deep_sleep_state.next_operational_state >
-	     DW3000_OP_STATE_IDLE_PLL)) {
+	dw3000_idle_timeout_cb idle_timeout_cb = dw->idle_timeout_cb;
+
+	/* Consume/remove registered handler before call it.*/
+	dw->idle_timeout_cb = NULL;
+	/* Call handler registered. */
+	if (idle_timeout_cb)
+		return idle_timeout_cb(dw);
+	return 0;
+}
+
+/**
+ * dw3000_deepsleep_wakeup() - Handle wake-up.
+ * @dw: the DW device.
+ *
+ * Return: True when the wakeup is started, false otherwise.
+ */
+bool dw3000_deepsleep_wakeup(struct dw3000 *dw)
+{
+	trace_dw3000_deepsleep_wakeup(dw);
+	if (dw->current_operational_state == DW3000_OP_STATE_DEEP_SLEEP &&
+	    dw->deep_sleep_state.next_operational_state >
+		    DW3000_OP_STATE_IDLE_PLL) {
 		struct dw3000_stm_command cmd = { do_wakeup, NULL, NULL };
 		/* The chip is about to wake up, let's request the best QoS
 		   latency early */
@@ -2030,21 +2060,42 @@ enum hrtimer_restart dw3000_wakeup_timer(struct hrtimer *timer)
 		/* Must wakeup to execute stored operation, so run the
 		   wake up function in state machine thread. */
 		dw3000_enqueue_timer(dw, &cmd);
-	} else if (dw->call_timer_expired) {
-		/* Timer launched by idle(), just inform MCPS timer has expired */
-		schedule_work(&dw->timer_expired_work);
+		return true;
 	}
-	hrtimer_try_to_cancel(timer);
+	return false;
+}
+
+/**
+ * dw3000_idle_timeout() - idle timeout handler
+ * @timer: the idle_timer field in struct dw3000
+ *
+ * Return: always timer not restarted.
+ */
+enum hrtimer_restart dw3000_idle_timeout(struct hrtimer *timer)
+{
+	struct dw3000 *dw = container_of(timer, struct dw3000, idle_timer);
+	bool wakeup_started;
+
+	trace_dw3000_idle_timeout(dw);
+	wakeup_started = dw3000_deepsleep_wakeup(dw);
+	if (!wakeup_started && dw->idle_timeout_cb) {
+		struct dw3000_stm_command cmd = { dw3000_handle_idle_timeout,
+						  NULL, NULL };
+		dw3000_enqueue_timer(dw, &cmd);
+	}
 	return HRTIMER_NORESTART;
 }
 
 /**
- * dw3000_wakeup_cancel() - Cancel wake-up timer
+ * dw3000_idle_cancel_timer() - Cancel idle timer.
  * @dw: the DW device
  */
-void dw3000_wakeup_cancel(struct dw3000 *dw)
+static void dw3000_idle_cancel_timer(struct dw3000 *dw)
 {
-	hrtimer_try_to_cancel(&dw->deep_sleep_timer);
+	trace_dw3000_idle_cancel_timer(dw);
+	hrtimer_try_to_cancel(&dw->idle_timer);
+	/* Ensure wakeup ISR don't call the mcps802154_timer_expired() */
+	dw->idle_timeout_cb = NULL;
 }
 
 /**
@@ -2056,15 +2107,16 @@ void dw3000_wakeup_cancel(struct dw3000 *dw)
  */
 void dw3000_wakeup_and_wait(struct dw3000 *dw)
 {
+	trace_dw3000_wakeup_and_wait(dw, dw->current_operational_state);
 	if (dw->current_operational_state >= DW3000_OP_STATE_IDLE_PLL)
 		return;
 	/* Ensure wakeup ISR don't call the mcps802154_timer_expired() since
 	   this will result in dead lock! */
-	dw->call_timer_expired = false;
+	dw3000_idle_cancel_timer(dw);
 	/* Ensure force call to dw3000_wakeup() is made. */
 	dw->deep_sleep_state.next_operational_state = DW3000_OP_STATE_MAX;
 	/* Now wakeup device, and stop timer if running */
-	dw3000_wakeup_timer(&dw->deep_sleep_timer);
+	dw3000_deepsleep_wakeup(dw);
 	dw->deep_sleep_state.next_operational_state = DW3000_OP_STATE_IDLE_PLL;
 	/* And wait for good state */
 	if (current != dw->stm.mthread)
@@ -2121,7 +2173,9 @@ int dw3000_check_operational_state(struct dw3000 *dw, int delay_dtu,
 		}
 		/* The chip is about to wake up, request the best QoS latency */
 		dw3000_pm_qos_update_request(dw, dw3000_qos_latency);
-		/* Wakeup now since delay isn't enough. */
+		/* Cancel wakeup timer launch by idle() */
+		dw3000_idle_cancel_timer(dw);
+		/* Wakeup now since delay isn't enough */
 		rc = dw3000_wakeup(dw);
 		if (unlikely(rc))
 			return rc;
@@ -2145,6 +2199,8 @@ int dw3000_check_operational_state(struct dw3000 *dw, int delay_dtu,
 		/* Failure to enter deep sleep, continue without it */
 		break;
 	}
+	/* Cancel wakeup timer launch by idle() */
+	dw3000_idle_cancel_timer(dw);
 	return 0;
 }
 
@@ -2329,6 +2385,8 @@ int dw3000_do_rx_enable(struct dw3000 *dw,
 			return rc;
 		/* Save parameters to activate RX delayed when
 		   wakeup later */
+
+		dw->wakeup_done_cb = dw3000_wakeup_done_to_rx;
 		dss->next_operational_state = DW3000_OP_STATE_RX;
 		dss->rx_info = *info;
 		dss->frame_idx = frame_idx;
@@ -3111,6 +3169,7 @@ int dw3000_do_tx_frame(struct dw3000 *dw,
 			return rc;
 		/* Save parameters to activate TX delayed when
 		   wakeup later */
+		dw->wakeup_done_cb = dw3000_wakeup_done_to_tx;
 		dss->next_operational_state = DW3000_OP_STATE_TX;
 		dss->tx_info = *info;
 		dss->tx_skb = skb;
@@ -4128,9 +4187,8 @@ static int dw3000_backup_registers(struct dw3000 *dw, bool after)
  */
 void dw3000_wakeup_timer_start(struct dw3000 *dw, int delay_us)
 {
-	hrtimer_start(&dw->deep_sleep_timer, ns_to_ktime(delay_us * 1000ull),
+	hrtimer_start(&dw->idle_timer, ns_to_ktime(delay_us * 1000ull),
 		      HRTIMER_MODE_REL);
-	dw->call_timer_expired = true;
 	trace_dw3000_wakeup_timer_start(dw, delay_us);
 }
 
@@ -4163,6 +4221,153 @@ int dw3000_deep_sleep_and_wakeup(struct dw3000 *dw, int delay_us)
 	/* Put the chip in deep sleep immediately */
 	rc = dw3000_setdwstate(dw, DW3000_OP_STATE_DEEP_SLEEP);
 	trace_dw3000_deep_sleep(dw, rc);
+	return rc;
+}
+
+/**
+ * dw3000_wakeup_done_to_tx() - Wakeup done, continue to program TX.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_wakeup_done_to_tx(struct dw3000 *dw)
+{
+	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
+
+	trace_dw3000_wakeup_done_to_tx(dw);
+	dss->next_operational_state = dw->current_operational_state;
+	return dw3000_do_tx_frame(dw, &dss->tx_info, dss->tx_skb,
+				  dss->frame_idx);
+}
+
+/**
+ * dw3000_wakeup_done_to_rx() - Wakeup done, continue to program RX.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_wakeup_done_to_rx(struct dw3000 *dw)
+{
+	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
+
+	trace_dw3000_wakeup_done_to_rx(dw);
+	dss->next_operational_state = dw->current_operational_state;
+	return dw3000_do_rx_enable(dw, &dss->rx_info, dss->frame_idx);
+}
+
+/**
+ * dw3000_wakeup_done_to_idle() - Wakeup done, continue on idle timeout.
+ * @dw: Driver context.
+ *
+ * Return: 0 on success, else an error.
+ */
+static int dw3000_wakeup_done_to_idle(struct dw3000 *dw)
+{
+	struct dw3000_stm_command cmd = { dw3000_handle_idle_timeout, NULL,
+					  NULL };
+
+	trace_dw3000_wakeup_done_to_idle(dw);
+	if (dw->idle_timeout) {
+		u32 now_dtu = dw3000_get_dtu_time(dw);
+		int idle_duration_us =
+			DTU_TO_US(dw->idle_timeout_dtu - now_dtu);
+
+		/* TODO:
+		 * 2 timers implemented (idle, deep_sleep),
+		 * or a better FSM (enter, leave, events, state)
+		 * should help to follow/repect timestamps expected. */
+		dw3000_wakeup_timer_start(dw, idle_duration_us);
+		return 0;
+	}
+	return dw3000_enqueue_generic(dw, &cmd);
+}
+
+/**
+ * dw3000_idle() - Go into idle.
+ * @dw: Driver context.
+ * @timestamp: Idle duration have a end date (timestamp_dtu).
+ * @timestamp_dtu: End date for this idle duration.
+ * @idle_timeout_cb: idle timeout callback.
+ * @next_operational_state: next operation state wanted.
+ *
+ * Return: 0 on success, else an error.
+ */
+int dw3000_idle(struct dw3000 *dw, bool timestamp, u32 timestamp_dtu,
+		dw3000_idle_timeout_cb idle_timeout_cb,
+		enum operational_state next_operational_state)
+{
+	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
+	u32 cur_time_dtu = 0;
+	int delay_us = 0, rc;
+
+	trace_dw3000_idle(dw, timestamp, timestamp_dtu, next_operational_state);
+
+	if (WARN_ON(next_operational_state < DW3000_OP_STATE_IDLE_PLL))
+		return -EINVAL;
+
+	dw->wakeup_done_cb = dw3000_wakeup_done_to_idle;
+	/* Reset ranging clock requirement */
+	dw->need_ranging_clock = false;
+	dw3000_reset_rctu_conv_state(dw);
+	/* Ensure dw3000_idle_timeout() handler does the right thing. */
+	dss->next_operational_state = next_operational_state;
+
+	/* Release Wifi coexistence. */
+	dw3000_coex_stop(dw);
+	/* Check if enough idle time to enter DEEP SLEEP */
+	dw->idle_timeout = timestamp;
+	dw->idle_timeout_dtu = timestamp_dtu;
+	if (timestamp) {
+		int deepsleep_delay_us;
+		int idle_delay_us;
+		bool is_sleeping = dw->current_operational_state ==
+				   DW3000_OP_STATE_DEEP_SLEEP;
+
+		cur_time_dtu = dw3000_get_dtu_time(dw);
+		idle_delay_us = DTU_TO_US(timestamp_dtu - cur_time_dtu);
+		if (idle_delay_us < 0) {
+			rc = -ETIME;
+			goto eof;
+		}
+		/* Warning: timestamp_dtu have already taken in consideration
+		 * WakeUp latency! */
+		deepsleep_delay_us = idle_delay_us;
+		if (is_sleeping)
+			deepsleep_delay_us -= DW3000_WAKEUP_LATENCY_US;
+
+		/* TODO/FIXME:
+		 * Timer is used for idle timeout and deepsleep timeout,
+		 * which haven't the same timeout_dtu! */
+		if (deepsleep_delay_us < 0) {
+			dw3000_deepsleep_wakeup_now(dw, idle_timeout_cb,
+						    DW3000_OP_STATE_MAX);
+			rc = 0;
+			goto eof;
+		}
+
+		delay_us = dw3000_can_deep_sleep(dw, deepsleep_delay_us);
+		if (!delay_us) {
+			u32 timer_duration_dtu = is_sleeping ?
+							 deepsleep_delay_us :
+							 idle_delay_us;
+			/* Provided date isn't far enough to enter deep-sleep,
+			   just launch the timer to have it call the MCPS timer
+			   expired event function. */
+			dw->idle_timeout_cb = idle_timeout_cb;
+			dw3000_wakeup_timer_start(dw, timer_duration_dtu);
+			rc = 0;
+			goto eof;
+		}
+	} else if (dw->auto_sleep_margin_us < 0) {
+		/* Deep-sleep is completly disable, so do nothing here! */
+		rc = 0;
+		goto eof;
+	}
+	/* Enter DEEP SLEEP */
+	rc = dw3000_deep_sleep_and_wakeup(dw, delay_us);
+	if (!rc)
+		dw->idle_timeout_cb = idle_timeout_cb;
+eof:
 	return rc;
 }
 
@@ -5620,6 +5825,13 @@ int dw3000_set_rx_antennas(struct dw3000 *dw, int ant_pair, bool pdoa_enabled)
 	return rc;
 }
 
+static void dw3000_mcps_timer_expired(struct work_struct *work)
+{
+	struct dw3000 *dw =
+		container_of(work, struct dw3000, timer_expired_work);
+	mcps802154_timer_expired(dw->llhw);
+}
+
 /**
  * dw3000_initialise() - Initialise the DW local data.
  * @dw: The DW device.
@@ -5645,8 +5857,8 @@ static void dw3000_initialise(struct dw3000 *dw)
 	 * parameter on load, or via testmode */
 	stats->enabled = dw3000_stats_enabled;
 	memset(stats->count, 0, sizeof(stats->count));
-	/* Reset Deep Sleep state */
-	INIT_WORK(&dw->timer_expired_work, dw3000_timer_expired);
+	INIT_WORK(&dw->timer_expired_work, dw3000_mcps_timer_expired);
+
 #ifdef CONFIG_DW3000_DEBUG
 	if (dss->regbackup)
 		kfree(dss->regbackup);
@@ -5959,7 +6171,7 @@ int dw3000_disable(struct dw3000 *dw)
 	if (dw->current_operational_state < DW3000_OP_STATE_INIT_RC) {
 		/* Seems chip is sleeping or already power-off. Just ensure
 		   wake-up timer will not fire since not required anymore. */
-		dw3000_wakeup_cancel(dw);
+		dw3000_idle_cancel_timer(dw);
 		/* No need to call disable_irq() since already called and this
 		   will require calling two times enable_irq() later because
 		   enable/disable_irq are nested! */
@@ -6060,6 +6272,7 @@ static inline int dw3000_isr_handle_spi_ready(struct dw3000 *dw,
 					      struct dw3000_isr_data *isr)
 {
 	struct dw3000_deep_sleep_state *dss = &dw->deep_sleep_state;
+	const dw3000_wakeup_done_cb wakeup_done_cb = dw->wakeup_done_cb;
 	int rc;
 
 	if (dw->current_operational_state != DW3000_OP_STATE_WAKE_UP) {
@@ -6203,21 +6416,10 @@ setuperror:
 	if (rc)
 		return rc;
 #endif
-	/* Do the required operation after wakeup according states */
-	if (dw->nfcc_coex.enabled) {
-		rc = dw3000_nfcc_coex_handle_spi1_ready_isr(dw);
-	} else if (dss->next_operational_state == DW3000_OP_STATE_RX) {
-		/* Entered DEEP SLEEP from dw3000_do_rx_enable() */
-		dss->next_operational_state = dw->current_operational_state;
-		rc = dw3000_do_rx_enable(dw, &dss->rx_info, dss->frame_idx);
-	} else if (dss->next_operational_state == DW3000_OP_STATE_TX) {
-		/* Entered DEEP SLEEP from dw3000_do_tx_frame() */
-		dss->next_operational_state = dw->current_operational_state;
-		rc = dw3000_do_tx_frame(dw, &dss->tx_info, dss->tx_skb,
-					dss->frame_idx);
-	} else if (dw->call_timer_expired) {
-		/* Entered DEEP SLEEP from do_idle() */
-		schedule_work(&dw->timer_expired_work);
+	if (wakeup_done_cb) {
+		/* Consume the callback handler before execution. */
+		dw->wakeup_done_cb = NULL;
+		rc = wakeup_done_cb(dw);
 	}
 	return rc;
 }
