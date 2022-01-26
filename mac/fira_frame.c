@@ -410,6 +410,7 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 		int slot_index;
 		__le16 short_addr;
 		enum fira_message_id message_id;
+		bool stop_ranging;
 
 		mngt = get_unaligned_le32(p);
 		p += sizeof(u32);
@@ -418,6 +419,7 @@ static bool fira_frame_control_read(struct fira_local *local, u8 *p,
 		slot_index = FIELD_GET(FIRA_MNGT_SLOT_INDEX, mngt);
 		short_addr = FIELD_GET(FIRA_MNGT_SHORT_ADDR, mngt);
 		message_id = FIELD_GET(FIRA_MNGT_MESSAGE_ID, mngt);
+		stop_ranging = !!(mngt & FIRA_MNGT_STOP);
 
 		if (stop_ranging) {
 			if (short_addr == local->src_short_addr) {
