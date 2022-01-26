@@ -1977,7 +1977,8 @@ static int dw3000_wakeup(struct dw3000 *dw)
 
 	/* Add a delay after transfer. See spi_transfer_delay_exec() called by
 	   spi_transfer_one_message(). */
-	tr->delay_usecs = DW3000_SPI_CS_WAKEUP_DELAY_US;
+	tr->delay.value = DW3000_SPI_CS_WAKEUP_DELAY_US;
+	tr->delay.unit = SPI_DELAY_UNIT_USECS;
 	/* Now, execute SPI modified message/transfer */
 	rc = dw3000_spi_sync(dw, msg);
 	if (!rc) {
@@ -1987,7 +1988,7 @@ static int dw3000_wakeup(struct dw3000 *dw)
 		enable_irq(dw->spi->irq);
 	}
 	/* Reset delay in transfer */
-	tr->delay_usecs = 0;
+	tr->delay.value = 0;
 	return rc;
 	/* The next part of the wake process is located in
 	   dw3000_isr_handle_spi_ready(), executed when SPIRDY interrupt is
