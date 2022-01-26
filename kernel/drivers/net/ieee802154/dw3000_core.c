@@ -1775,7 +1775,6 @@ static void dw3000_set_operational_state(struct dw3000 *dw,
  */
 int dw3000_poweron(struct dw3000 *dw)
 {
-	int timeout;
 	int rc;
 
 	if (dw->is_powered) {
@@ -1803,9 +1802,6 @@ stats:
 	dw3000_change_speed(dw, DW3000_SPI_SLOW_HZ);
 	/* Enable interrupt so we can catch the SPI ready IRQ */
 	enable_irq(dw->spi->irq);
-
-	/* Now, wait for SPI ready interrupt */
-	timeout = msecs_to_jiffies(500);
 
 	/* No IRQs after this point until device is enabled */
 	disable_irq(dw->spi->irq);
