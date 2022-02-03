@@ -2123,7 +2123,7 @@ int dw3000_check_operational_state(struct dw3000 *dw, int delay_dtu,
 		rc = dw3000_wakeup(dw);
 		if (unlikely(rc))
 			return rc;
-		/* fallthrough */
+		fallthrough;
 	case DW3000_OP_STATE_WAKE_UP:
 		/* Inform caller to save parameters. Stored operation will redo
 		   deep sleep if needed. */
