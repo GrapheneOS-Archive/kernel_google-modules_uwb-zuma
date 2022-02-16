@@ -31,17 +31,21 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 					       size_t frame_idx);
 
 static int
-mcps802154_fproc_multi_restore_hw_addr_filt(struct mcps802154_local *local,
-					    struct mcps802154_access *access)
+mcps802154_fproc_multi_restore_filter(struct mcps802154_local *local,
+				      struct mcps802154_access *access)
 {
 	int r = 0;
 
-	if (access->hw_addr_filt_changed) {
+	if (access->promiscuous) {
+		r = llhw_set_promiscuous_mode(local,
+					      local->pib.mac_promiscuous);
+	} else if (access->hw_addr_filt_changed) {
 		struct ieee802154_hw_addr_filt hw_addr_filt;
 
 		hw_addr_filt.pan_id = local->pib.mac_pan_id;
 		hw_addr_filt.short_addr = local->pib.mac_short_addr;
 		hw_addr_filt.ieee_addr = local->pib.mac_extended_addr;
+		hw_addr_filt.pan_coord = local->mac_pan_coord;
 		r = llhw_set_hw_addr_filt(local, &hw_addr_filt,
 					  access->hw_addr_filt_changed);
 	}
@@ -63,7 +67,32 @@ static int mcps802154_fproc_multi_restore(struct mcps802154_local *local,
 			return r;
 	}
 
-	return mcps802154_fproc_multi_restore_hw_addr_filt(local, access);
+	return mcps802154_fproc_multi_restore_filter(local, access);
+}
+
+/**
+ * mcps802154_fproc_multi_check_frames() - Check absence of Rx without timeout.
+ * @local: MCPS private data.
+ * @access: Current access to handle.
+ * @frame_idx: Start frame index in the frames array.
+ *
+ * Returns: 0 on success, -errno otherwise.
+ */
+static int
+mcps802154_fproc_multi_check_frames(struct mcps802154_local *local,
+				    const struct mcps802154_access *access,
+				    int frame_idx)
+{
+	if (access->n_frames && !access->frames)
+		return -EINVAL;
+	for (; frame_idx < access->n_frames; frame_idx++) {
+		const struct mcps802154_access_frame *frame =
+			&access->frames[frame_idx];
+		/* Only first Rx can be without timeout. */
+		if (!frame->is_tx && frame->rx.info.timeout_dtu == -1)
+			return -EINVAL;
+	}
+	return 0;
 }
 
 /**
@@ -81,6 +110,17 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 	int r;
 
 	frame_idx++;
+	if (access->ops->access_extend && frame_idx == access->n_frames) {
+		frame_idx = 0;
+		access->n_frames = 0;
+		access->ops->access_extend(access);
+		r = mcps802154_fproc_multi_check_frames(local, access, 0);
+		if (r) {
+			mcps802154_fproc_access_done(local, r);
+			mcps802154_fproc_broken_handle(local);
+			return;
+		}
+	}
 	if (frame_idx < access->n_frames) {
 		/* Next frame. */
 		r = mcps802154_fproc_multi_handle_frame(local, access,
@@ -304,30 +344,31 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 int mcps802154_fproc_multi_handle(struct mcps802154_local *local,
 				  struct mcps802154_access *access)
 {
-	int i = 1;
 	int r;
 
-	if (access->n_frames == 0 || !access->frames)
+	if (access->n_frames == 0)
 		return -EINVAL;
-	for (; i < access->n_frames; i++) {
-		struct mcps802154_access_frame *frame = &access->frames[i];
-		/* Only first Rx can be without timeout. */
-		if (!frame->is_tx && frame->rx.info.timeout_dtu == -1)
-			return -EINVAL;
-	}
-	if (access->hw_addr_filt_changed) {
+	r = mcps802154_fproc_multi_check_frames(local, access, 1);
+	if (r)
+		return r;
+
+	if (access->promiscuous) {
+		r = llhw_set_promiscuous_mode(local, true);
+		if (r)
+			return r;
+	} else if (access->hw_addr_filt_changed) {
 		r = llhw_set_hw_addr_filt(local, &access->hw_addr_filt,
 					  access->hw_addr_filt_changed);
 		if (r)
 			return r;
 	}
+
 	if (access->channel) {
 		r = llhw_set_channel(local, access->channel->page,
 				     access->channel->channel,
 				     access->channel->preamble_code);
 		if (r) {
-			mcps802154_fproc_multi_restore_hw_addr_filt(local,
-								    access);
+			mcps802154_fproc_multi_restore_filter(local, access);
 			return r;
 		}
 	}

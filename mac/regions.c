@@ -27,6 +27,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/string.h>
+#include <linux/netdevice.h>
 
 #include "mcps802154_i.h"
 
@@ -170,3 +171,38 @@ int mcps802154_region_get_demand(struct mcps802154_llhw *llhw,
 	return region->ops->get_demand(region, next_timestamp_dtu, demand);
 }
 EXPORT_SYMBOL(mcps802154_region_get_demand);
+
+void mcps802154_region_xmit_resume(struct mcps802154_llhw *llhw,
+				   struct mcps802154_region *region,
+				   int queue_index)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	ieee802154_wake_queue(local->hw);
+}
+EXPORT_SYMBOL(mcps802154_region_xmit_resume);
+
+void mcps802154_region_xmit_done(struct mcps802154_llhw *llhw,
+				 struct mcps802154_region *region,
+				 struct sk_buff *skb, bool ok)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	if (ok) {
+		ieee802154_xmit_complete(local->hw, skb, false);
+	} else {
+		ieee802154_wake_queue(local->hw);
+		dev_kfree_skb_any(skb);
+	}
+}
+EXPORT_SYMBOL(mcps802154_region_xmit_done);
+
+void mcps802154_region_rx_skb(struct mcps802154_llhw *llhw,
+			      struct mcps802154_region *region,
+			      struct sk_buff *skb, u8 lqi)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	ieee802154_rx_irqsafe(local->hw, skb, lqi);
+}
+EXPORT_SYMBOL(mcps802154_region_rx_skb);

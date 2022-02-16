@@ -96,7 +96,7 @@ static void mcps802154_fproc_vendor_tx_done(struct mcps802154_local *local)
 	if (access->vendor_ops->tx_done)
 		r = access->vendor_ops->tx_done(access);
 	else
-		r = EOPNOTSUPP;
+		r = -EOPNOTSUPP;
 	mcps802154_fproc_vendor_handle_callback_return(local, r);
 }
 
