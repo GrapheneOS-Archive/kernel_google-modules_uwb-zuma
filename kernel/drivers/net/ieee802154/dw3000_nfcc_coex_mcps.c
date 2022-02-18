@@ -28,7 +28,7 @@
 #include "dw3000_trc.h"
 #include "dw3000_core.h"
 
-#define DW3000_NFCC_COEX_WATCHDOG_DEFAULT_DURATION_MS 200
+#define DW3000_NFCC_COEX_WATCHDOG_DEFAULT_DURATION_MS 24000
 
 /**
  * dw3000_nfcc_coex_handle_access() - handle access to provide to NFCC.

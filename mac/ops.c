@@ -37,6 +37,11 @@ static int mcps802154_start(struct ieee802154_hw *hw)
 	WARN_ON(local->started);
 
 	mutex_lock(&local->fsm_lock);
+	local->pib.phy_current_channel.page = local->hw->phy->current_page;
+	local->pib.phy_current_channel.channel =
+		local->hw->phy->current_channel;
+	local->pib.phy_current_channel.preamble_code =
+		local->llhw.current_preamble_code;
 	r = llhw_set_channel(local, local->pib.phy_current_channel.page,
 			     local->pib.phy_current_channel.channel,
 			     local->pib.phy_current_channel.preamble_code);
