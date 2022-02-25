@@ -72,6 +72,7 @@ static const struct dw3000_chip_register d0_registers[] = {
 	{ "tx_pream_len", 0x000021, 0x01, 0xf0, DW3000_CHIPREG_WP, NULL },
 	{ "tx_antdly", 0x00007c, 0x02, 0x00, DW3000_CHIPREG_WP, NULL },
 	{ "txrf_pwrfin", 0x010004, 0x01, 0xfc, DW3000_CHIPREG_WP, NULL },
+	{ "tx_pwr", 0x010004, 0x04, 0x00, DW3000_CHIPREG_WP, NULL },
 	{ "rx_sfdtype", 0x010008, 0x01, 0x6, DW3000_CHIPREG_WP, NULL },
 	{ "channel", 0x010008, 0x01, 0x01, DW3000_CHIPREG_WP, NULL },
 	{ "tx_pream_ch", 0x010008, 0x01, 0xf8, DW3000_CHIPREG_WP, NULL },
