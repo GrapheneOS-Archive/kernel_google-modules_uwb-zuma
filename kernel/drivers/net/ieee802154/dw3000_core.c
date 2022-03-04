@@ -6630,11 +6630,10 @@ read_frame_cir_error:
  */
 int dw3000_cir_data_alloc_count(struct dw3000 *dw, u16 nrecord)
 {
-	struct dw3000_cir_data *cir = dw->cir_data;
-
 	if (dw->cir_data) {
-		/* Avoid using dw->cir_data elsewhere and force consummer release
+		/* Avoid using dw->cir_data elsewhere and force consumer release
 		 * because pointer target is changed */
+		struct dw3000_cir_data *cir = dw->cir_data;
 		dw->cir_data = NULL;
 		dw->cir_data_changed = true;
 		smp_wmb();

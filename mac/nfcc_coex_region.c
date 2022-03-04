@@ -102,7 +102,7 @@ static int nfcc_coex_get_demand(struct mcps802154_region *region,
 
 	trace_region_nfcc_coex_get_demand(local, next_timestamp_dtu, rd);
 	if (!session->started)
-		return 1;
+		return 0;
 
 	if (is_before_dtu(rd->timestamp_dtu, next_timestamp_dtu)) {
 		/* Date is late. */
@@ -137,7 +137,7 @@ static int nfcc_coex_get_demand(struct mcps802154_region *region,
 	} else {
 		memcpy(demand, rd, sizeof(*demand));
 	}
-	return 0;
+	return 1;
 }
 
 void nfcc_coex_set_state(struct nfcc_coex_local *local,

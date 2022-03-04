@@ -417,12 +417,14 @@ static u32 adjust_tx_power(u16 frame_duration_us, u32 ref_tx_power, u8 channel,
 		 * TxPower gain using the increased coarse setting.
 		 * NB : Coarse gain = 0x3 should not be used in CHAN9 */
 		while (ref_coarse_gain < 0x2) {
-			if (lut_coarse_gain[ref_coarse_gain] >=
+			if (lut_coarse_gain[ref_coarse_gain] <
 			    target_boost - current_boost) {
+				current_boost +=
+					lut_coarse_gain[ref_coarse_gain];
+				ref_coarse_gain++;
+			} else {
 				break;
 			}
-			current_boost += lut_coarse_gain[ref_coarse_gain];
-			ref_coarse_gain++;
 		}
 
 		/* Increase current_boost until reaching value closest to target_boost */

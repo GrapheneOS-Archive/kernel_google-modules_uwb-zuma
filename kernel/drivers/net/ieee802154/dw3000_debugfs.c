@@ -30,6 +30,10 @@
 #include "dw3000_chip.h"
 #include "dw3000_cir.h"
 
+#define MAX_CHARS_DISPLAY_DEC_UINT32 10
+#define MAX_CHARS_DISPLAY_DEC_INT32 11
+#define MAX_CHARS_DISPLAY_HEX_UINT32 8
+
 #define dw3000_dbgfs_regop_write(sz, _dw, _addr, _mask, data)          \
 	(_mask) ? dw3000_reg_modify##sz(_dw, _addr, 0, ~_mask, data) : \
 		  dw3000_reg_write##sz(_dw, _addr, 0, data)
@@ -106,8 +110,7 @@ static int dw3000_dbgfs_power(struct file *filp, bool write, void *buffer,
 static int dw3000_dbgfs_cir_data(struct file *filp, bool write, void *buffer,
 				 size_t size, loff_t *ppos)
 {
-	struct dw3000_debugfs_file *dbgfs_file =
-		(struct dw3000_debugfs_file *)filp->private_data;
+	struct dw3000_debugfs_file *dbgfs_file = filp->private_data;
 	struct dw3000_chip_register_priv *crp = &dbgfs_file->chip_reg_priv;
 	struct dw3000 *dw = crp->dw;
 	struct dw3000_cir_data *cir = dw->cir_data;
@@ -174,9 +177,12 @@ static int dw3000_dbgfs_cir_config(struct file *filp, bool write, void *buffer,
 	struct dw3000_chip_register_priv *crp = &dbgfs_file->chip_reg_priv;
 	struct dw3000 *dw = crp->dw;
 	struct dw3000_cir_data *cir = dw->cir_data;
-	const char fmt[] = "count %u filter 0x%x offset %d\n";
+	static const char fmt[] = "count %u filter 0x%x offset %d\n";
+	/* fit format string with max values for each (U)32 and sign */
 	char cbuf[sizeof(fmt) +
-		  3 * 8]; /* fit format string with max values for each (U)32 and sign */
+		MAX_CHARS_DISPLAY_DEC_UINT32 +
+		MAX_CHARS_DISPLAY_DEC_UINT32 +
+		MAX_CHARS_DISPLAY_HEX_UINT32];
 	unsigned int newcount;
 	int newoff;
 	u32 newfilter;
