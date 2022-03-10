@@ -1,11 +1,3 @@
-export CONFIG_MCPS_FAKE := n
-export CONFIG_MCPS802154_TESTMODE := y
-
-ifdef CONFIG_DW3000_FORCE_SCHED_PRIO_IN_DRIVER
-DW3000_DEFS = -DCONFIG_DW3000_FORCE_SCHED_PRIO_IN_DRIVER
-endif
-export DW3000_DEFS
-
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PROJECTS_BUILD := $(abspath $(CURDIR)/../projects/linux-build)
 

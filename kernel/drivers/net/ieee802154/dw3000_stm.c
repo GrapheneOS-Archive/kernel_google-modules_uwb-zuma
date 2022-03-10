@@ -28,6 +28,8 @@
 #include "dw3000.h"
 #include "dw3000_core.h"
 
+#define DW3000_MIN_CLAMP_VALUE	170
+
 /* First version with sched_setattr_nocheck: v4.16-rc1~164^2~5 */
 #if (KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE)
 #include <uapi/linux/sched/types.h>
@@ -40,17 +42,11 @@ static inline int dw3000_set_sched_attr(struct task_struct *p)
 	/* Increase thread priority */
 	return sched_setscheduler(p, SCHED_FIFO, &sched_par);
 #else
-#if defined(CONFIG_DW3000_FORCE_SCHED_PRIO_IN_DRIVER)
 	struct sched_attr attr = { .sched_policy = SCHED_FIFO,
 				   .sched_priority = MAX_RT_PRIO - 2,
 				   .sched_flags = SCHED_FLAG_UTIL_CLAMP_MIN,
-				   .sched_util_min = SCHED_CAPACITY_SCALE };
+				   .sched_util_min = DW3000_MIN_CLAMP_VALUE };
 	return sched_setattr_nocheck(p, &attr);
-#else
-	/* Priority must be set by user-space now. */
-	sched_set_fifo(p);
-	return 0;
-#endif
 #endif
 }
 
