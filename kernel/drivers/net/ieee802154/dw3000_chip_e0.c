@@ -219,8 +219,8 @@ int dw3000_e0_prog_ldo_and_bias_tune(struct dw3000 *dw)
 		/* Save the kicks for the on-wake configuration */
 		local->sleep_mode |= DW3000_LOADLDO | DW3000_LOADBIAS;
 	}
-	/* Use DGC_CFG from OTP */
-	local->dgc_otp_set = otp->dgc_addr == DW3000_DGC_CFG0 ? true : false;
+	/* Ignore use of DGC from OTP */
+	local->dgc_otp_set = false;
 	return 0;
 }
 
