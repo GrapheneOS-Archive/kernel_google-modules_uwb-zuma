@@ -1379,6 +1379,22 @@ int dw3000_clear_spi_collision_status(struct dw3000 *dw, u8 clear_bits)
 	return rc;
 }
 
+
+int dw3000_change_tx_rf1_to_rf2(struct dw3000 *dw, bool tx)
+{
+	int rc;
+	if (tx)
+		rc = dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0, 0x1C000050);
+	else
+		rc = dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0, 0x1C000000);
+	return rc;
+}
+
+int dw3000_change_tx_to_default(struct dw3000 *dw)
+{
+	return dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0, 0x1C000000);
+}
+
 /**
  * dw3000_read_rdb_status() - Fast read of RDB_STATUS register
  * @dw: the DW device on which the SPI transfer will occurs
@@ -6249,7 +6265,14 @@ int dw3000_set_tx_antenna(struct dw3000 *dw, int ant_set_id)
 		return -EINVAL;
 	}
 	/* Set GPIO state according config to select this antenna */
+	if (dw->tx_rf2) {
+		/* force antenna switch to AoA 1*/
+		dw3000_change_tx_rf1_to_rf2(dw, true);
+		ant_calib = &dw->calib_data.ant[3];
+	}
+
 	rc = dw3000_set_antenna_gpio(dw, ant_calib);
+
 	if (rc)
 		return rc;
 	config->ant[0] = ant_idx1;
@@ -6274,6 +6297,9 @@ int dw3000_set_rx_antennas(struct dw3000 *dw, int ant_set_id, bool pdoa_enabled)
 	/* Sanity checks first */
 	if (ant_set_id < 0 || ant_set_id >= ANTSET_ID_MAX)
 		return -EINVAL;
+	if (dw->tx_rf2) {
+		dw3000_change_tx_rf1_to_rf2(dw, false);
+	}
 	/* Retrieve RX antennas configuration from antenna set id */
 	dw3000_calib_ant_set_id_to_ant(ant_set_id, &ant_idx1, &ant_idx2);
 	if (pdoa_enabled && (ant_idx1 < 0 || ant_idx2 < 0)) {

@@ -555,6 +555,7 @@ struct dw3000_cir_data;
  * @spi_pid: PID of the SPI controller pump messages
  * @dw3000_pid: PID the dw3000 state machine thread
  * @restricted_channels: bit field of restricted channels
+ * @tx_rf2: parameter to enable the tx on rf2 port
  * @cir_data_changed: true if buffer data have been reallocated
  * @cir_data: allocated CIR exploitation data
  * @msg_queue: SPI message holding transfer queue
@@ -669,6 +670,8 @@ struct dw3000 {
 	pid_t dw3000_pid;
 	/* Restricted channels */
 	u16 restricted_channels;
+	/* enable tx on RF2 port  */
+	u8 tx_rf2;
 	/* Channel impulse response data */
 	bool cir_data_changed;
 	struct dw3000_cir_data *cir_data;

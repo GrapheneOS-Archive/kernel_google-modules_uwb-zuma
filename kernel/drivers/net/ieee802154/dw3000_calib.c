@@ -29,12 +29,12 @@
 #define ANT_OTHER_PARAMS (3) /* port, selector_gpio... */
 #define ANTPAIR_CHAN_PARAMS (2 * DW3000_CALIBRATION_CHANNEL_MAX + 1)
 
-#define OTHER_PARAMS (13) /* xtal_trim, temperature_reference,
+#define OTHER_PARAMS (14) /* xtal_trim, temperature_reference,
 			    smart_tx_power, spi_pid, dw3000_pid,
 			    auto_sleep_margin, restricted_channels
 			    phrMode, alternate_pulse_shape,
 			    wificoex_gpio, wificoex_delay_us,
-			    wificoex_interval_us, wificoex_margin_us */
+			    wificoex_interval_us, wificoex_margin_us, rf_tx2 */
 
 #define MAX_CALIB_KEYS ((ANTMAX * (ANT_CHAN_PARAMS + ANT_OTHER_PARAMS)) + \
 			(ANTPAIR_MAX * ANTPAIR_CHAN_PARAMS) +		\
@@ -97,6 +97,7 @@ static const struct {
 	DW_INFO(spi_pid),
 	DW_INFO(dw3000_pid),
 	DW_INFO(restricted_channels),
+	DW_INFO(tx_rf2),
 	DW_INFO(config.phrMode),
 	DW_INFO(coex_gpio),
 	DW_INFO(coex_delay_us),
@@ -157,6 +158,7 @@ static const char *const dw3000_calib_keys[MAX_CALIB_KEYS + 1] = {
 	"spi_pid",
 	"dw3000_pid",
 	"restricted_channels",
+	"tx_rf2",
 	"phr_mode",
 	"coex_gpio",
 	"coex_delay_us",
