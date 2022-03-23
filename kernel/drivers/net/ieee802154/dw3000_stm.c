@@ -287,6 +287,7 @@ int dw3000_event_thread(void *data)
 int dw3000_state_init(struct dw3000 *dw, int cpu)
 {
 	struct dw3000_state *stm = &dw->stm;
+	int rc;
 	/* Clear memory */
 	memset(stm, 0, sizeof(*stm));
 
@@ -308,7 +309,9 @@ int dw3000_state_init(struct dw3000 *dw, int cpu)
 	dw->dw3000_pid = stm->mthread->pid;
 
 	/* Increase thread priority */
-	dw3000_set_sched_attr(stm->mthread);
+	rc = dw3000_set_sched_attr(stm->mthread);
+	if (rc)
+		dev_err(dw->dev, "dw3000_set_sched_attr failed: %d\n", rc);
 	return 0;
 }
 
