@@ -135,13 +135,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 #if (KERNEL_VERSION(5, 3, 0) <= LINUX_VERSION_CODE)
 	spi->rt = 1;
 #endif
-#if (KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE)
-	/* Quirk to force spi_set_cs() in spi_setup() to do something!
-	   !!! Not doing this results in CS line stay LOW and SPIRDY IRQ
-	   isn't fired later when powering-on the device. Previous kernel
-	   don't have this bug as it always apply new CS state. */
-	spi->master->last_cs_enable = true;
-#endif
 	/* Save configured device max speed */
 	dw->of_max_speed_hz = spi->max_speed_hz;
 	/* Setup SPI and put CS line in HIGH state! */
