@@ -116,7 +116,7 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 		access->ops->access_extend(access);
 		r = mcps802154_fproc_multi_check_frames(local, access, 0);
 		if (r) {
-			mcps802154_fproc_access_done(local, r);
+			mcps802154_fproc_access_done(local, true);
 			mcps802154_fproc_broken_handle(local);
 			return;
 		}
@@ -126,23 +126,20 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 		r = mcps802154_fproc_multi_handle_frame(local, access,
 							frame_idx);
 		if (r) {
-			if (r == -ETIME) {
-				mcps802154_fproc_access_done(local, 0);
+			mcps802154_fproc_access_done(local, true);
+			if (r == -ETIME)
 				mcps802154_fproc_access_now(local);
-			} else {
-				mcps802154_fproc_access_done(local, r);
+			else
 				mcps802154_fproc_broken_handle(local);
-			}
 		}
 	} else {
 		r = mcps802154_fproc_multi_restore(local, access);
+		mcps802154_fproc_access_done(local, !!r);
 		if (r) {
-			mcps802154_fproc_access_done(local, r);
 			mcps802154_fproc_broken_handle(local);
 			return;
 		}
 		/* Next access. */
-		mcps802154_fproc_access_done(local, 0);
 		if (access->duration_dtu) {
 			u32 next_access_dtu =
 				access->timestamp_dtu + access->duration_dtu;
@@ -171,7 +168,7 @@ static void mcps802154_fproc_multi_rx_rx_frame(struct mcps802154_local *local)
 				      MCPS802154_RX_ERROR_NONE);
 
 	if (r && r != -EBUSY) {
-		mcps802154_fproc_access_done(local, r);
+		mcps802154_fproc_access_done(local, true);
 		mcps802154_fproc_broken_handle(local);
 	} else {
 		/* Next. */

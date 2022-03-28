@@ -35,7 +35,7 @@ mcps802154_fproc_vendor_handle_callback_return(struct mcps802154_local *local,
 	int duration_dtu = access->duration_dtu;
 	u32 next_access_dtu = access->timestamp_dtu + duration_dtu;
 	/* Filter-out the 'stop' request as error. */
-	int error = r == 1 ? 0 : r;
+	bool error = r != 1;
 
 	if (!r)
 		return;

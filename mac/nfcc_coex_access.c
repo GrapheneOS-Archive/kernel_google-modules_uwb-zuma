@@ -35,7 +35,7 @@
 
 #include "warn_return.h"
 
-static void nfcc_coex_access_done(struct mcps802154_access *access, int error)
+static void nfcc_coex_access_done(struct mcps802154_access *access, bool error)
 {
 	struct nfcc_coex_local *local = access_to_local(access);
 	struct nfcc_coex_session *session = &local->session;

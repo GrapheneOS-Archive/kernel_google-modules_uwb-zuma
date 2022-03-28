@@ -217,9 +217,9 @@ struct mcps802154_access_common_ops {
 	/**
 	 * @access_done: Called when the access is done, successfully or
 	 * not, ignored if NULL.
-	 * @error: Code used to signal internal MAC/driver/config error.
+	 * @error: Boolean used to signal internal MAC/driver/config error.
 	 */
-	void (*access_done)(struct mcps802154_access *access, int error);
+	void (*access_done)(struct mcps802154_access *access, bool error);
 };
 
 /**

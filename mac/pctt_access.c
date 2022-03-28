@@ -356,7 +356,7 @@ static void pctt_rx_frame(struct mcps802154_access *access, int frame_idx,
 		kfree_skb(skb);
 }
 
-static void pctt_access_done(struct mcps802154_access *access, int error)
+static void pctt_access_done(struct mcps802154_access *access, bool error)
 {
 	struct pctt_local *local = access_to_local(access);
 	struct pctt_session *session = &local->session;

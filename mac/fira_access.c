@@ -587,7 +587,7 @@ static void fira_tx_return(struct mcps802154_access *access, int frame_idx,
 	}
 }
 
-static void fira_access_done(struct mcps802154_access *access, int error)
+static void fira_access_done(struct mcps802154_access *access, bool error)
 {
 	struct fira_local *local = access_to_local(access);
 	struct fira_session *session = local->current_session;
