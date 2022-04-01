@@ -213,6 +213,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 
 err_debugfs:
 err_state_start:
+	dw3000_pm_qos_remove_request(dw);
 	dw3000_mcps_unregister(dw);
 err_register_hw:
 err_setup_irq:
