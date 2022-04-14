@@ -134,16 +134,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	rc = spi_setup(spi);
 	if (rc != 0)
 		goto err_spi_setup;
-#if (KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE)
-	/* Setup SPI controller CS timings */
-	{
-		struct spi_delay dly = { .unit = SPI_DELAY_UNIT_NSECS,
-					 .value = 0 };
-		rc = spi_set_cs_timing(spi, &dly, &dly, &dly);
-		if (rc != 0)
-			goto err_spi_setup;
-	}
-#endif
 	/* Request and setup regulators if availables*/
 	dw3000_setup_regulators(dw);
 
