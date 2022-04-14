@@ -6,18 +6,26 @@
 # unless you have coordinated with the team managing the Soong to Bazel
 # migration.
 
-load("//build/kleaf:kernel.bzl", "kernel_module")
+load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
 
 kernel_module(
-    name = "kernel.cloudripper",
+    name = "kernel.slider",
+    srcs = glob([
+        "**/*.c",
+        "**/*.h",
+        "Kbuild",
+        "net/mcps802154/Kbuild",
+        "drivers/net/ieee802154/Kbuild",
+        "drivers/spi/Kbuild",
+    ]),
     outs = [
         "drivers/net/ieee802154/dw3000.ko",
         "net/mcps802154/mcps802154.ko",
         "net/mcps802154/mcps802154_region_fira.ko",
         "net/mcps802154/mcps802154_region_nfcc_coex.ko",
     ],
-    kernel_build = "//private/gs-google:cloudripper",
+    kernel_build = "//gs/google-modules/soc-modules:slider",
     visibility = [
-        "//private/gs-google:__pkg__",
+        "//gs/google-modules/soc-modules:__pkg__",
     ],
 )

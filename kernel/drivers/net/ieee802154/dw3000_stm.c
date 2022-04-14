@@ -35,6 +35,10 @@
 #include <uapi/linux/sched/types.h>
 #endif
 
+#if (KERNEL_VERSION(5,11,0) < LINUX_VERSION_CODE)
+#define MAX_USER_RT_PRIO MAX_RT_PRIO
+#endif
+
 static inline int dw3000_set_sched_attr(struct task_struct *p)
 {
 #if (KERNEL_VERSION(5, 9, 0) > LINUX_VERSION_CODE)

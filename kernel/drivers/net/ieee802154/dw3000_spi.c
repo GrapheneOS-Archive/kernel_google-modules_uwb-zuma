@@ -128,13 +128,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 #if (KERNEL_VERSION(5, 3, 0) <= LINUX_VERSION_CODE)
 	spi->rt = 1;
 #endif
-#if (KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE)
-	/* Quirk to force spi_set_cs() in spi_setup() to do something!
-	   !!! Not doing this results in CS line stay LOW and SPIRDY IRQ
-	   isn't fired later when powering-on the device. Previous kernel
-	   don't have this bug as it always apply new CS state. */
-	spi->master->last_cs_enable = true;
-#endif
 	/* Save configured device max speed */
 	dw->of_max_speed_hz = spi->max_speed_hz;
 	/* Setup SPI and put CS line in HIGH state! */
@@ -240,9 +233,8 @@ err_alloc_hw:
  * sysfs/debugfs files, unregister device from the MCPS
  * module and them free all remaining resources.
  *
- * Return: always 0
  */
-static int dw3000_spi_remove(struct spi_device *spi)
+static void dw3000_spi_remove(struct spi_device *spi)
 {
 	struct dw3000 *dw = spi_get_drvdata(spi);
 
@@ -267,8 +259,6 @@ static int dw3000_spi_remove(struct spi_device *spi)
 
 	/* Release the mcps 802.15.4 device */
 	dw3000_mcps_free(dw);
-
-	return 0;
 }
 
 enum { DW3000,
