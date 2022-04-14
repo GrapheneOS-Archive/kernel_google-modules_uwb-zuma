@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,20 +18,14 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 #ifndef __DW3000_COEX_H
 #define __DW3000_COEX_H
 
 #include "dw3000.h"
 
-#define DTU_TO_US(x) (int)((s64)(x)*1000000 / DW3000_DTU_FREQ)
-#define US_TO_DTU(x) (int)((s64)(x)*DW3000_DTU_FREQ / 1000000)
-#define COEX_TIME_US 1000
-#define COEX_TIME_DTU US_TO_DTU(COEX_TIME_US)
-#define COEX_MARGIN_US 20
-#define COEX_MARGIN_DTU US_TO_DTU(COEX_MARGIN_US)
+static inline int dw3000_coex_stop(struct dw3000 *dw);
 
 /**
  * dw3000_coex_gpio - change the state of the GPIO used for WiFi coexistence
@@ -41,14 +35,24 @@
  *
  * This function only call the version dependent coex_gpio function.
  *
+ * It cannot be called if dw3000_coex_init() has fail or if no coex gpio
+ * is defined. So no need to test chip_ops.
+ *
  * Return: 0 on success, else a negative error code.
  */
 static inline int dw3000_coex_gpio(struct dw3000 *dw, int state, int delay_us)
 {
-	/* Call chip dependent function */
-	if (!dw->chip_ops || !dw->chip_ops->coex_gpio)
-		return -ENOTSUPP;
-	return dw->chip_ops->coex_gpio(dw, state, delay_us);
+	int rc;
+
+	/* Use SPI in queuing mode */
+	dw3000_spi_queue_start(dw);
+	rc = dw->chip_ops->coex_gpio(dw, state, delay_us);
+	if (rc)
+		return dw3000_spi_queue_reset(dw, rc);
+	rc = dw3000_spi_queue_flush(dw);
+	if (!rc)
+		dw->coex_status = state;
+	return rc;
 }
 
 /**
@@ -56,39 +60,56 @@ static inline int dw3000_coex_gpio(struct dw3000 *dw, int state, int delay_us)
  * @dw: the DW device
  * @trx_delayed: pointer to tx/rx_delayed parameter to update
  * @trx_date_dtu: pointer to tx/rx_date_dtu parameter to update
+ * @cur_time_dtu: current device time in DTU
+ *
+ * Calculate a timer delay in us and programme it to ensure the WiFi coex
+ * GPIO is asserted at least `coex_delay_us` before the next operation.
+ *
+ * This function also reset the GPIO immediatly if the calculated timer delay
+ * is more than `coex_interval_us`.
  *
  * Return: 0 on success, else a negative error code.
  */
-static inline int dw3000_coex_start(struct dw3000 *dw, int *trx_delayed,
-				    u32 *trx_date_dtu)
+static inline int dw3000_coex_start(struct dw3000 *dw, bool *trx_delayed,
+				    u32 *trx_date_dtu, u32 cur_time_dtu)
 {
-	u32 cur_time_dtu;
-	int delay_us, ret;
+	int delay_us;
+	int timer_us = 0;
 
 	if (dw->coex_gpio < 0)
 		return 0;
-	/* Read current DTU time to compare with next transfer time */
-	ret = dw3000_read_sys_time(dw, &cur_time_dtu);
-	if (unlikely(ret))
-		return ret;
-	if (*trx_delayed == 0) {
-		/* Set gpio now */
-		delay_us = 0;
-		/* Change to delayed TX/RX with a 1ms delay */
-		*trx_date_dtu = cur_time_dtu + COEX_TIME_DTU + COEX_MARGIN_DTU;
+	/* Add a margin for required SPI transactions to the coex delay time
+	 * to ensure GPIO change at right time. */
+	delay_us = dw->coex_delay_us + dw->coex_margin_us;
+	if (*trx_delayed == false) {
+		/* Change to delayed TX/RX with the minimum required delay */
+		*trx_date_dtu = cur_time_dtu + US_TO_DTU(delay_us);
 		*trx_delayed = true;
+		/* Leave timer_us to 0 to set gpio now. */
 	} else {
-		/* Calculate when we need to toggle the gpio */
+		/* Calculate timer duration to program. */
+		/* V                                     TX
+		 * |       time_difference_us            |
+		 * | margin | timer           |   delay  |
+		 *                            G
+		 *
+		 * timer = time_difference_us - (delay + margin)
+		 */
 		int time_difference_dtu = *trx_date_dtu - cur_time_dtu;
 		int time_difference_us = DTU_TO_US(time_difference_dtu);
-		if (time_difference_us <= COEX_TIME_US + COEX_MARGIN_US)
-			delay_us = 0;
-		else
-			delay_us = time_difference_us - COEX_TIME_US -
-				   COEX_MARGIN_US;
+		if (time_difference_us > delay_us)
+			timer_us = time_difference_us - delay_us;
+		/* else, too late for timer, set gpio now */
+	}
+	trace_dw3000_coex_gpio_start(dw, timer_us, dw->coex_status,
+				     dw->coex_interval_us);
+	if (dw->coex_status) {
+		if (timer_us < dw->coex_interval_us)
+			return 0; /* Nothing more to do */
+		dw3000_coex_stop(dw);
 	}
 	/* Set coexistence gpio on chip */
-	return dw3000_coex_gpio(dw, true, delay_us);
+	return dw3000_coex_gpio(dw, true, timer_us);
 }
 
 /**
@@ -101,8 +122,38 @@ static inline int dw3000_coex_stop(struct dw3000 *dw)
 {
 	if (dw->coex_gpio < 0)
 		return 0;
+
+	trace_dw3000_coex_gpio_stop(dw, dw->coex_status);
+	if (!dw->coex_status)
+		return 0;
 	/* Reset coex GPIO on chip */
 	return dw3000_coex_gpio(dw, false, 0);
+}
+
+/**
+ * dw3000_coex_init - Initialise WiFi coex gpio
+ * @dw: the DW device
+ *
+ * Return: 0 on success, else a negative error code.
+ */
+static inline int dw3000_coex_init(struct dw3000 *dw)
+{
+	int rc;
+
+	if (dw->coex_gpio < 0)
+		return 0;
+	/* Sanity check chip dependent functions */
+	if (!dw->chip_ops || !dw->chip_ops->coex_gpio ||
+	    !dw->chip_ops->coex_init)
+		return -ENOTSUPP;
+	/* Call chip dependent initialisation */
+	rc = dw->chip_ops->coex_init(dw);
+	if (unlikely(rc)) {
+		dev_err(dw->dev,
+			"WiFi coexistence configuration has failed (%d)\n", rc);
+	}
+	dw->coex_status = false;
+	return rc;
 }
 
 #endif /* __DW3000_COEX_H */

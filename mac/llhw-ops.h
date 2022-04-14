@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,15 +18,13 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * 802.15.4 mac common part sublayer, low level driver operations.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #ifndef LLHW_OPS_H
 #define LLHW_OPS_H
+
+#include <linux/errno.h>
 
 #include "mcps802154_i.h"
 #include "trace.h"
@@ -50,23 +48,27 @@ static inline void llhw_stop(struct mcps802154_local *local)
 
 static inline int llhw_tx_frame(struct mcps802154_local *local,
 				struct sk_buff *skb,
-				const struct mcps802154_tx_frame_info *info)
+				const struct mcps802154_tx_frame_info *info,
+				int frame_idx, int next_delay_dtu)
 {
 	int r;
 
-	trace_llhw_tx_frame(local, info);
-	r = local->ops->tx_frame(&local->llhw, skb, info);
+	trace_llhw_tx_frame(local, info, frame_idx, next_delay_dtu);
+	r = local->ops->tx_frame(&local->llhw, skb, info, frame_idx,
+				 next_delay_dtu);
 	trace_llhw_return_int(local, r);
 	return r;
 }
 
 static inline int llhw_rx_enable(struct mcps802154_local *local,
-				 const struct mcps802154_rx_info *info)
+				 const struct mcps802154_rx_info *info,
+				 int frame_idx, int next_delay_dtu)
 {
 	int r;
 
-	trace_llhw_rx_enable(local, info);
-	r = local->ops->rx_enable(&local->llhw, info);
+	trace_llhw_rx_enable(local, info, frame_idx, next_delay_dtu);
+	r = local->ops->rx_enable(&local->llhw, info, frame_idx,
+				  next_delay_dtu);
 	trace_llhw_return_int(local, r);
 	return r;
 }
@@ -104,6 +106,20 @@ static inline int llhw_rx_get_error_frame(struct mcps802154_local *local,
 	return r;
 }
 
+static inline int llhw_idle(struct mcps802154_local *local, bool timestamp,
+			    u32 timestamp_dtu)
+{
+	int r;
+
+	if (timestamp)
+		trace_llhw_idle_timestamp(local, timestamp_dtu);
+	else
+		trace_llhw_idle(local);
+	r = local->ops->idle(&local->llhw, timestamp, timestamp_dtu);
+	trace_llhw_return_int(local, r);
+	return r;
+}
+
 static inline int llhw_reset(struct mcps802154_local *local)
 {
 	int r;
@@ -125,36 +141,12 @@ static inline int llhw_get_current_timestamp_dtu(struct mcps802154_local *local,
 	return r;
 }
 
-static inline int
-llhw_get_current_timestamp_rctu(struct mcps802154_local *local,
-				u64 *timestamp_rctu)
+static inline u64
+llhw_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_local *local,
+				      u32 tx_timestamp_dtu, int ant_set_id)
 {
-	int r;
-
-	trace_llhw_get_current_timestamp_rctu(local);
-	r = local->ops->get_current_timestamp_rctu(&local->llhw,
-						   timestamp_rctu);
-	trace_llhw_return_timestamp_rctu(local, r, *timestamp_rctu);
-	return r;
-}
-
-static inline u64 llhw_timestamp_dtu_to_rctu(struct mcps802154_local *local,
-					     u32 timestamp_dtu)
-{
-	return local->ops->timestamp_dtu_to_rctu(&local->llhw, timestamp_dtu);
-}
-
-static inline u32 llhw_timestamp_rctu_to_dtu(struct mcps802154_local *local,
-					     u64 timestamp_rctu)
-{
-	return local->ops->timestamp_rctu_to_dtu(&local->llhw, timestamp_rctu);
-}
-
-static inline u64 llhw_align_tx_timestamp_rctu(struct mcps802154_local *local,
-					       u64 timestamp_rctu)
-{
-	return local->ops->align_tx_timestamp_rctu(&local->llhw,
-						   timestamp_rctu);
+	return local->ops->tx_timestamp_dtu_to_rmarker_rctu(
+		&local->llhw, tx_timestamp_dtu, ant_set_id);
 }
 
 static inline s64 llhw_difference_timestamp_rctu(struct mcps802154_local *local,
@@ -198,6 +190,21 @@ static inline int llhw_set_hrp_uwb_params(struct mcps802154_local *local,
 	return r;
 }
 
+static inline int
+llhw_set_sts_params(struct mcps802154_local *local,
+		    const struct mcps802154_sts_params *params)
+{
+	int r;
+
+	trace_llhw_set_sts_params(local, params);
+	if (local->ops->set_sts_params)
+		r = local->ops->set_sts_params(&local->llhw, params);
+	else
+		r = -EOPNOTSUPP;
+	trace_llhw_return_int(local, r);
+	return r;
+}
+
 static inline int llhw_set_hw_addr_filt(struct mcps802154_local *local,
 					struct ieee802154_hw_addr_filt *filt,
 					unsigned long changed)
@@ -216,17 +223,6 @@ static inline int llhw_set_txpower(struct mcps802154_local *local, s32 mbm)
 
 	trace_llhw_set_txpower(local, mbm);
 	r = local->ops->set_txpower(&local->llhw, mbm);
-	trace_llhw_return_int(local, r);
-	return r;
-}
-
-static inline int llhw_set_cca_mode(struct mcps802154_local *local,
-				    const struct wpan_phy_cca *cca)
-{
-	int r;
-
-	trace_llhw_set_cca_mode(local, cca);
-	r = local->ops->set_cca_mode(&local->llhw, cca);
 	trace_llhw_return_int(local, r);
 	return r;
 }
@@ -295,6 +291,21 @@ llhw_list_calibration(struct mcps802154_local *local)
 	trace_llhw_list_calibration(local);
 	r = local->ops->list_calibration(&local->llhw);
 	trace_llhw_return_void(local);
+	return r;
+}
+
+static inline int llhw_vendor_cmd(struct mcps802154_local *local, u32 vendor_id,
+				  u32 subcmd, void *data, size_t data_len)
+{
+	int r;
+
+	trace_llhw_vendor_cmd(local, vendor_id, subcmd, data_len);
+	if (local->ops->vendor_cmd)
+		r = local->ops->vendor_cmd(&local->llhw, vendor_id, subcmd,
+					   data, data_len);
+	else
+		r = -EOPNOTSUPP;
+	trace_llhw_return_int(local, r);
 	return r;
 }
 

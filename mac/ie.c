@@ -1,13 +1,13 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
  *
  * You may choose to use this software under the terms of the GPLv2 License,
- * version 2 (“GPLv2”), as published by the Free Software Foundation.
+ * version 2 ("GPLv2"), as published by the Free Software Foundation.
  * You should have received a copy of the GPLv2 along with this program.  If
  * not, see <http://www.gnu.org/licenses/>.
  *
@@ -18,16 +18,13 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * 802.15.4 mac common part sublayer, information elements (IEs) reading and
- * writing.
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #include <asm/unaligned.h>
 #include <linux/bitfield.h>
 #include <linux/errno.h>
+#include <linux/kernel.h>
 #include <linux/ieee802154.h>
 #include <linux/module.h>
 #include <net/mcps802154_frame.h>
@@ -61,13 +58,21 @@ struct mcps802154_ie_cb {
 	 * @mlme_ie_index: Index in buffer of the MLME IE header. Valid in the
 	 * corresponding state only, used to increment IE payload length.
 	 */
-	int mlme_ie_index;
+	u16 mlme_ie_index;
+	/**
+	 * @header_len: Length of frame header. Can be used for frame
+	 * encryption, the header is not encrypted but only used for
+	 * authentication.
+	 */
+	u16 header_len;
 };
 
 void mcps802154_ie_put_begin(struct sk_buff *skb)
 {
 	struct mcps802154_ie_cb *cb = (struct mcps802154_ie_cb *)&skb->cb;
+
 	cb->ie_state = MCPS802154_IE_STATE_INIT;
+	cb->header_len = skb->len;
 }
 EXPORT_SYMBOL(mcps802154_ie_put_begin);
 
@@ -77,6 +82,7 @@ int mcps802154_ie_put_end(struct sk_buff *skb, bool data_payload)
 
 	if (data_payload) {
 		bool err = false;
+
 		if (cb->ie_state == MCPS802154_IE_STATE_HEADER_IE)
 			err = !mcps802154_ie_put_header_ie(
 				skb, IEEE802154_IE_HEADER_TERMINATION_2_ID, 0);
@@ -86,7 +92,7 @@ int mcps802154_ie_put_end(struct sk_buff *skb, bool data_payload)
 		if (unlikely(err))
 			return -ENOBUFS;
 	}
-	return 0;
+	return cb->header_len;
 }
 EXPORT_SYMBOL(mcps802154_ie_put_end);
 
@@ -99,7 +105,7 @@ void *mcps802154_ie_put_header_ie(struct sk_buff *skb, int element_id,
 
 	if (unlikely(len > FIELD_MAX(IEEE802154_HEADER_IE_HEADER_LENGTH)))
 		return NULL;
-	if (unlikely(skb_tailroom(skb) < IEEE802154_IE_HEADER_LEN + len))
+	if (unlikely(skb_availroom(skb) < IEEE802154_IE_HEADER_LEN + len))
 		return NULL;
 
 	if (cb->ie_state == MCPS802154_IE_STATE_INIT)
@@ -113,6 +119,8 @@ void *mcps802154_ie_put_header_ie(struct sk_buff *skb, int element_id,
 
 	ie = skb_put(skb, IEEE802154_IE_HEADER_LEN + len);
 	put_unaligned_le16(ie_header, ie);
+
+	cb->header_len = skb->len;
 
 	return ie + IEEE802154_IE_HEADER_LEN;
 }
@@ -131,7 +139,7 @@ void *mcps802154_ie_put_payload_ie(struct sk_buff *skb, int group_id,
 
 	if (unlikely(len > FIELD_MAX(IEEE802154_PAYLOAD_IE_HEADER_LENGTH)))
 		return NULL;
-	if (unlikely(skb_tailroom(skb) <
+	if (unlikely(skb_availroom(skb) <
 		     (need_terminator ? IEEE802154_IE_HEADER_LEN : 0) +
 			     IEEE802154_IE_HEADER_LEN + len))
 		return NULL;
@@ -221,12 +229,17 @@ int mcps802154_ie_get(struct sk_buff *skb,
 		      struct mcps802154_ie_get_context *context)
 {
 	u16 ie_header;
+	bool header;
 	bool last = false;
 
 	if (skb->len < IEEE802154_IE_HEADER_LEN) {
 		if (context->mlme_len)
 			/* This could only happen if caller made a mistake. */
 			return -EINVAL;
+		if (skb->len > 0)
+			/* Not enough for a header, but too much for nothing. */
+			return -EBADMSG;
+		context->in_payload = true;
 		context->kind = MCPS802154_IE_GET_KIND_NONE;
 		context->id = 0;
 		context->len = 0;
@@ -258,8 +271,11 @@ int mcps802154_ie_get(struct sk_buff *skb,
 			return -EBADMSG;
 		context->mlme_len -= IEEE802154_IE_HEADER_LEN + context->len;
 	} else {
-		if ((ie_header & IEEE802154_IE_HEADER_TYPE) ==
-		    IEEE802154_HEADER_IE_HEADER_TYPE) {
+		header = (ie_header & IEEE802154_IE_HEADER_TYPE) ==
+			 IEEE802154_HEADER_IE_HEADER_TYPE;
+		if (header != !context->in_payload)
+			return -EBADMSG;
+		if (header) {
 			context->kind = MCPS802154_IE_GET_KIND_HEADER;
 			context->id = FIELD_GET(
 				IEEE802154_HEADER_IE_HEADER_ELEMENT_ID,
@@ -267,8 +283,13 @@ int mcps802154_ie_get(struct sk_buff *skb,
 			context->len = FIELD_GET(
 				IEEE802154_HEADER_IE_HEADER_LENGTH, ie_header);
 			if (context->id ==
-			    IEEE802154_IE_HEADER_TERMINATION_2_ID)
+			    IEEE802154_IE_HEADER_TERMINATION_1_ID)
+				context->in_payload = true;
+			if (context->id ==
+			    IEEE802154_IE_HEADER_TERMINATION_2_ID) {
+				context->in_payload = true;
 				last = true;
+			}
 		} else {
 			context->kind = MCPS802154_IE_GET_KIND_PAYLOAD;
 			context->id =

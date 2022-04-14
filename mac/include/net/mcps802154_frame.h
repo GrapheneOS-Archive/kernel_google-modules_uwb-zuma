@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,11 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * MCPS interface, tools to handle frames from a region handler.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #ifndef NET_MCPS802154_FRAME_H
@@ -30,8 +26,14 @@
 
 #include <linux/skbuff.h>
 
+#define IEEE802154_FC_NO_SEQ_SHIFT 8
+#define IEEE802154_FC_NO_SEQ (1 << IEEE802154_FC_NO_SEQ_SHIFT)
+
 #define IEEE802154_FC_IE_PRESENT_SHIFT 9
 #define IEEE802154_FC_IE_PRESENT (1 << IEEE802154_FC_IE_PRESENT_SHIFT)
+
+#define IEEE802154_SCF_LEN 1
+#define IEEE802154_SCF_NO_FRAME_COUNTER (1 << 5)
 
 #define IEEE802154_IE_HEADER_LEN 2
 #define IEEE802154_IE_HEADER_TYPE_SHIFT 15
@@ -57,10 +59,12 @@
 
 #define IEEE802154_IE_NESTED_SHORT_MIN_SID 0x10
 
+#define IEEE802154_IE_HEADER_VENDOR_ID 0x00
 #define IEEE802154_IE_HEADER_TERMINATION_1_ID 0x7e
 #define IEEE802154_IE_HEADER_TERMINATION_2_ID 0x7f
 
 #define IEEE802154_IE_PAYLOAD_MLME_GID 0x1
+#define IEEE802154_IE_PAYLOAD_VENDOR_GID 0x2
 #define IEEE802154_IE_PAYLOAD_TERMINATION_GID 0xf
 
 struct mcps802154_llhw;
@@ -85,6 +89,10 @@ enum mcps802154_ie_get_kind {
  * mcps802154_ie_get(). Initialize to zero.
  */
 struct mcps802154_ie_get_context {
+	/**
+	 * @in_payload: If true, next decoding is in payload.
+	 */
+	bool in_payload;
 	/**
 	 * @kind: Kind of decoded IE.
 	 */
@@ -138,7 +146,7 @@ void mcps802154_ie_put_begin(struct sk_buff *skb);
  *
  * This function appends a terminator IE if needed.
  *
- * Return: 0 or -ENOBUFS in case of error.
+ * Return: Length of frame header or -ENOBUFS in case of error.
  */
 int mcps802154_ie_put_end(struct sk_buff *skb, bool data_payload);
 
@@ -237,37 +245,38 @@ __le16 mcps802154_get_pan_id(struct mcps802154_llhw *llhw);
 __le16 mcps802154_get_short_addr(struct mcps802154_llhw *llhw);
 
 /**
- * mcps802154_timestamp_dtu_to_rctu() - Convert a timestamp in device time unit
- * to a timestamp in ranging counter time unit.
+ * mcps802154_get_current_channel() - Get current channel.
  * @llhw: Low-level device pointer.
- * @timestamp_dtu: Timestamp value in device time unit.
  *
- * Return: Timestamp value in ranging counter time unit.
+ * Return: Channel parameters.
  */
-u64 mcps802154_timestamp_dtu_to_rctu(struct mcps802154_llhw *llhw,
-				     u32 timestamp_dtu);
+const struct mcps802154_channel *
+mcps802154_get_current_channel(struct mcps802154_llhw *llhw);
 
 /**
- * mcps802154_timestamp_rctu_to_dtu() - Convert a timestamp in ranging counter
- * time unit to a timestamp in device time unit.
+ * mcps802154_get_current_timestamp_dtu() - Get current timestamp in device time
+ * unit.
  * @llhw: Low-level device pointer.
- * @timestamp_rctu: Timestamp value in ranging counter time unit.
+ * @timestamp_dtu: Pointer to timestamp to write.
  *
- * Return: Timestamp value in device time unit.
+ * Return: 0 or error.
  */
-u32 mcps802154_timestamp_rctu_to_dtu(struct mcps802154_llhw *llhw,
-				     u64 timestamp_rctu);
+int mcps802154_get_current_timestamp_dtu(struct mcps802154_llhw *llhw,
+					 u32 *timestamp_dtu);
 
 /**
- * mcps802154_align_tx_timestamp_rctu() - Align a transmission timestamp so that
- * the transmission can be done at the exact timestamp value (RDEV only).
+ * mcps802154_tx_timestamp_dtu_to_rmarker_rctu() - Compute the RMARKER timestamp
+ * in ranging counter time unit for a frame transmitted at given timestamp in
+ * device time unit (RDEV only).
  * @llhw: Low-level device pointer.
- * @timestamp_rctu: Timestamp value to align.
+ * @tx_timestamp_dtu: TX timestamp in device time unit.
+ * @ant_set_id: Antennas set id used to transmit.
  *
- * Return: Aligned timestamp.
+ * Return: RMARKER timestamp in ranging count time unit.
  */
-u64 mcps802154_align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
-				       u64 timestamp_rctu);
+u64 mcps802154_tx_timestamp_dtu_to_rmarker_rctu(struct mcps802154_llhw *llhw,
+						u32 tx_timestamp_dtu,
+						int ant_set_id);
 
 /**
  * mcps802154_difference_timestamp_rctu() - Compute the difference between two
@@ -281,5 +290,30 @@ u64 mcps802154_align_tx_timestamp_rctu(struct mcps802154_llhw *llhw,
 s64 mcps802154_difference_timestamp_rctu(struct mcps802154_llhw *llhw,
 					 u64 timestamp_a_rctu,
 					 u64 timestamp_b_rctu);
+
+/**
+ * mcps802154_compute_frame_duration_dtu() - Compute the duration of a frame.
+ * @llhw: Low-level device pointer.
+ * @payload_bytes: Payload length (header and checksum included).
+ *
+ * Return: The duration in device time unit.
+ */
+int mcps802154_compute_frame_duration_dtu(struct mcps802154_llhw *llhw,
+					  int payload_bytes);
+
+/**
+ * mcps802154_vendor_cmd() - Run a driver vendor specific command.
+ * @llhw: Low-level device pointer.
+ * @vendor_id: Vendor identifier as an OUI.
+ * @subcmd: Command identifier.
+ * @data: Data to be passed to driver, can be in/out.
+ * @data_len: Data length.
+ *
+ * The valid moment to call this function is driver and command specific.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_vendor_cmd(struct mcps802154_llhw *llhw, u32 vendor_id,
+			  u32 subcmd, void *data, size_t data_len);
 
 #endif /* NET_MCPS802154_FRAME_H */

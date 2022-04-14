@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,11 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * 802.15.4 mac common part sublayer internal definitions.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #ifndef NET_MCPS802154_MCPS802154_I_H
@@ -60,9 +56,17 @@ struct mcps802154_pib {
 	 */
 	__le16 mac_short_addr;
 	/**
+	 * @mac_promiscuous: Indicate whether the promiscuous mode is enabled.
+	 */
+	bool mac_promiscuous;
+	/**
 	 * @mac_max_frame_retries: Number of retries on TX.
 	 */
 	s8 mac_max_frame_retries;
+	/**
+	 * @phy_current_channel: Current channel parameters.
+	 */
+	struct mcps802154_channel phy_current_channel;
 };
 
 /**
@@ -131,6 +135,11 @@ struct mcps802154_local {
 	 * @pib: PAN Information Base.
 	 */
 	struct mcps802154_pib pib;
+	/**
+	 * @mac_pan_coord: Indicate whether the hardware filtering should operate as
+	 * coordinator.
+	 */
+	bool mac_pan_coord;
 };
 
 static inline struct mcps802154_local *
@@ -143,18 +152,6 @@ static inline struct mcps802154_local *
 txwork_to_local(struct work_struct *tx_work)
 {
 	return container_of(tx_work, struct mcps802154_local, tx_work);
-}
-
-/**
- * is_before_dtu() - Check if timestamp A is before timestamp B.
- * @a_dtu: A timestamp in device time unit.
- * @b_dtu: B timestamp in device time unit.
- *
- * Return: true if A timestamp is before B timestamp.
- */
-static inline bool is_before_dtu(u32 a_dtu, u32 b_dtu)
-{
-	return (s32)(a_dtu - b_dtu) < 0;
 }
 
 struct mcps802154_local *mcps802154_get_first_by_idx(int hw_idx);

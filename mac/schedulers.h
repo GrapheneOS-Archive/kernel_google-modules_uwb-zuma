@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,11 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * 802.15.4 mac common part sublayer, definitions to handle schedulers.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 
 #ifndef NET_MCPS802154_SCHEDULERS_H
@@ -49,13 +45,20 @@ mcps802154_scheduler_open(struct mcps802154_local *local, const char *name,
 
 /**
  * mcps802154_scheduler_close() - Close a scheduler.
- * @scheduler: Pointer to the open scheduler.
+ * @scheduler: Pointer to the scheduler.
  */
 void mcps802154_scheduler_close(struct mcps802154_scheduler *scheduler);
 
 /**
+ * mcps802154_scheduler_notify_stop() - Notify a scheduler that device has been
+ * stopped.
+ * @scheduler: Pointer to the scheduler.
+ */
+void mcps802154_scheduler_notify_stop(struct mcps802154_scheduler *scheduler);
+
+/**
  * mcps802154_scheduler_set_parameters() - Set parameters of an open scheduler.
- * @scheduler: Pointer to the open scheduler.
+ * @scheduler: Pointer to the scheduler.
  * @params_attr: Nested attribute containing scheduler parameters, may be NULL.
  * @extack: Extended ACK report structure.
  *
@@ -64,5 +67,18 @@ void mcps802154_scheduler_close(struct mcps802154_scheduler *scheduler);
 int mcps802154_scheduler_set_parameters(struct mcps802154_scheduler *scheduler,
 					const struct nlattr *params_attr,
 					struct netlink_ext_ack *extack);
+
+/**
+ * mcps802154_scheduler_call() - Call scheduler specific procedure.
+ * @scheduler: Pointer to the scheduler.
+ * @call_id: Identifier of the procedure, scheduler specific.
+ * @params_attr: Nested attribute containing procedure parameters.
+ * @info: Request information.
+ *
+ * Return: 0 or error.
+ */
+int mcps802154_scheduler_call(struct mcps802154_scheduler *scheduler,
+			      u32 call_id, const struct nlattr *params_attr,
+			      const struct genl_info *info);
 
 #endif /* NET_MCPS802154_SCHEDULERS_H */

@@ -1,7 +1,7 @@
 /*
  * This file is part of the UWB stack for linux.
  *
- * Copyright (c) 2020 Qorvo US, Inc.
+ * Copyright (c) 2020-2021 Qorvo US, Inc.
  *
  * This software is provided under the GNU General Public License, version 2
  * (GPLv2), as well as under a Qorvo commercial license.
@@ -18,11 +18,7 @@
  *
  * If you cannot meet the requirements of the GPLv2, you may not use this
  * software for any purpose without first obtaining a commercial license from
- * Qorvo.
- * Please contact Qorvo to inquire about licensing terms.
- *
- * 802.15.4 mac common part sublayer, schedule management.
- *
+ * Qorvo. Please contact Qorvo to inquire about licensing terms.
  */
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -86,7 +82,7 @@ int mcps802154_schedule_update(struct mcps802154_local *local,
 
 	trace_schedule_update_done(local, sched);
 
-	return 0;
+	return 1;
 }
 
 int mcps802154_schedule_set_start(
@@ -132,9 +128,8 @@ int mcps802154_schedule_recycle(
 	/* Update last region. */
 	last_sched_region =
 		sched->n_regions ? &sched->regions[sched->n_regions - 1] : NULL;
-	if (last_region_duration_dtu != MCPS802154_DURATION_NO_CHANGE) {
+	if (last_region_duration_dtu != MCPS802154_DURATION_NO_CHANGE)
 		last_sched_region->duration_dtu = last_region_duration_dtu;
-	}
 
 	/* Update schedule duration. */
 	if (!last_sched_region || last_sched_region->duration_dtu == 0) {
@@ -205,6 +200,14 @@ int mcps802154_schedule_add_region(
 }
 EXPORT_SYMBOL(mcps802154_schedule_add_region);
 
+void mcps802154_reschedule(struct mcps802154_llhw *llhw)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	mcps802154_ca_may_reschedule(local);
+}
+EXPORT_SYMBOL(mcps802154_reschedule);
+
 void mcps802154_schedule_invalidate(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);
@@ -213,3 +216,14 @@ void mcps802154_schedule_invalidate(struct mcps802154_llhw *llhw)
 		mcps802154_ca_invalidate_schedule(local);
 }
 EXPORT_SYMBOL(mcps802154_schedule_invalidate);
+
+int mcps802154_schedule_get_regions(struct mcps802154_llhw *llhw,
+				    struct list_head **regions)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	*regions = &local->ca.regions;
+
+	return local->ca.n_regions;
+}
+EXPORT_SYMBOL(mcps802154_schedule_get_regions);
