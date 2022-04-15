@@ -23,6 +23,7 @@ kernel_module(
         "net/mcps802154/mcps802154.ko",
         "net/mcps802154/mcps802154_region_fira.ko",
         "net/mcps802154/mcps802154_region_nfcc_coex.ko",
+        "net/mcps802154/mcps802154_region_pctt.ko",
     ],
     kernel_build = "//private/google-modules/soc/gs:slider",
     visibility = [
