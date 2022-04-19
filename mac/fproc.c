@@ -211,6 +211,34 @@ void mcps802154_tx_done(struct mcps802154_llhw *llhw)
 }
 EXPORT_SYMBOL(mcps802154_tx_done);
 
+void mcps802154_tx_too_late(struct mcps802154_llhw *llhw)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	mutex_lock(&local->fsm_lock);
+	if (local->fproc.state->tx_too_late)
+		local->fproc.state->tx_too_late(local);
+	else
+		mcps802154_broken_safe(local);
+	trace_llhw_event_done(local);
+	mutex_unlock(&local->fsm_lock);
+}
+EXPORT_SYMBOL_GPL(mcps802154_tx_too_late);
+
+void mcps802154_rx_too_late(struct mcps802154_llhw *llhw)
+{
+	struct mcps802154_local *local = llhw_to_local(llhw);
+
+	mutex_lock(&local->fsm_lock);
+	if (local->fproc.state->rx_too_late)
+		local->fproc.state->rx_too_late(local);
+	else
+		mcps802154_broken_safe(local);
+	trace_llhw_event_done(local);
+	mutex_unlock(&local->fsm_lock);
+}
+EXPORT_SYMBOL_GPL(mcps802154_rx_too_late);
+
 void mcps802154_broken(struct mcps802154_llhw *llhw)
 {
 	struct mcps802154_local *local = llhw_to_local(llhw);

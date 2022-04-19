@@ -7308,6 +7308,14 @@ setuperror:
 		/* Consume the callback handler before execution. */
 		dw->wakeup_done_cb = NULL;
 		rc = wakeup_done_cb(dw);
+		if (rc == -ETIME) {
+			if (wakeup_done_cb == dw3000_wakeup_done_to_tx)
+				mcps802154_tx_too_late(dw->llhw);
+			else
+				mcps802154_rx_too_late(dw->llhw);
+
+			rc = 0;
+		}
 	}
 	return rc;
 }

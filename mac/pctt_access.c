@@ -280,6 +280,7 @@ static void pctt_rx_frame_per_rx(struct pctt_local *local,
 		break;
 	case MCPS802154_RX_ERROR_UNCORRECTABLE:
 	case MCPS802154_RX_ERROR_FILTERED:
+	case MCPS802154_RX_ERROR_HPDWARN:
 	case MCPS802154_RX_ERROR_OTHER:
 		per_rx->rx_fail++;
 		per_rx->acq_detect++;
@@ -348,6 +349,7 @@ static void pctt_rx_frame(struct mcps802154_access *access, int frame_idx,
 		local->results.status = PCTT_STATUS_RANGING_RX_MAC_DEC_FAILED;
 		break;
 	case MCPS802154_RX_ERROR_UNCORRECTABLE:
+	case MCPS802154_RX_ERROR_HPDWARN:
 	case MCPS802154_RX_ERROR_OTHER:
 		local->results.status = PCTT_STATUS_RANGING_RX_PHY_DEC_FAILED;
 		break;

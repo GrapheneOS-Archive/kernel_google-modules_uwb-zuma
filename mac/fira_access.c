@@ -447,6 +447,7 @@ static bool fira_do_process_rx_frame(enum mcps802154_rx_error_type error,
 		return true;
 	case MCPS802154_RX_ERROR_SFD_TIMEOUT:
 	case MCPS802154_RX_ERROR_TIMEOUT:
+	case MCPS802154_RX_ERROR_HPDWARN:
 		status = FIRA_STATUS_RANGING_RX_TIMEOUT;
 		break;
 	case MCPS802154_RX_ERROR_FILTERED:
