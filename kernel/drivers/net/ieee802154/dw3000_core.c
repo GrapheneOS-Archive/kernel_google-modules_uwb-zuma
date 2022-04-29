@@ -1390,11 +1390,6 @@ int dw3000_change_tx_rf1_to_rf2(struct dw3000 *dw, bool tx)
 	return rc;
 }
 
-int dw3000_change_tx_to_default(struct dw3000 *dw)
-{
-	return dw3000_reg_write32(dw, DW3000_RF_SWITCH_CTRL_ID, 0, 0x1C000000);
-}
-
 /**
  * dw3000_read_rdb_status() - Fast read of RDB_STATUS register
  * @dw: the DW device on which the SPI transfer will occurs
@@ -6256,21 +6251,13 @@ int dw3000_set_tx_antenna(struct dw3000 *dw, int ant_set_id)
 		return 0;
 	/* Retrieve antenna GPIO configuration from calibration data */
 	ant_calib = &dw->calib_data.ant[ant_idx1];
-	if (ant_calib->port != 0) {
-		/* TX always use RF1 port */
-		dev_warn(
-			dw->dev,
-			"Bad antenna selected or bad configuration ant=%d, port=%d\n",
-			ant_idx1, ant_calib->port);
-		return -EINVAL;
-	}
-	/* Set GPIO state according config to select this antenna */
-	if (dw->tx_rf2) {
-		/* force antenna switch to AoA 1*/
+	/* switching to RF2 port for TX if necessary  */
+	if (ant_calib->port == 1) {
 		dw3000_change_tx_rf1_to_rf2(dw, true);
-		ant_calib = &dw->calib_data.ant[3];
+		dw->tx_rf2 = 1;
 	}
 
+	/* Set GPIO state according config to select this antenna */
 	rc = dw3000_set_antenna_gpio(dw, ant_calib);
 
 	if (rc)
@@ -7308,6 +7295,14 @@ setuperror:
 		/* Consume the callback handler before execution. */
 		dw->wakeup_done_cb = NULL;
 		rc = wakeup_done_cb(dw);
+		if (rc == -ETIME) {
+			if (wakeup_done_cb == dw3000_wakeup_done_to_tx)
+				mcps802154_tx_too_late(dw->llhw);
+			else
+				mcps802154_rx_too_late(dw->llhw);
+
+			rc = 0;
+		}
 	}
 	return rc;
 }

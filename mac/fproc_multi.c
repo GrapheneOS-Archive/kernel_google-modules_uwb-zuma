@@ -233,11 +233,24 @@ mcps802154_fproc_multi_rx_schedule_change(struct mcps802154_local *local)
 	}
 }
 
+static void mcps802154_fproc_multi_rx_too_late(struct mcps802154_local *local)
+{
+	struct mcps802154_access *access = local->fproc.access;
+	size_t frame_idx = local->fproc.frame_idx;
+
+	access->ops->rx_frame(access, frame_idx, NULL, NULL,
+			      MCPS802154_RX_ERROR_HPDWARN);
+
+	/* Next. */
+	mcps802154_fproc_multi_next(local, access, frame_idx);
+}
+
 static const struct mcps802154_fproc_state mcps802154_fproc_multi_rx = {
 	.name = "multi_rx",
 	.rx_frame = mcps802154_fproc_multi_rx_rx_frame,
 	.rx_timeout = mcps802154_fproc_multi_rx_rx_timeout,
 	.rx_error = mcps802154_fproc_multi_rx_rx_error,
+	.rx_too_late = mcps802154_fproc_multi_rx_too_late,
 	.schedule_change = mcps802154_fproc_multi_rx_schedule_change,
 };
 
@@ -254,6 +267,19 @@ static void mcps802154_fproc_multi_tx_tx_done(struct mcps802154_local *local)
 	mcps802154_fproc_multi_next(local, access, frame_idx);
 }
 
+static void mcps802154_fproc_multi_tx_too_late(struct mcps802154_local *local)
+{
+	struct mcps802154_access *access = local->fproc.access;
+	size_t frame_idx = local->fproc.frame_idx;
+
+	access->ops->tx_return(access, frame_idx, local->fproc.tx_skb,
+			       MCPS802154_TX_ERROR_HPDWARN);
+	local->fproc.tx_skb = NULL;
+
+	/* Next. */
+	mcps802154_fproc_multi_next(local, access, frame_idx);
+}
+
 static void
 mcps802154_fproc_multi_tx_schedule_change(struct mcps802154_local *local)
 {
@@ -263,6 +289,7 @@ mcps802154_fproc_multi_tx_schedule_change(struct mcps802154_local *local)
 static const struct mcps802154_fproc_state mcps802154_fproc_multi_tx = {
 	.name = "multi_tx",
 	.tx_done = mcps802154_fproc_multi_tx_tx_done,
+	.tx_too_late = mcps802154_fproc_multi_tx_too_late,
 	.schedule_change = mcps802154_fproc_multi_tx_schedule_change,
 };
 

@@ -99,7 +99,6 @@ struct dw3000_timer_cfg {
 /* Hardware timer functions */
 int dw3000_timers_enable(struct dw3000 *dw);
 int dw3000_timers_reset(struct dw3000 *dw);
-int dw3000_timer_get_counters(struct dw3000 *dw);
 int dw3000_timers_read_and_clear_events(struct dw3000 *dw, u8 *evt0, u8 *evt1);
 
 int dw3000_timer_configure(struct dw3000 *dw, enum dw3000_timer timer,

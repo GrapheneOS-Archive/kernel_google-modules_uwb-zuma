@@ -739,6 +739,8 @@ struct mcps802154_ops {
  *	A preamble has been detected but no SFD.
  * @MCPS802154_RX_ERROR_OTHER:
  *	Other error, frame reception is aborted.
+ * @MCPS802154_RX_ERROR_HPDWARN:
+ *   Too late to program RX operation.
  */
 enum mcps802154_rx_error_type {
 	MCPS802154_RX_ERROR_NONE = 0,
@@ -748,6 +750,7 @@ enum mcps802154_rx_error_type {
 	MCPS802154_RX_ERROR_FILTERED = 4,
 	MCPS802154_RX_ERROR_SFD_TIMEOUT = 5,
 	MCPS802154_RX_ERROR_OTHER = 6,
+	MCPS802154_RX_ERROR_HPDWARN = 7,
 };
 
 /**
@@ -798,6 +801,12 @@ void mcps802154_rx_frame(struct mcps802154_llhw *llhw);
 void mcps802154_rx_timeout(struct mcps802154_llhw *llhw);
 
 /**
+ * mcps802154_rx_too_late() - Signal a problem programing a RX.
+ * @llhw: Low-level device pointer.
+ */
+void mcps802154_rx_too_late(struct mcps802154_llhw *llhw);
+
+/**
  * mcps802154_rx_error() - Signal a reception error.
  * @llhw: Low-level device pointer.
  * @error: Type of detected error.
@@ -813,6 +822,12 @@ void mcps802154_rx_error(struct mcps802154_llhw *llhw,
  * @llhw: Low-level device pointer.
  */
 void mcps802154_tx_done(struct mcps802154_llhw *llhw);
+
+/**
+ * mcps802154_tx_too_late() - Signal a problem programing a TX.
+ * @llhw: Low-level device pointer.
+ */
+void mcps802154_tx_too_late(struct mcps802154_llhw *llhw);
 
 /**
  * mcps802154_broken() - Signal an unrecoverable error, device needs to be
