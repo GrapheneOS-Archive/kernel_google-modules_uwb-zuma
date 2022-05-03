@@ -894,10 +894,9 @@ int dw3000_xfer(struct dw3000 *dw, u32 reg_fileid, u16 reg_offset, u16 length,
 		struct spi_transfer header;
 		struct spi_transfer data;
 		u8 header_buf[2];
-	} xfer;
+	} xfer = {};
 
 	/* Init transfers first because spi_message_init_with_transfer don't! */
-	memset(&xfer.header, 0, sizeof(xfer.header) * 2);
 	xfer.header.tx_buf = xfer.header_buf;
 	xfer.header.len = sizeof(xfer.header_buf);
 
