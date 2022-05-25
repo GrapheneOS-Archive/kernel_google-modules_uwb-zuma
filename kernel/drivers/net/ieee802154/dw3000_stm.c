@@ -23,11 +23,14 @@
 #include <linux/version.h>
 #include <linux/workqueue.h>
 #include <linux/sched.h>
-#include <linux/interrupt.h>
 #include <linux/mutex.h>
+
 #include "dw3000.h"
 #include "dw3000_core.h"
 
+#define DW3000_MIN_CLAMP_VALUE	170
+
+/* First version with sched_setattr_nocheck: v4.16-rc1~164^2~5 */
 #if (KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE)
 #include <uapi/linux/sched/types.h>
 #endif
@@ -43,12 +46,10 @@ static inline int dw3000_set_sched_attr(struct task_struct *p)
 	/* Increase thread priority */
 	return sched_setscheduler(p, SCHED_FIFO, &sched_par);
 #else
-	struct sched_attr attr = {
-		.sched_policy = SCHED_FIFO,
-		.sched_priority = MAX_USER_RT_PRIO - 1,
-		.sched_flags = SCHED_FLAG_UTIL_CLAMP_MIN,
-		.sched_util_min = SCHED_CAPACITY_SCALE
-	};
+	struct sched_attr attr = { .sched_policy = SCHED_FIFO,
+				   .sched_priority = MAX_RT_PRIO - 2,
+				   .sched_flags = SCHED_FLAG_UTIL_CLAMP_MIN,
+				   .sched_util_min = DW3000_MIN_CLAMP_VALUE };
 	return sched_setattr_nocheck(p, &attr);
 #endif
 }
@@ -78,7 +79,7 @@ int dw3000_enqueue_generic(struct dw3000 *dw, struct dw3000_stm_command *cmd)
 		return cmd->cmd(dw, cmd->in, cmd->out);
 	}
 
-	/* Mutex is used in dw3000_enqueue_generic()
+	/* Mutex is used in dw3000_enqueue_generic() 
 	* This protection will work with the spinlock in order to allow
 	* the CPU to sleep and avoid ressources wasting during spinning
 	*/
@@ -197,22 +198,22 @@ static int dw3000_detect_work(struct dw3000 *dw, const void *in, void *out)
 {
 	int rc;
 
-	rc = dw3000_poweron(dw);
-	if (rc) {
-		return rc;
-	}
-
-	dev_warn(dw->dev, "checking device presence\n");
-
 	/* Now, read DEV_ID and initialise chip version */
+	dev_notice(dw->dev, "checking device presence\n");
 	rc = dw3000_check_devid(dw);
 	if (rc) {
 		dev_err(dw->dev, "device checking failed: %d\n", rc);
 		dw3000_poweroff(dw); // Force power-off if error.
 		return rc;
 	}
+	dev_notice(dw->dev, "device present\n");
 
-	dev_warn(dw->dev, "device present\n");
+	/* Read OTP data early */
+	rc = dw3000_read_otp(dw, DW3000_READ_OTP_PID | DW3000_READ_OTP_LID);
+	if (unlikely(rc)) {
+		dev_err(dw->dev, "device OTP read has failed (%d)\n", rc);
+		return rc;
+	}
 
 	/* Now, we just power-off the device waiting for it to be used by the
 	 * MAC to avoid power consumption. Except if SPI tests are enabled. */
@@ -291,7 +292,6 @@ int dw3000_state_init(struct dw3000 *dw, int cpu)
 {
 	struct dw3000_state *stm = &dw->stm;
 	int rc;
-
 	/* Clear memory */
 	memset(stm, 0, sizeof(*stm));
 
@@ -309,15 +309,13 @@ int dw3000_state_init(struct dw3000 *dw, int cpu)
 		return PTR_ERR(stm->mthread);
 	}
 	if (cpu >= 0)
-		kthread_bind(stm->mthread, cpu);
+		kthread_bind(stm->mthread, (unsigned)cpu);
+	dw->dw3000_pid = stm->mthread->pid;
 
-	/* Increase thread priority and hint scheduler */
+	/* Increase thread priority */
 	rc = dw3000_set_sched_attr(stm->mthread);
 	if (rc)
 		dev_err(dw->dev, "dw3000_set_sched_attr failed: %d\n", rc);
-
-	dw->dw3000_pid = stm->mthread->pid;
-
 	return 0;
 }
 
@@ -340,9 +338,21 @@ int dw3000_state_start(struct dw3000 *dw)
 	dev_dbg(dw->dev, "state machine started\n");
 
 	/* Turn on power and de-assert reset GPIO */
-	rc = dw3000_hardreset(dw);
+	rc = dw3000_poweron(dw);
 	if (rc) {
 		dev_err(dw->dev, "device power on failed: %d\n", rc);
+		return rc;
+	}
+	/* Ensure RESET GPIO for enough time */
+	rc = dw3000_hardreset(dw);
+	if (rc) {
+		dev_err(dw->dev, "hard reset failed: %d\n", rc);
+		return rc;
+	}
+	/* and wait SPI ready IRQ */
+	rc = dw3000_wait_idle_state(dw);
+	if (rc) {
+		dev_err(dw->dev, "wait device power on failed: %d\n", rc);
 		return rc;
 	}
 	/* Do chip detection and return result to caller */

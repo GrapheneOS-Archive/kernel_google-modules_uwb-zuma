@@ -27,7 +27,7 @@
 #include <linux/kernel.h>
 #include <net/mcps802154_schedule.h>
 
-#include "fira_region_params.h"
+#include "net/fira_region_params.h"
 
 #define FIRA_SLOT_DURATION_RSTU_DEFAULT 2400
 #define FIRA_BLOCK_DURATION_MS_DEFAULT 200
@@ -38,6 +38,7 @@
 #define FIRA_IN_BAND_TERMINATION_ATTEMPT_COUNT_MAX 10
 #define FIRA_IN_BAND_TERMINATION_ATTEMPT_COUNT_MIN 1
 #define FIRA_BOOLEAN_MAX 1
+#define FIRA_BLOCK_STRIDE_LEN_MAX 255
 #define FIRA_FRAMES_MAX (3 + 3 * FIRA_CONTROLEES_MAX)
 #define FIRA_CONTROLEE_FRAMES_MAX (3 + 3 + 1)
 /* IEEE 802.15.4z 2020 section 6.9.7.2 */
@@ -96,17 +97,17 @@ struct fira_slot {
 	 */
 	enum fira_message_id message_id;
 	/**
-	 * @tx_ant: Tx antenna selection.
+	 * @tx_ant_set: Tx antenna set.
 	 */
-	int tx_ant;
+	int tx_ant_set;
 	/**
-	 * @rx_ant_pair: Rx antenna selection.
+	 * @rx_ant_set: Rx antenna set.
 	 */
-	int rx_ant_pair;
+	int rx_ant_set;
 };
 
 /**
- * struct fira_aoa_info - Ranging AoA information.
+ * struct fira_local_aoa_info - Ranging AoA information.
  */
 struct fira_local_aoa_info {
 	/**
@@ -122,9 +123,9 @@ struct fira_local_aoa_info {
 	 */
 	u8 aoa_fom;
 	/**
-	 * @rx_ant_pair: Antenna pair index.
+	 * @rx_ant_set: Antenna set index.
 	 */
-	u8 rx_ant_pair;
+	u8 rx_ant_set;
 	/**
 	 * @present: true if AoA information is present.
 	 */
@@ -144,8 +145,8 @@ struct fira_ranging_info {
 	 */
 	int tof_rctu;
 	/**
-	 * @local_aoa: Local ranging AoA information.
-	 */
+	* @local_aoa: Local ranging AoA information.
+	*/
 	struct fira_local_aoa_info local_aoa;
 	/**
 	 * @local_aoa_azimuth: Azimuth ranging AoA information.
@@ -199,6 +200,14 @@ struct fira_ranging_info {
 	 * @remote_aoa_fom_present: true if FoM AoA is present.
 	 */
 	bool remote_aoa_fom_present;
+	/**
+	 * @clock_offset_present: true if the driver provided clock_offset info.
+	 */
+	bool clock_offset_present;
+	/**
+	 * @clock_offset_q26: clock offset value, as signed Q26, if present.
+	 */
+	s16 clock_offset_q26;
 	/**
 	 * @data_payload: Custom data payload.
 	 */
@@ -323,13 +332,5 @@ access_to_local(struct mcps802154_access *access)
  */
 void fira_report(struct fira_local *local, struct fira_session *session,
 		 bool add_measurements);
-
-/**
- * fira_session_notify_state_change() - Notify session state change to upper layers.
- * @local: FiRa context.
- * @session_id: Fira session id.
- * @state: Fira session state.
- */
-void fira_session_notify_state_change(struct fira_local *local, u32 session_id, uint8_t state);
 
 #endif /* NET_FIRA_REGION_H */

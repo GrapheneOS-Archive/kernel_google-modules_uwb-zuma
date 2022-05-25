@@ -29,7 +29,11 @@
 #include "dw3000_trc.h"
 #include "dw3000_testmode.h"
 #include "dw3000_testmode_nl.h"
-#include "dw3000_nfcc_coex_testmode.h"
+
+int set_hrp_uwb_params(struct mcps802154_llhw *llhw, int prf, int psr,
+		       int sfd_selector, int phr_rate, int data_rate);
+int set_channel(struct mcps802154_llhw *llhw, u8 page, u8 channel,
+		u8 preamble_code);
 
 static const struct nla_policy dw3000_tm_policy[DW3000_TM_ATTR_MAX + 1] = {
 	[DW3000_TM_ATTR_CMD] = { .type = NLA_U32 },
@@ -40,18 +44,17 @@ static const struct nla_policy dw3000_tm_policy[DW3000_TM_ATTR_MAX + 1] = {
 	[DW3000_TM_ATTR_OTP_ADDR] = { .type = NLA_U16 },
 	[DW3000_TM_ATTR_OTP_VAL] = { .type = NLA_U32 },
 	[DW3000_TM_ATTR_OTP_DONE] = { .type = NLA_U8 },
-	[DW3000_TM_ATTR_CCC_TIME0] = { .type = NLA_U32 },
-	[DW3000_TM_ATTR_CCC_CHANNEL] = { .type = NLA_U8 },
-	[DW3000_TM_ATTR_CCC_TSTART] = { .type = NLA_U32 },
-	[DW3000_TM_ATTR_CCC_TEND] = { .type = NLA_U32 },
-	[DW3000_TM_ATTR_CCC_MARGIN_MS] = { .type = NLA_U32 },
-	[DW3000_TM_ATTR_CCC_RR_COUNT] = { .type = NLA_U32 },
-	[DW3000_TM_ATTR_CCC_OFFSET_MS] = { .type = NLA_U32 },
-	[DW3000_TM_ATTR_CCC_CONFLICT_SLOT_IDX] = { .type = NLA_U32 },
 	[DW3000_TM_ATTR_DEEP_SLEEP_DELAY_MS] = { .type = NLA_U32 },
 	[DW3000_TM_ATTR_CONTTX_FRAME_LENGHT] = { .type = NLA_U32 },
 	[DW3000_TM_ATTR_CONTTX_RATE] = { .type = NLA_U32 },
 	[DW3000_TM_ATTR_CONTTX_DURATION] = { .type = NLA_S32 },
+	[DW3000_TM_ATTR_PSR] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_SFD] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_PHR_RATE] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_DATA_RATE] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_PAGE] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_CHANNEL] = { .type = NLA_U32 },
+	[DW3000_TM_ATTR_PREAMBLE_CODE] = { .type = NLA_U32 },
 };
 
 struct do_tm_cmd_params {
@@ -258,318 +261,6 @@ nla_put_failure:
 	return rc;
 }
 
-/* helper function for common CCC command returning their rc code */
-static int tm_ccc_cmd_done(struct dw3000 *dw, struct mcps802154_llhw *llhw,
-			   u8 ccc_cmd_rc)
-{
-	struct sk_buff *msg;
-	int rc;
-
-	msg = mcps802154_testmode_alloc_reply_skb(llhw, 2 * sizeof(u32));
-	if (!msg) {
-		dev_err(dw->dev, "failed to alloc skb reply\n");
-		return -ENOMEM;
-	}
-
-	/* Append ccc cmd rc to the netlink message */
-	rc = nla_put_u8(msg, DW3000_TM_ATTR_CCC_CMD_RC, ccc_cmd_rc);
-	if (rc) {
-		dev_err(dw->dev, "failed to put testmode ccc cmd rc: %d\n", rc);
-		goto nla_put_failure;
-	}
-	return mcps802154_testmode_reply(llhw, msg);
-
-nla_put_failure:
-	nlmsg_free(msg);
-	return rc;
-}
-
-static int do_tm_cmd_ccc_start(struct dw3000 *dw, const void *in, void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 channel;
-	u32 session_time0;
-	u32 start = 0;
-	u32 end = 0;
-	u8 ccc_cmd_rc;
-
-	/* Verify the ccc channel attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
-		return -EINVAL;
-	channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
-
-	/* Verify the ccc time0 attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
-		return -EINVAL;
-	session_time0 = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
-
-	if (params->nl_attr[DW3000_TM_ATTR_CCC_TSTART] &&
-	    params->nl_attr[DW3000_TM_ATTR_CCC_TEND]) {
-		start = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TSTART]);
-		end = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TEND]);
-	}
-
-	if (dw3000_nfcc_coex_testmode_session(dw, channel, session_time0, start,
-					      end))
-		ccc_cmd_rc = 0;
-	else
-		ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_scratch(struct dw3000 *dw, const void *in,
-				      void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-
-	/* TODO: write to the whole memory, read back, validate */
-	ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_spi1(struct dw3000 *dw, const void *in, void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-
-	/**
-	 * TODO: test SPI1
-	 * - enable SPI1
-	 * - check SPI1 is enabled
-	 * - release SPI1
-	 * - check SPI1 is disabled
-        */
-	ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_spi2(struct dw3000 *dw, const void *in, void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-
-	/**
-	 * TODO: test SPI2
-	 * - enable SPI2
-	 * - wait for release (from other side code or watchdog?)
-	 */
-	ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_direct(struct dw3000 *dw, const void *in,
-				     void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-	static struct dw3000_nfcc_coex_testmode_config conf = {
-		.mode = DW3000_CCC_TEST_DIRECT,
-		.start = 0,
-		.end = 0,
-	};
-
-	/* Verify the ccc channel attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
-		return -EINVAL;
-	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
-
-	/* Verify the ccc time0 attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
-		return -EINVAL;
-	conf.session_time0 =
-		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
-
-	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
-		ccc_cmd_rc = 0;
-	else
-		ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_wait(struct dw3000 *dw, const void *in, void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-	static struct dw3000_nfcc_coex_testmode_config conf = {
-		.mode = DW3000_CCC_TEST_WAIT,
-		.margin_ms = 0,
-		.start = 0,
-		.end = 0,
-	};
-
-	/* Verify the ccc channel attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
-		return -EINVAL;
-	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
-
-	/* Verify the ccc time0 attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
-		return -EINVAL;
-	conf.session_time0 =
-		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
-
-	/* margin_ms is optional */
-	if (params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS])
-		conf.margin_ms = nla_get_u32(
-			params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS]);
-
-	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
-		ccc_cmd_rc = 0;
-	else
-		ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_late(struct dw3000 *dw, const void *in, void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-	static struct dw3000_nfcc_coex_testmode_config conf = {
-		.mode = DW3000_CCC_TEST_LATE,
-		.margin_ms = 0,
-		.RRcount = 0,
-		.start = 0,
-		.end = 0,
-	};
-
-	/* Verify the ccc channel attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
-		return -EINVAL;
-	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
-
-	/* Verify the ccc time0 attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
-		return -EINVAL;
-	conf.session_time0 =
-		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
-
-	/* margin_ms is mandatory */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS])
-		return -EINVAL;
-	conf.margin_ms =
-		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_MARGIN_MS]);
-
-	/* RRcount is optional */
-	if (params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT])
-		conf.RRcount = nla_get_u32(
-			params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT]);
-
-	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
-		ccc_cmd_rc = 0;
-	else
-		ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_conflict(struct dw3000 *dw, const void *in,
-				       void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-	static struct dw3000_nfcc_coex_testmode_config conf = {
-		.mode = DW3000_CCC_TEST_CONFLICT,
-		.RRcount = 0,
-		.start = 0,
-		.end = 0,
-	};
-
-	/* Verify the ccc channel attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
-		return -EINVAL;
-	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
-
-	/* Verify the ccc time0 attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
-		return -EINVAL;
-	conf.session_time0 =
-		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
-
-	/* conflict_slot_idx is mandatory */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CONFLICT_SLOT_IDX])
-		return -EINVAL;
-	conf.conflict_slot_idx = nla_get_u32(
-		params->nl_attr[DW3000_TM_ATTR_CCC_CONFLICT_SLOT_IDX]);
-
-	/* RRcount is optional */
-	if (params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT])
-		conf.RRcount = nla_get_u32(
-			params->nl_attr[DW3000_TM_ATTR_CCC_RR_COUNT]);
-
-	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
-		ccc_cmd_rc = 0;
-	else
-		ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_test_offset(struct dw3000 *dw, const void *in,
-				     void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-	static struct dw3000_nfcc_coex_testmode_config conf = {
-		.mode = DW3000_CCC_TEST_SLEEP_OFFSET,
-		.offset_ms = 0,
-		.start = 0,
-		.end = 0,
-	};
-
-	/* Verify the ccc channel attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL])
-		return -EINVAL;
-	conf.channel = nla_get_u8(params->nl_attr[DW3000_TM_ATTR_CCC_CHANNEL]);
-
-	/* Verify the ccc time0 attribute exists */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_TIME0])
-		return -EINVAL;
-	conf.session_time0 =
-		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_TIME0]);
-
-	/* offset_ms is mandatory */
-	if (!params->nl_attr[DW3000_TM_ATTR_CCC_OFFSET_MS])
-		return -EINVAL;
-	conf.offset_ms =
-		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CCC_OFFSET_MS]);
-	if (dw3000_nfcc_coex_testmode_config(dw, &conf))
-		ccc_cmd_rc = 0;
-	else
-		ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_read_tlvs(struct dw3000 *dw, const void *in, void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-
-	/* TODO: read tlvs values */
-	ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
-static int do_tm_cmd_ccc_write_tlvs(struct dw3000 *dw, const void *in,
-				    void *out)
-{
-	const struct do_tm_cmd_params *params = in;
-	u8 ccc_cmd_rc;
-
-	/* TODO: write tlvs values */
-	ccc_cmd_rc = 1;
-
-	return tm_ccc_cmd_done(dw, params->llhw, ccc_cmd_rc);
-}
-
 static int do_tm_cmd_deep_sleep(struct dw3000 *dw, const void *in, void *out)
 {
 	const struct do_tm_cmd_params *params = in;
@@ -629,6 +320,65 @@ static int do_tm_cmd_stop_cont_tx(struct dw3000 *dw, const void *in, void *out)
 	return dw3000_testmode_continuous_tx_stop(dw);
 }
 
+static int do_tm_cmd_set_hrp_params(struct dw3000 *dw, const void *in,
+				    void *out)
+{
+	const struct do_tm_cmd_params *params = in;
+	u32 psr;
+	u32 sfd;
+	u32 phr_rate;
+	u32 data_rate;
+
+	/* Verify the psr attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_PSR])
+		return -EINVAL;
+	psr = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_PSR]);
+
+	/* Verify the sfd attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_SFD])
+		return -EINVAL;
+	sfd = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_SFD]);
+
+	/* Verify the phr_rate attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_PHR_RATE])
+		return -EINVAL;
+	phr_rate = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_PHR_RATE]);
+
+	/* Verify the data_rate attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_DATA_RATE])
+		return -EINVAL;
+	data_rate = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_DATA_RATE]);
+
+	return set_hrp_uwb_params(params->llhw, 0, psr, sfd, phr_rate,
+				  data_rate);
+}
+
+static int do_tm_cmd_set_channel(struct dw3000 *dw, const void *in, void *out)
+{
+	const struct do_tm_cmd_params *params = in;
+	u32 page;
+	u32 channel;
+	u32 preamble_code;
+
+	/* Verify the page attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_PAGE])
+		return -EINVAL;
+	page = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_PAGE]);
+
+	/* Verify the channel attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_CHANNEL])
+		return -EINVAL;
+	channel = nla_get_u32(params->nl_attr[DW3000_TM_ATTR_CHANNEL]);
+
+	/* Verify the preamble_code attribute exists */
+	if (!params->nl_attr[DW3000_TM_ATTR_PREAMBLE_CODE])
+		return -EINVAL;
+	preamble_code =
+		nla_get_u32(params->nl_attr[DW3000_TM_ATTR_PREAMBLE_CODE]);
+
+	return set_channel(params->llhw, page, channel, preamble_code);
+}
+
 int dw3000_tm_cmd(struct mcps802154_llhw *llhw, void *data, int len)
 {
 	struct dw3000 *dw = llhw->priv;
@@ -647,24 +397,16 @@ int dw3000_tm_cmd(struct mcps802154_llhw *llhw, void *data, int len)
 		[DW3000_TM_CMD_STOP_TX_CWTONE] = do_tm_cmd_stop_tx_cwtone,
 		[DW3000_TM_CMD_START_CONTINUOUS_TX] = do_tm_cmd_start_cont_tx,
 		[DW3000_TM_CMD_STOP_CONTINUOUS_TX] = do_tm_cmd_stop_cont_tx,
-		[DW3000_TM_CMD_CCC_START] = do_tm_cmd_ccc_start,
-		[DW3000_TM_CMD_CCC_TEST_SCRATCH] = do_tm_cmd_ccc_test_scratch,
-		[DW3000_TM_CMD_CCC_TEST_SPI1] = do_tm_cmd_ccc_test_spi1,
-		[DW3000_TM_CMD_CCC_TEST_SPI2] = do_tm_cmd_ccc_test_spi2,
-		[DW3000_TM_CMD_CCC_READ_TLVS] = do_tm_cmd_ccc_read_tlvs,
-		[DW3000_TM_CMD_CCC_WRITE_TLVS] = do_tm_cmd_ccc_write_tlvs,
-		[DW3000_TM_CMD_CCC_TEST_DIRECT] = do_tm_cmd_ccc_test_direct,
-		[DW3000_TM_CMD_CCC_TEST_WAIT] = do_tm_cmd_ccc_test_wait,
-		[DW3000_TM_CMD_CCC_TEST_LATE] = do_tm_cmd_ccc_test_late,
-		[DW3000_TM_CMD_CCC_TEST_CONFLICT] = do_tm_cmd_ccc_test_conflict,
-		[DW3000_TM_CMD_CCC_TEST_OFFSET] = do_tm_cmd_ccc_test_offset,
 		[DW3000_TM_CMD_DEEP_SLEEP] = do_tm_cmd_deep_sleep,
+		[DW3000_TM_CMD_SET_HRP_PARAMS] = do_tm_cmd_set_hrp_params,
+		[DW3000_TM_CMD_SET_CHANNEL] = do_tm_cmd_set_channel,
 	};
 	u32 tm_cmd;
 	int ret;
 
 	ret = nla_parse(attr, DW3000_TM_ATTR_MAX, data, len, dw3000_tm_policy,
 			NULL);
+
 	if (ret)
 		return ret;
 

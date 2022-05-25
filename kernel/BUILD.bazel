@@ -20,12 +20,14 @@ kernel_module(
     ]),
     outs = [
         "drivers/net/ieee802154/dw3000.ko",
+        "drivers/net/ieee802154/dw3000-core-tests.ko",
         "net/mcps802154/mcps802154.ko",
         "net/mcps802154/mcps802154_region_fira.ko",
         "net/mcps802154/mcps802154_region_nfcc_coex.ko",
+        "net/mcps802154/mcps802154_region_pctt.ko",
     ],
-    kernel_build = "//gs/google-modules/soc-modules:slider",
+    kernel_build = "//private/google-modules/soc/gs:slider",
     visibility = [
-        "//gs/google-modules/soc-modules:__pkg__",
+        "//private/google-modules/soc/gs:__pkg__",
     ],
 )

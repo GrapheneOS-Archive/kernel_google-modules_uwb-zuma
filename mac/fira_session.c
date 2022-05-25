@@ -25,49 +25,16 @@
 #include "fira_crypto.h"
 #include "fira_round_hopping_sequence.h"
 #include "fira_access.h"
-#include "mcps802154_i.h"
+#include "fira_frame.h"
+#include "fira_trace.h"
 
+#include <linux/bitops.h>
 #include <linux/errno.h>
 #include <linux/ieee802154.h>
 #include <linux/string.h>
 #include <linux/limits.h>
 
 #define FIRA_DRIFT_TOLERANCE_PPM 30
-
-/**
- * fira_session_controlees_max() - Calculate the maximum number of controlees
- * for current session.
- * @params: Session params.
- *
- * Return: Maximum number of controlees possible with current parameters.
- */
-static size_t fira_session_controlees_max(struct fira_session_params *params)
-{
-	/* TODO: use parameters (embedded mode, ranging mode, device type...)
-	   to calculate the size of frames, number of messages...
-	   Currently using default parameters configuration. */
-	static const u8 mrm_size_without_delays = 49;
-	static const u8 delay_size_per_controlee = 6;
-	static const u8 rcm_size_without_slots = 45;
-	static const u8 slots_size = 4;
-	static const u8 controller_messages = 4;
-	static const u8 controlee_messages = 2;
-	static const u8 frame_size_max = 125;
-
-	static const size_t mrm_max_controlees =
-		(frame_size_max - mrm_size_without_delays) /
-		delay_size_per_controlee;
-
-	static const size_t rcm_max_controlees =
-		(frame_size_max - rcm_size_without_slots -
-		 slots_size * controller_messages) /
-		(slots_size * controlee_messages);
-
-	const size_t controlees_max =
-		min(mrm_max_controlees, rcm_max_controlees);
-
-	return controlees_max;
-}
 
 struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 {
@@ -76,10 +43,6 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	session = kzalloc(sizeof(*session), GFP_KERNEL);
 	if (!session)
 		return NULL;
-
-	/* Notify session init before setting default parameters*/
-	session->state = SESSION_STATE_INIT;
-	fira_session_notify_state_change(local, session_id, SESSION_STATE_INIT);
 
 	session->id = session_id;
 	session->params.ranging_round_usage = FIRA_RANGING_ROUND_USAGE_DSTWR;
@@ -99,15 +62,22 @@ struct fira_session *fira_session_new(struct fira_local *local, u32 session_id)
 	session->params.preamble_duration = FIRA_PREAMBULE_DURATION_64;
 	session->params.sfd_id = FIRA_SFD_ID_2;
 
-	/* Antenna parameters which have a default value not equal to zero. */
-	session->params.rx_antenna_pair_azimuth = FIRA_RX_ANTENNA_PAIR_INVALID;
-	session->params.rx_antenna_pair_elevation =
-		FIRA_RX_ANTENNA_PAIR_INVALID;
-	session->params.tx_antenna_selection = 0x01;
+	session->params._meas_seq_1.n_steps = 1;
+	session->params._meas_seq_1.steps[0].type = FIRA_MEASUREMENT_TYPE_RANGE;
+	session->params._meas_seq_1.steps[0].n_measurements = 1;
+	session->params._meas_seq_1.steps[0].rx_ant_set_nonranging = 0;
+	session->params._meas_seq_1.steps[0].rx_ant_sets_ranging[0] = 0;
+	session->params._meas_seq_1.steps[0].rx_ant_sets_ranging[1] = 0;
+	session->params._meas_seq_1.steps[0].tx_ant_set_nonranging = 0;
+	session->params._meas_seq_1.steps[0].tx_ant_set_ranging = 0;
+	session->params._meas_seq_2.n_steps = 0;
+	session->params.meas_seq.active = &(session->params._meas_seq_1);
+	session->params.meas_seq.current_step = 0;
+	session->params.meas_seq.n_measurements_achieved = 0;
+
 	/* Report parameters. */
 	session->params.aoa_result_req = true;
 	session->params.report_tof = true;
-	session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
 
 	if (fira_round_hopping_sequence_init(session))
 		goto failed;
@@ -120,7 +90,7 @@ failed:
 	return NULL;
 }
 
-void fira_session_free(struct fira_local *local, struct fira_session *session)
+void fira_session_free(struct fira_session *session)
 {
 	fira_round_hopping_sequence_destroy(session);
 	list_del(&session->entry);
@@ -160,18 +130,34 @@ void fira_session_copy_controlees(struct fira_controlees_array *to,
 	to->size = from->size;
 }
 
-int fira_session_new_controlees(struct fira_local *local,
+int fira_session_set_controlees(struct fira_local *local,
 				struct fira_session *session,
+				struct fira_controlees_array *controlees_array,
+				const struct fira_controlee *controlees,
+				size_t n_controlees)
+{
+	int i;
+
+	if (!fira_frame_check_n_controlees(session, n_controlees, false))
+		return -EINVAL;
+
+	for (i = 0; i < n_controlees; i++)
+		controlees_array->data[i] = controlees[i];
+
+	controlees_array->size = n_controlees;
+
+	return 0;
+}
+
+int fira_session_new_controlees(struct fira_session *session, bool active,
 				struct fira_controlees_array *controlees_array,
 				const struct fira_controlee *controlees,
 				size_t n_controlees)
 {
 	int i, j;
 
-	/* On inactive session, the max is the size of the array.
-	 * And on active session, the size depend to the config. */
-	if (controlees_array->size + n_controlees >
-	    session->params.n_controlees_max)
+	if (!fira_frame_check_n_controlees(
+		    session, controlees_array->size + n_controlees, active))
 		return -EINVAL;
 
 	for (i = 0; i < n_controlees; i++) {
@@ -190,8 +176,7 @@ int fira_session_new_controlees(struct fira_local *local,
 }
 
 static void
-fira_session_update_stopping_controlees(struct fira_local *local,
-					struct fira_session *session)
+fira_session_update_stopping_controlees(struct fira_session *session)
 {
 	size_t ii, io;
 	struct fira_controlees_array *controlees_array =
@@ -211,11 +196,36 @@ fira_session_update_stopping_controlees(struct fira_local *local,
 	controlees_array->size = io;
 }
 
-int fira_session_del_controlees(struct fira_local *local,
-				struct fira_session *session,
-				struct fira_controlees_array *controlees_array,
+int fira_session_del_controlees(struct fira_controlees_array *controlees_array,
 				const struct fira_controlee *controlees,
 				size_t n_controlees)
+{
+	size_t ii, io, j;
+
+	for (ii = 0, io = 0; ii < controlees_array->size; ii++) {
+		bool remove = false;
+		struct fira_controlee *c = &controlees_array->data[ii];
+
+		for (j = 0; j < n_controlees && !remove; j++) {
+			if (c->short_addr == controlees[j].short_addr)
+				remove = true;
+		}
+
+		if (!remove) {
+			if (io != ii)
+				controlees_array->data[io] = *c;
+			io++;
+		}
+	}
+	controlees_array->size = io;
+
+	return 0;
+}
+
+int fira_session_async_del_controlees(
+	struct fira_session *session,
+	struct fira_controlees_array *controlees_array,
+	const struct fira_controlee *controlees, size_t n_controlees)
 {
 	size_t i, j;
 
@@ -226,6 +236,8 @@ int fira_session_del_controlees(struct fira_local *local,
 		for (j = 0; j < n_controlees; j++) {
 			if (c->short_addr == controlees[j].short_addr) {
 				state = FIRA_CONTROLEE_STATE_PENDING_DEL;
+				session->controlee_management_flags |=
+					FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_STOP;
 				break;
 			}
 		}
@@ -235,8 +247,7 @@ int fira_session_del_controlees(struct fira_local *local,
 	return 0;
 }
 
-void fira_session_stop_controlees(struct fira_local *local,
-				  struct fira_session *session,
+void fira_session_stop_controlees(struct fira_session *session,
 				  struct fira_controlees_array *controlees_array)
 {
 	size_t i;
@@ -257,15 +268,11 @@ bool fira_session_is_ready(struct fira_local *local,
 		if (session->current_controlees.size > 1)
 			return false;
 	} else {
-		params->n_controlees_max = fira_session_controlees_max(params);
-		if (session->current_controlees.size > params->n_controlees_max)
+		/* on success, session will become active, so assume it is */
+		if (!fira_frame_check_n_controlees(
+			    session, session->current_controlees.size, true))
 			return false;
 	}
-	/* RFRAME (INITIATION and FINAL) reception on different antenna is
-	 * not implemented on CONTROLLER. */
-	if (params->rx_antenna_switch == FIRA_RX_ANTENNA_SWITCH_DURING_ROUND &&
-	    params->device_type == FIRA_DEVICE_TYPE_CONTROLLER)
-		return false;
 
 	round_duration_dtu =
 		params->slot_duration_dtu * params->round_duration_slots;
@@ -275,13 +282,53 @@ bool fira_session_is_ready(struct fira_local *local,
 	       round_duration_dtu < params->block_duration_dtu;
 }
 
-void fira_session_round_hopping(struct fira_session *session)
+inline static void fira_update_meas_seq(struct fira_session *session)
+{
+	struct fira_session_params *p = &session->params;
+	if (p->meas_seq.update_flag) {
+		if (p->meas_seq.active == &p->_meas_seq_1)
+			p->meas_seq.active = &p->_meas_seq_2;
+		else
+			p->meas_seq.active = &p->_meas_seq_1;
+		p->meas_seq.current_step = 0;
+		p->meas_seq.n_measurements_achieved = 0;
+		p->meas_seq.update_flag = false;
+	} else {
+		if (p->meas_seq.n_measurements_achieved >=
+		    p->meas_seq.active->steps[p->meas_seq.current_step]
+			    .n_measurements) {
+			p->meas_seq.n_measurements_achieved = 0;
+			p->meas_seq.current_step++;
+			p->meas_seq.current_step %= p->meas_seq.active->n_steps;
+		}
+	}
+	trace_region_fira_meas_seq_step(
+		session, &(p->meas_seq.active->steps[p->meas_seq.current_step]),
+		p->meas_seq.current_step);
+}
+
+void fira_session_prepare(struct fira_session *session)
+{
+	fira_update_meas_seq(session);
+	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLLER) {
+		session->next_block_stride_len =
+			session->params.block_stride_len;
+		if (session->params.round_hopping) {
+			u32 next_block_index = session->block_index +
+					       session->next_block_stride_len +
+					       1;
+			session->next_round_index =
+				fira_round_hopping_sequence_get(
+					session, next_block_index);
+		}
+	}
+}
+
+void fira_session_update_round_index(struct fira_session *session)
 {
 	if (session->hopping_sequence_generation) {
 		session->round_index = fira_round_hopping_sequence_get(
 			session, session->block_index);
-		session->next_round_index = fira_round_hopping_sequence_get(
-			session, session->block_index + 1);
 	} else {
 		session->round_index = session->next_round_index;
 		session->hopping_sequence_generation =
@@ -293,32 +340,70 @@ static void fira_session_update(struct fira_local *local,
 				struct fira_session *session,
 				u32 next_timestamp_dtu)
 {
+	u32 access_dtu;
 	s32 diff_dtu;
 	int block_duration_margin_dtu = 0;
 
 	if (session->params.device_type == FIRA_DEVICE_TYPE_CONTROLEE)
 		block_duration_margin_dtu =
 			fira_session_get_block_duration_margin(local, session);
-	diff_dtu = session->block_start_dtu +
-		   fira_session_get_round_slot(session) *
-			   session->params.slot_duration_dtu -
-		   block_duration_margin_dtu - next_timestamp_dtu;
+
+	/* Do we have the time to participate in the current block? */
+	access_dtu = session->block_start_dtu +
+		     fira_session_get_round_slot(session) *
+			     session->params.slot_duration_dtu -
+		     block_duration_margin_dtu;
+	diff_dtu = access_dtu - next_timestamp_dtu;
 
 	if (diff_dtu < 0) {
 		int block_duration_dtu = session->params.block_duration_dtu;
 		int block_duration_slots =
 			block_duration_dtu / session->params.slot_duration_dtu;
-		int add_blocks;
+		int block_stride_len = session->block_stride_len;
+		int block_stride_duration_dtu =
+			block_duration_dtu * (block_stride_len + 1);
+		int add_blocks, add_strides;
 
-		add_blocks = (-diff_dtu + block_duration_dtu - 1) /
-			     block_duration_dtu;
+		/*
+		 * No time in current block, which block should we try? The
+		 * result of this can be 0, meaning that we are still in the
+		 * same block, but the access was earlier in this block.
+		 */
+		diff_dtu = session->block_start_dtu -
+			   block_duration_margin_dtu - next_timestamp_dtu;
+		add_strides = -diff_dtu / block_stride_duration_dtu;
+		add_blocks = add_strides * (block_stride_len + 1);
+
 		session->block_start_dtu += add_blocks * block_duration_dtu;
 		session->block_index += add_blocks;
 		session->sts_index += add_blocks * block_duration_slots;
-		if (add_blocks != 1)
-			session->hopping_sequence_generation =
-				session->params.round_hopping;
-		fira_session_round_hopping(session);
+		if (add_blocks != 0) {
+			/*
+			 * More than one ranging round skipped, can not trust
+			 * last hopping instructions.
+			 */
+			if (add_blocks > block_stride_len + 1)
+				session->hopping_sequence_generation =
+					session->params.round_hopping;
+			fira_session_update_round_index(session);
+		}
+
+		/* Retry in the found block. */
+		access_dtu = session->block_start_dtu +
+			     fira_session_get_round_slot(session) *
+				     session->params.slot_duration_dtu -
+			     block_duration_margin_dtu;
+		diff_dtu = access_dtu - next_timestamp_dtu;
+
+		if (diff_dtu < 0) {
+			/* Still no time, next one will be OK. */
+			add_blocks = block_stride_len + 1;
+			session->block_start_dtu +=
+				add_blocks * block_duration_dtu;
+			session->block_index += add_blocks;
+			session->sts_index += add_blocks * block_duration_slots;
+			fira_session_update_round_index(session);
+		}
 	}
 }
 
@@ -360,7 +445,7 @@ static struct fira_session *fira_session_find_next(struct fira_local *local,
 		fira_session_update(local, session, next_timestamp_dtu);
 		fira_session_get_demand(local, session, &demand);
 		access_timestamp_dtu = demand.timestamp_dtu;
-		access_duration_dtu = demand.duration_dtu;
+		access_duration_dtu = demand.max_duration_dtu;
 		if ((!selected_session ||
 		     is_before_dtu(access_timestamp_dtu + access_duration_dtu +
 					   local->llhw->anticip_dtu,
@@ -394,12 +479,14 @@ static struct fira_session *fira_session_find_next(struct fira_local *local,
 			continue;
 		fira_session_update(local, session, next_timestamp_dtu);
 		fira_session_get_demand(local, session, &demand);
-		access_duration_dtu = demand.duration_dtu;
+		access_duration_dtu = demand.max_duration_dtu;
 		unsync_access_duration_dtu = U32_MAX;
 		if (session->params.max_rr_retry) {
-			int nb_blocks = session->params.max_rr_retry +
-					session->last_block_index -
-					session->block_index;
+			int nb_blocks =
+				session->params.max_rr_retry *
+					(session->block_stride_len + 1) +
+				session->last_block_index -
+				session->block_index;
 
 			unsync_access_duration_dtu =
 				min((u32)session->params.block_duration_dtu *
@@ -449,7 +536,7 @@ fira_session_check_max_number_of_measurements(struct fira_local *local,
 		session->max_number_of_measurements_reached = true;
 		session->controlee_management_flags =
 			FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_STOP;
-		fira_session_stop_controlees(local, session,
+		fira_session_stop_controlees(session,
 					     &session->current_controlees);
 	}
 }
@@ -457,7 +544,8 @@ fira_session_check_max_number_of_measurements(struct fira_local *local,
 static bool fira_session_check_max_rr_retry(struct fira_session *session)
 {
 	if (session->params.max_rr_retry &&
-	    !((s32)(session->block_index - session->last_block_index -
+	    !((s32)((session->block_index - session->last_block_index) /
+			    (session->block_stride_len + 1) -
 		    session->params.max_rr_retry) < 0)) {
 		session->stop_no_response = true;
 		return true;
@@ -562,8 +650,8 @@ struct fira_session *fira_session_next(struct fira_local *local,
 	return selected_session;
 }
 
-void fira_session_resync(struct fira_local *local, struct fira_session *session,
-			 u32 sts_index, u32 timestamp_dtu)
+void fira_session_resync(struct fira_session *session, u32 sts_index,
+			 u32 timestamp_dtu)
 {
 	int block_duration_slots = session->params.block_duration_dtu /
 				   session->params.slot_duration_dtu;
@@ -588,7 +676,7 @@ void fira_session_access_done(struct fira_local *local,
 {
 	if (session->controlee_management_flags ==
 	    FIRA_SESSION_CONTROLEE_MANAGEMENT_FLAG_STOP) {
-		fira_session_update_stopping_controlees(local, session);
+		fira_session_update_stopping_controlees(session);
 		session->controlee_management_flags = 0;
 	}
 
@@ -604,6 +692,7 @@ void fira_session_access_done(struct fira_local *local,
 			fira_session_check_unsync(local, session);
 		}
 		session->number_of_measurements++;
+		session->params.meas_seq.n_measurements_achieved++;
 	}
 
 	fira_session_check_max_number_of_measurements(local, session);
@@ -628,9 +717,6 @@ void fira_session_access_done(struct fira_local *local,
 		session->stop_inband = false;
 		session->stop_no_response = false;
 		session->max_number_of_measurements_reached = false;
-		/* Reset to max value as it will be recomputed on session start
-		 * with fira_session_is_ready call. */
-		session->params.n_controlees_max = FIRA_CONTROLEES_MAX;
 		/* Reset data parameters. */
 		session->params.data_payload_seq = 0;
 		session->params.data_payload_len = 0;
@@ -638,5 +724,6 @@ void fira_session_access_done(struct fira_local *local,
 
 	if (session == local->current_session) {
 		fira_session_stop_expired_sessions(local);
+		session->block_stride_len = session->next_block_stride_len;
 	}
 }

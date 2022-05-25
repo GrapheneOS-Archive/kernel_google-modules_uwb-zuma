@@ -26,18 +26,17 @@
 
 #include <linux/module.h>
 #include "dw3000_nfcc_coex.h"
-
-/* Forward declaration. */
-struct dw3000;
+#include "dw3000.h"
 
 extern unsigned dw3000_nfcc_coex_margin_dtu;
 
-int dw3000_nfcc_coex_handle_spi1_ready_isr(struct dw3000 *dw);
-int dw3000_nfcc_coex_handle_spi1_avail_isr(struct dw3000 *dw);
+int dw3000_nfcc_coex_cancel_watchdog(struct dw3000 *dw);
+int dw3000_nfcc_coex_spi1_avail(struct dw3000 *dw);
+int dw3000_nfcc_coex_idle_timeout(struct dw3000 *dw);
 void dw3000_nfcc_coex_init(struct dw3000 *dw);
 int dw3000_nfcc_coex_enable(struct dw3000 *dw, u8 channel,
-			    dw3000_nfcc_coex_spi_avail_cb cb);
+			    bool sync_time_needed);
 int dw3000_nfcc_coex_disable(struct dw3000 *dw);
-int dw3000_nfcc_coex_sleep(struct dw3000 *dw, u32 sleep_dtu);
+int dw3000_nfcc_coex_configure(struct dw3000 *dw);
 
 #endif /*  __DW3000_NFCC_COEX_CORE_H */

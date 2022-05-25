@@ -40,10 +40,8 @@ struct dw3000_rssi {
 	uint8_t dgc_dec : 3;
 } __attribute__((__packed__));
 
-/**
- * Since both DW3720 & DW3120 user manuals specify only 11-bits at most for
- * diagnostic counters, we do the same for RSSI report number.
- */
+/* Since both DW3720 & DW3120 user manuals specify only 11-bits at most for
+ * diagnostic counters, we do the same for RSSI report number. */
 #define DW3000_RSSI_REPORTS_MAX (1 << 11)
 #define DW3000_TM_RSSI_DATA_MAX_LEN \
 	(DW3000_RSSI_REPORTS_MAX * sizeof(struct dw3000_rssi))
@@ -61,19 +59,21 @@ enum dw3000_tm_attr {
 	DW3000_TM_ATTR_OTP_ADDR,
 	DW3000_TM_ATTR_OTP_VAL,
 	DW3000_TM_ATTR_OTP_DONE,
-	DW3000_TM_ATTR_CCC_TIME0,
-	DW3000_TM_ATTR_CCC_CHANNEL,
-	DW3000_TM_ATTR_CCC_TSTART,
-	DW3000_TM_ATTR_CCC_TEND,
-	DW3000_TM_ATTR_CCC_MARGIN_MS,
-	DW3000_TM_ATTR_CCC_RR_COUNT,
-	DW3000_TM_ATTR_CCC_OFFSET_MS,
-	DW3000_TM_ATTR_CCC_CONFLICT_SLOT_IDX,
-	DW3000_TM_ATTR_CCC_CMD_RC,
 	DW3000_TM_ATTR_DEEP_SLEEP_DELAY_MS,
 	DW3000_TM_ATTR_CONTTX_FRAME_LENGHT,
 	DW3000_TM_ATTR_CONTTX_RATE,
 	DW3000_TM_ATTR_CONTTX_DURATION,
+
+	/* HRP parameters */
+	DW3000_TM_ATTR_PSR,
+	DW3000_TM_ATTR_SFD,
+	DW3000_TM_ATTR_PHR_RATE,
+	DW3000_TM_ATTR_DATA_RATE,
+
+	/* Complex channel parameters */
+	DW3000_TM_ATTR_PAGE,
+	DW3000_TM_ATTR_CHANNEL,
+	DW3000_TM_ATTR_PREAMBLE_CODE,
 
 	/* keep last */
 	__DW3000_TM_ATTR_AFTER_LAST,
@@ -98,7 +98,7 @@ enum dw3000_tm_cmd {
 	DW3000_TM_CMD_START_CONTINUOUS_TX,
 	DW3000_TM_CMD_STOP_CONTINUOUS_TX,
 
-	/* CCC NFCC/AP coexistence test commands */
+	/* TODO: CCC enum could be remove, as their are no more used. */
 	DW3000_TM_CMD_CCC_START,
 	DW3000_TM_CMD_CCC_TEST_SCRATCH,
 	DW3000_TM_CMD_CCC_TEST_SPI1,
@@ -113,6 +113,12 @@ enum dw3000_tm_cmd {
 
 	/* Deep sleep test */
 	DW3000_TM_CMD_DEEP_SLEEP,
+
+	/* Set HRP parameters */
+	DW3000_TM_CMD_SET_HRP_PARAMS,
+
+	/* Set complex channel */
+	DW3000_TM_CMD_SET_CHANNEL,
 
 	/* keep last */
 	__DW3000_TM_CMD_AFTER_LAST,

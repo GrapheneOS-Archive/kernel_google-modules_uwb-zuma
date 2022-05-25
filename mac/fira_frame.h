@@ -31,6 +31,24 @@ struct fira_session;
 struct fira_slot;
 struct sk_buff;
 struct mcps802154_ie_get_context;
+struct fira_session_params;
+
+/**
+ * fira_frame_check_n_controlees() - Check the number of wanted
+ * controlees.
+ * @session: Current session.
+ * @n_controlees: Wanted number of controlees.
+ * @active: Is the session (supposed to be) active?
+ *
+ * Return: true if number of controlees fits.
+ *
+ * For an inactive session, the number of controlees is limited by the list
+ * size, aka FIRA_CONTROLEES_MAX.
+ * For an active session, it depends on the space left in messages, which is
+ * determined by the session parameters.
+ */
+bool fira_frame_check_n_controlees(struct fira_session *session,
+				   size_t n_controlees, bool active);
 
 /**
  * fira_frame_header_put() - Fill FiRa frame header.
@@ -106,14 +124,15 @@ bool fira_frame_header_check(const struct fira_local *local,
  * @ie_get: Context used to read IE, must have been used to read header first.
  * @n_slots: Pointer where to store number of used slots.
  * @stop_ranging: True if the message indicates that the ranging must be stopped.
+ * @block_stride_len: Pointer where to store number of blocks to stride.
  *
  * Return: true if message is correct. Extra payload is accepted.
  */
 bool fira_frame_control_payload_check(struct fira_local *local,
 				      struct sk_buff *skb,
 				      struct mcps802154_ie_get_context *ie_get,
-				      unsigned int *n_slots,
-				      bool *stop_ranging);
+				      unsigned int *n_slots, bool *stop_ranging,
+				      int *block_stride_len);
 
 /**
  * fira_frame_measurement_report_payload_check() - Check FiRa frame payload for
