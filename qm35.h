@@ -24,7 +24,7 @@
 #define QM_BOOT_MS 450
 #define QM_BEFORE_RESET_MS 450
 
-#define DRV_VERSION "6.3.6-rc1"
+#define DRV_VERSION "6.3.8-rc1"
 
 struct regulator;
 
@@ -73,7 +73,8 @@ static inline void qm35_set_state(struct qm35_ctx *qm35_hdl, int state)
 	spin_unlock_irqrestore(&qm35_hdl->lock, flags);
 }
 
-static inline int qm35_reset(struct qm35_ctx *qm35_hdl, int timeout_ms, bool run)
+static inline int qm35_reset(struct qm35_ctx *qm35_hdl, int timeout_ms,
+			     bool run)
 {
 	if (qm35_hdl->gpio_reset) {
 		qm35_set_state(qm35_hdl, QM35_CTRL_STATE_RESET);

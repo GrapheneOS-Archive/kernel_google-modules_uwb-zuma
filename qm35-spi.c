@@ -94,6 +94,11 @@ static bool wake_use_csn = false;
 module_param(wake_use_csn, bool, 0444);
 MODULE_PARM_DESC(wake_use_csn, "Use HSSPI CSn pin to wake up QM35");
 
+static bool wake_on_ssirq = true;
+module_param(wake_on_ssirq, bool, 0644);
+MODULE_PARM_DESC(wake_on_ssirq,
+		 "Allow QM35 to wakeup the platform using ss_irq");
+
 int trace_spi_xfers;
 module_param(trace_spi_xfers, int, 0444);
 MODULE_PARM_DESC(trace_spi_xfers, "Trace all the SPI transfers");
@@ -592,6 +597,13 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 		ss_irqflags = irq_get_trigger_type(qm35_ctx->spi->irq);
 	}
 
+	if (wake_on_ssirq) {
+		ret = enable_irq_wake(qm35_ctx->spi->irq);
+		if (ret) {
+			return ret;
+		}
+	}
+
 	qm35_ctx->hsspi.odw_cleared = reenable_ss_irq;
 	qm35_ctx->hsspi.wakeup = qm35_wakeup;
 	qm35_ctx->hsspi.reset_qm35 = qm35_reset_hook;
@@ -895,10 +907,34 @@ static int qm35_remove(struct spi_device *spi)
 	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
+static int qm35_pm_suspend(struct device *dev)
+{
+	struct qm35_ctx *qm35_hdl = dev_get_drvdata(dev);
+
+	qm35_hsspi_stop(qm35_hdl);
+
+	return 0;
+}
+
+static int qm35_pm_resume(struct device *dev)
+{
+	struct qm35_ctx *qm35_hdl = dev_get_drvdata(dev);
+
+	qm35_hsspi_start(qm35_hdl);
+
+	return 0;
+}
+#endif /* CONFIG_PM_SLEEP */
+
+static SIMPLE_DEV_PM_OPS(qm35_spi_ops, qm35_pm_suspend, qm35_pm_resume);
+#define pm_sleep_ptr(_ptr) (IS_ENABLED(CONFIG_PM_SLEEP) ? (_ptr) : NULL)
+
 static struct spi_driver qm35_spi_driver = {
 	.driver = {
 		.name           = "qm35",
 		.of_match_table = of_match_ptr(qm35_dt_ids),
+		.pm = pm_sleep_ptr(&qm35_spi_ops),
 	},
 	.probe =	qm35_probe,
 	.remove =	qm35_remove,
