@@ -89,7 +89,7 @@ mcps802154_fproc_multi_check_frames(struct mcps802154_local *local,
 		const struct mcps802154_access_frame *frame =
 			&access->frames[frame_idx];
 		/* Only first Rx can be without timeout. */
-		if (!frame->is_tx && frame->rx.info.timeout_dtu == -1)
+		if (!frame->is_tx && frame->rx.frame_config.timeout_dtu == -1)
 			return -EINVAL;
 	}
 	return 0;
@@ -107,15 +107,13 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 					struct mcps802154_access *access,
 					size_t frame_idx)
 {
-	int r;
-
 	frame_idx++;
 	if (access->ops->access_extend && frame_idx == access->n_frames) {
 		frame_idx = 0;
 		access->n_frames = 0;
 		access->ops->access_extend(access);
-		r = mcps802154_fproc_multi_check_frames(local, access, 0);
-		if (r) {
+		access->error = mcps802154_fproc_multi_check_frames(local, access, 0);
+		if (access->error) {
 			mcps802154_fproc_access_done(local, true);
 			mcps802154_fproc_broken_handle(local);
 			return;
@@ -123,19 +121,19 @@ static void mcps802154_fproc_multi_next(struct mcps802154_local *local,
 	}
 	if (frame_idx < access->n_frames) {
 		/* Next frame. */
-		r = mcps802154_fproc_multi_handle_frame(local, access,
+		access->error = mcps802154_fproc_multi_handle_frame(local, access,
 							frame_idx);
-		if (r) {
+		if (access->error) {
 			mcps802154_fproc_access_done(local, true);
-			if (r == -ETIME)
+			if (access->error == -ETIME)
 				mcps802154_fproc_access_now(local);
 			else
 				mcps802154_fproc_broken_handle(local);
 		}
 	} else {
-		r = mcps802154_fproc_multi_restore(local, access);
-		mcps802154_fproc_access_done(local, !!r);
-		if (r) {
+		access->error = mcps802154_fproc_multi_restore(local, access);
+		mcps802154_fproc_access_done(local, !!access->error);
+		if (access->error) {
 			mcps802154_fproc_broken_handle(local);
 			return;
 		}
@@ -155,19 +153,18 @@ static void mcps802154_fproc_multi_rx_rx_frame(struct mcps802154_local *local)
 	struct mcps802154_access *access = local->fproc.access;
 	size_t frame_idx = local->fproc.frame_idx;
 	struct mcps802154_access_frame *frame = &access->frames[frame_idx];
-	int r;
 
 	/* Read frame. */
 	struct sk_buff *skb = NULL;
 	struct mcps802154_rx_frame_info info = {
 		.flags = frame->rx.frame_info_flags_request,
 	};
-	r = llhw_rx_get_frame(local, &skb, &info);
-	if (!r)
+	access->error =  llhw_rx_get_frame(local, &skb, &info);
+	if (!access->error)
 		access->ops->rx_frame(access, frame_idx, skb, &info,
 				      MCPS802154_RX_ERROR_NONE);
 
-	if (r && r != -EBUSY) {
+	if (access->error && access->error != -EBUSY) {
 		mcps802154_fproc_access_done(local, true);
 		mcps802154_fproc_broken_handle(local);
 	} else {
@@ -195,7 +192,7 @@ mcps802154_fproc_multi_rx_rx_error(struct mcps802154_local *local,
 	struct mcps802154_access *access = local->fproc.access;
 	size_t frame_idx = local->fproc.frame_idx;
 	struct mcps802154_rx_frame_info info = {
-		.flags = MCPS802154_RX_INFO_TIMESTAMP_DTU,
+		.flags = MCPS802154_RX_FRAME_INFO_TIMESTAMP_DTU,
 	};
 
 	llhw_rx_get_error_frame(local, &info);
@@ -213,18 +210,17 @@ mcps802154_fproc_multi_rx_schedule_change(struct mcps802154_local *local)
 	int frame_idx = local->fproc.frame_idx;
 	struct mcps802154_access_frame *frame = &access->frames[frame_idx];
 
-	if (frame->rx.info.timeout_dtu == -1) {
+	if (frame->rx.frame_config.timeout_dtu == -1) {
 		/* Disable RX. */
-		int r = llhw_rx_disable(local);
-
-		if (r == -EBUSY)
+		access->error = llhw_rx_disable(local);
+		if (access->error == -EBUSY)
 			/* Wait for RX result. */
 			return;
 
 		access->ops->rx_frame(access, frame_idx, NULL, NULL,
 				      MCPS802154_RX_ERROR_TIMEOUT);
-		if (r) {
-			mcps802154_fproc_access_done(local, r);
+		if (access->error) {
+			mcps802154_fproc_access_done(local, access->error);
 			mcps802154_fproc_broken_handle(local);
 		} else {
 			/* Next. */
@@ -314,7 +310,8 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 
 	frame = &access->frames[frame_idx];
 	if (!frame->is_tx) {
-		if (frame->rx.info.flags & MCPS802154_RX_INFO_AACK)
+		if (frame->rx.frame_config.flags &
+		    MCPS802154_RX_FRAME_CONFIG_AACK)
 			return -EINVAL;
 
 		if (frame->sts_params) {
@@ -323,14 +320,15 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 				return r;
 		}
 
-		r = llhw_rx_enable(local, &frame->rx.info, frame_idx, 0);
+		r = llhw_rx_enable(local, &frame->rx.frame_config, frame_idx,
+				   0);
 		if (r)
 			return r;
 
 		mcps802154_fproc_change_state(local,
 					      &mcps802154_fproc_multi_rx);
 	} else {
-		if (frame->tx_frame_info.rx_enable_after_tx_dtu)
+		if (frame->tx_frame_config.rx_enable_after_tx_dtu)
 			return -EINVAL;
 
 		skb = access->ops->tx_get_frame(access, frame_idx);
@@ -347,8 +345,8 @@ static int mcps802154_fproc_multi_handle_frame(struct mcps802154_local *local,
 			}
 		}
 
-		r = llhw_tx_frame(local, skb, &frame->tx_frame_info, frame_idx,
-				  0);
+		r = llhw_tx_frame(local, skb, &frame->tx_frame_config,
+				  frame_idx, 0);
 		if (r) {
 			access->ops->tx_return(
 				access, frame_idx, skb,
@@ -396,5 +394,12 @@ int mcps802154_fproc_multi_handle(struct mcps802154_local *local,
 			return r;
 		}
 	}
+
+	if (access->hrp_uwb_params) {
+		r = llhw_set_hrp_uwb_params(local, access->hrp_uwb_params);
+		if (r)
+			return r;
+	}
+
 	return mcps802154_fproc_multi_handle_frame(local, access, 0);
 }

@@ -116,7 +116,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	hrtimer_init(&dw->idle_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	dw->idle_timer.function = dw3000_idle_timeout;
 
-	dev_info(dw->dev, "Loading driver...2022_03_04");
+	dev_info(dw->dev, "Loading driver...");
 	dw3000_sysfs_init(dw);
 
 	/* Setup SPI parameters */
@@ -134,6 +134,7 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	rc = spi_setup(spi);
 	if (rc != 0)
 		goto err_spi_setup;
+
 	/* Request and setup regulators if availables*/
 	dw3000_setup_regulators(dw);
 
@@ -168,13 +169,6 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	if (rc != 0)
 		goto err_setup_irq;
 
-	/* Register MCPS 802.15.4 device */
-	rc = dw3000_mcps_register(dw);
-	if (rc != 0) {
-		dev_err(&spi->dev, "could not register: %d\n", rc);
-		goto err_register_hw;
-	}
-
 	/*
 	 * Initialize PM QoS. Using the default latency won't change anything
 	 * to the QoS list
@@ -191,17 +185,25 @@ static int dw3000_spi_probe(struct spi_device *spi)
 	if (rc != 0)
 		goto err_debugfs;
 
+	/* Register MCPS 802.15.4 device */
+	rc = dw3000_mcps_register(dw);
+	if (rc != 0) {
+		dev_err(&spi->dev, "could not register: %d\n", rc);
+		goto err_register_hw;
+	}
+
 	/* All is ok */
 	return 0;
 
+err_register_hw:
+	dw3000_debugfs_remove(dw);
 err_debugfs:
 err_state_start:
 	dw3000_pm_qos_remove_request(dw);
-	dw3000_mcps_unregister(dw);
-err_register_hw:
 err_setup_irq:
 	dw3000_state_stop(dw);
 err_state_init:
+	dw3000_transfers_free(dw);
 err_transfers_init:
 err_setup_gpios:
 err_spi_setup:
@@ -211,6 +213,7 @@ err_qos_latency:
 err_thread_cpu:
 err_wifi_coex:
 	dw3000_mcps_free(dw);
+	spi_set_drvdata(spi, NULL);
 err_alloc_hw:
 	return rc;
 }
@@ -228,26 +231,24 @@ static int dw3000_spi_remove(struct spi_device *spi)
 {
 	struct dw3000 *dw = spi_get_drvdata(spi);
 
-	dw3000_cir_data_alloc_count(dw, 0);
-
-	dw3000_sysfs_remove(dw);
-
-	dw3000_debugfs_remove(dw);
+	if (dw == NULL)
+		/* Error during probe, all already freed */
+		return 0;
 
 	dev_dbg(dw->dev, "unloading...");
 
+	/* Remove sysfs files */
+	dw3000_debugfs_remove(dw);
+	dw3000_sysfs_remove(dw);
 	/* Unregister subsystems */
 	dw3000_mcps_unregister(dw);
-
-	dw3000_pm_qos_remove_request(dw);
-
 	/* Stop state machine */
 	dw3000_state_stop(dw);
-
+	dw3000_pm_qos_remove_request(dw);
 	/* Free pre-computed SPI messages */
 	dw3000_transfers_free(dw);
-
 	/* Release the mcps 802.15.4 device */
+	dw3000_cir_data_alloc_count(dw, 0);
 	dw3000_mcps_free(dw);
 
 	return 0;
