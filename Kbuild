@@ -14,6 +14,7 @@ qm35-y := \
 	hsspi_log.o \
 	hsspi_coredump.o \
 	debug.o \
+	hsspi_test.o
 
 qm35-$(CONFIG_EVENT_TRACING) += qm35-trace.o
 CFLAGS_qm35-trace.o = -I$(srctree)/$(src)

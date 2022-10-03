@@ -840,7 +840,7 @@ int qmrom_reboot_bootloader(void *spi_handle,
 				   void *reset_handle)
 {
 	int rc;
-	rc = qmrom_spi_set_cs_level(spi_handle, 1);
+	rc = qmrom_spi_set_cs_level(spi_handle, 0);
 	if (rc) {
 		LOG_ERR("%s: spi_set_cs_level(0) failed with %d\n", __func__,
 			rc);
@@ -852,7 +852,7 @@ int qmrom_reboot_bootloader(void *spi_handle,
 
 	qmrom_msleep(SPI_RST_LOW_DELAY_MS);
 
-	rc = qmrom_spi_set_cs_level(spi_handle, 0);
+	rc = qmrom_spi_set_cs_level(spi_handle, 1);
 	if (rc) {
 		LOG_ERR("%s: spi_set_cs_level(1) failed with %d\n", __func__,
 			rc);

@@ -56,7 +56,7 @@ TRACE_EVENT(hsspi_get_work,
 		    __assign_str(dev, dev_name(dev));
 		    __entry->type = type;
 		    ),
-	    TP_printk("[%s]: %s work\n", __get_str(dev),
+	    TP_printk("[%s]: %s work", __get_str(dev),
 		      show_work_type(__entry->type))
 	);
 
@@ -84,7 +84,7 @@ TRACE_EVENT(hsspi_is_txrx_waiting,
 		    __entry->is_empty = is_empty;
 		    __entry->state = state;
 		    ),
-	    TP_printk("[%s]: is_empty: %d state: %s\n", __get_str(dev),
+	    TP_printk("[%s]: is_empty: %d state: %s", __get_str(dev),
 		      __entry->is_empty, show_hsspi_state(__entry->state))
 	);
 
@@ -119,7 +119,7 @@ TRACE_EVENT(hsspi_spi_xfer,
 		    STC_ASSIGN(soc, soc);
 		    __entry->ret = ret;
 		    ),
-	    TP_printk("[%s]: host " STC_FMT " | soc " STC_FMT " rc=%d\n",
+	    TP_printk("[%s]: host " STC_FMT " | soc " STC_FMT " rc=%d",
 		      __get_str(dev), STC_ARG(host), STC_ARG(soc), __entry->ret)
 	);
 

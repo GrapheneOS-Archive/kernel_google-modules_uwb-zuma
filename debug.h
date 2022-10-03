@@ -61,6 +61,7 @@ struct debug {
 	struct wait_queue_head wq;
 	struct file *pv_filp;
 	struct mutex pv_filp_lock;
+	struct binary_chunk *certificate;
 };
 
 // TODO move this from here to a commom place for both log layer and debug

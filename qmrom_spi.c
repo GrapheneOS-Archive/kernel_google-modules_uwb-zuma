@@ -33,6 +33,13 @@
 
 #include "qm35.h"
 
+static const char *fwname = NULL;
+
+void qmrom_set_fwname(const char *name)
+{
+	fwname = name;
+}
+
 int qmrom_spi_transfer(void *handle, char *rbuf, const char *wbuf, size_t size)
 {
 	struct spi_device *spi = (struct spi_device *)handle;
@@ -58,7 +65,7 @@ int qmrom_spi_set_cs_level(void *handle, int level)
 		{
 			.tx_buf = &dummy,
 			.len = 1,
-			.cs_change = level,
+			.cs_change = !level,
 			.speed_hz = DEFAULT_SPI_CLOCKRATE,
 
 		},
@@ -80,15 +87,20 @@ const struct firmware *qmrom_spi_get_firmware(void *handle,
 {
 	const struct firmware *fw;
 	struct spi_device *spi = handle;
-	char fw_name[16]; /* enough room to store "qm35_xx_xxx.bin" */
+	char _fw_name[16]; /* enough room to store "qm35_xx_xxx.bin" */
+	const char *fw_name = _fw_name;
 	int ret;
 
-	if (revision == CHIP_REVISION_A0)
-		snprintf(fw_name, sizeof(fw_name), "qm35_%02x.bin", revision);
-	else
-		snprintf(fw_name, sizeof(fw_name), "qm35_%02x_%.3s.bin",
-			 revision,
-			 lcs_state == CC_BSV_SECURE_LCS ? "oem" : "icv");
+	if (!fwname) {
+		if (revision == CHIP_REVISION_A0)
+			snprintf(_fw_name, sizeof(_fw_name), "qm35_%02x.bin", revision);
+		else
+			snprintf(_fw_name, sizeof(_fw_name), "qm35_%02x_%.3s.bin",
+				revision,
+				lcs_state == CC_BSV_SECURE_LCS ? "oem" : "icv");
+	} else {
+		fw_name = fwname;
+	}
 	dev_info(&spi->dev, "Requesting fw %s!\n", fw_name);
 
 	ret = request_firmware(&fw, fw_name, &spi->dev);

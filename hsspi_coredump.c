@@ -43,7 +43,7 @@ struct __packed coredump_common_hdr {
 };
 
 struct __packed coredump_hdr_ntf {
-	uint16_t size;
+	uint32_t size;
 	uint16_t crc;
 };
 
@@ -79,7 +79,7 @@ static int coredump_send_rcv_status(struct coredump_layer *layer, uint8_t ack)
 	struct coredump_rcv_status rcv;
 	struct qm35_ctx *qm35_hdl;
 
-	pr_info("qm35: coredump: sent status %s\n",
+	pr_info("qm35: coredump: sending status %s\n",
 		layer->coredump_status == COREDUMP_RCV_ACK ? "ACK" : "NACK");
 
 	qm35_hdl = container_of(layer, struct qm35_ctx, coredump_layer);
@@ -87,9 +87,6 @@ static int coredump_send_rcv_status(struct coredump_layer *layer, uint8_t ack)
 	p = coredump_packet_alloc(sizeof(hdr) + sizeof(rcv));
 	if (!p)
 		return -ENOMEM;
-
-	pr_info("qm35: coredump: sent status %s\n",
-		layer->coredump_status == COREDUMP_RCV_ACK ? "ACK" : "NACK");
 
 	hdr.cmd_id = COREDUMP_RCV_STATUS;
 	rcv.ack = ack;
@@ -103,7 +100,7 @@ static int coredump_send_rcv_status(struct coredump_layer *layer, uint8_t ack)
 
 static uint16_t coredump_get_checksum(struct coredump_layer *layer)
 {
-	uint16_t idx = 0;
+	uint32_t idx;
 	uint16_t crc = 0;
 
 	for (idx = 0; idx < layer->coredump_data_wr_idx; idx++) {
@@ -121,7 +118,7 @@ static void corredump_on_expired_timer(struct timer_list *timer)
 	struct coredump_layer *layer =
 		container_of(timer, struct coredump_layer, timer);
 
-	pr_warn("qm35: coredump receive timer expired");
+	pr_warn("qm35: coredump receive timer expired\n");
 
 	coredump_send_rcv_status(layer, layer->coredump_status);
 }
@@ -150,6 +147,8 @@ static struct hsspi_block *coredump_get(struct hsspi_layer *hlayer, u16 length)
 static void coredump_header_ntf_received(struct coredump_layer *layer,
 		struct coredump_hdr_ntf chn)
 {
+	void *data;
+
 	pr_info("qm35: coredump: receiving coredump with len: %d and crc: 0x%x\n",
 			chn.size, chn.crc);
 
@@ -158,11 +157,12 @@ static void coredump_header_ntf_received(struct coredump_layer *layer,
 	layer->coredump_crc = chn.crc;
 	layer->coredump_status = COREDUMP_RCV_NACK;
 
-	layer->coredump_data = krealloc(layer->coredump_data,
-									layer->coredump_size,
-									GFP_KERNEL);
+	data = krealloc(layer->coredump_data, layer->coredump_size,
+			GFP_KERNEL);
 
-	if (!layer->coredump_data)
+	if (data)
+		layer->coredump_data = data;
+	else
 		pr_err("qm35: failed to allocate coredump mem\n");
 }
 
@@ -231,12 +231,12 @@ static void coredump_received(struct hsspi_layer *hlayer,
 		break;
 
 	case COREDUMP_BODY_NTF:
-		pr_info("qm35: coredump: saving coredump data with len: %d\n",
-			cch_body_size);
+		pr_info("qm35: coredump: saving coredump data with len: %d [%d/%d]\n",
+			cch_body_size, layer->coredump_data_wr_idx + cch_body_size,
+			layer->coredump_size);
 
-		if (coredump_body_ntf_received(layer, cch_body, cch_body_size)) {
+		if (coredump_body_ntf_received(layer, cch_body, cch_body_size))
 			break;
-		}
 
 		if (layer->coredump_data_wr_idx == layer->coredump_size) {
 			uint16_t crc = coredump_get_checksum(layer);

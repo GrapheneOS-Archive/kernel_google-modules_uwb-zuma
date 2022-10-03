@@ -33,6 +33,8 @@ struct firmware {
 #define SPI_ERR_GPIO_WRITE_CMD_INCOMPLETE SPI_ERR_BASE - 5
 #define SPI_ERR_GPIO_READ_CMD_INCOMPLETE SPI_ERR_BASE - 6
 #define SPI_ERR_READY_LINE_TIMEOUT SPI_ERR_BASE - 7
+#define SPI_ERR_WRITE_INCOMPLETE SPI_ERR_BASE - 8
+#define SPI_ERR_RW_INCOMPLETE SPI_ERR_BASE - 9
 
 /*Make sure that the error ranges don't overlap */
 #define SPI_ERR_LIB_BASE (SPI_ERR_BASE - 500)
