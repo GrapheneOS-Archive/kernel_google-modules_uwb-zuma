@@ -111,9 +111,17 @@ void hsspi_test_set_inter_frame_ms(int ms)
 void hsspi_test_received(struct hsspi_layer *layer,
 			struct hsspi_block *blk, int status)
 {
-	static uint64_t bytes, msgs, errors;
+	static uint64_t bytes, msgs, errors, bytes0, msgs0, errors0;
+	static time64_t last_perf_dump;
 	int error = check_rx(blk->data, blk->length) ? 1 : 0;
+	time64_t now;
 	errors += error;
+
+	if (!last_perf_dump) {
+		last_perf_dump = ktime_get_seconds();
+	}
+	now = ktime_get_seconds();
+
 	/* inject latencies between each message and between the check
 	 * of ss-ready and the xfer.
 	 * The test is expected to fail if
@@ -135,6 +143,18 @@ void hsspi_test_received(struct hsspi_layer *layer,
 	if (error || ((msgs % 100) == 0))
 		pr_info("hsspi test: bytes received %llu, msgs %llu, errors %llu\n",
 				bytes, msgs, errors);
+	if (now > last_perf_dump) {
+		uint64_t dbytes = bytes >= bytes0 ? bytes - bytes0 : ~0ULL - bytes0 + bytes;
+		uint64_t dmsgs = msgs >= msgs0 ? msgs - msgs0 : ~0ULL - msgs0 + msgs;
+		uint64_t derrors = errors >= errors0 ? errors - errors0 : ~0ULL - errors0 + errors;
+		pr_info("hsspi test perfs: %llu B/s, %llu msgs/s, %llu errors/s\n",
+				dbytes / (now - last_perf_dump), dmsgs / (now - last_perf_dump),
+				derrors / (now - last_perf_dump));
+		bytes0 = bytes;
+		msgs0 = msgs;
+		errors0 = errors;
+		last_perf_dump = now;
+	}
 }
 
 void hsspi_test_sent(struct hsspi_layer *layer,
