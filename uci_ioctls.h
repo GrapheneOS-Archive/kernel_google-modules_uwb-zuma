@@ -11,6 +11,8 @@
 #define QM35_CTRL_RESET		_IOR(UCI_IOC_TYPE, 1, unsigned int)
 #define QM35_CTRL_GET_STATE	_IOR(UCI_IOC_TYPE, 2, unsigned int)
 #define QM35_CTRL_FW_UPLOAD	_IOR(UCI_IOC_TYPE, 3, unsigned int)
+#define QM35_CTRL_POWER		_IOW(UCI_IOC_TYPE, 4, unsigned int)
+
 
 /* qm35 states */
 enum {

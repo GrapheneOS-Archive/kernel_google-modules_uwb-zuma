@@ -29,11 +29,22 @@
 #ifndef __HSSPI_H__
 #define __HSSPI_H__
 
+#include <linux/gpio.h>
 #include <linux/kthread.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
 #include <linux/spi/spi.h>
 #include <linux/wait.h>
+
+enum {
+	UL_RESERVED,
+	UL_BOOT_FLASH,
+	UL_UCI_APP,
+	UL_COREDUMP,
+	UL_LOG,
+	UL_TEST_HSSPI,
+	UL_MAX_IDX
+};
 
 struct stc_header {
 	u8 flags;
@@ -116,7 +127,8 @@ struct hsspi_layer {
 enum hsspi_flags {
 	HSSPI_FLAGS_SS_IRQ = 0,
 	HSSPI_FLAGS_SS_READY = 1,
-	HSSPI_FLAGS_MAX = 2,
+	HSSPI_FLAGS_OFF = 2,
+	HSSPI_FLAGS_MAX = 3,
 };
 
 enum hsspi_state {
@@ -138,7 +150,7 @@ enum hsspi_state {
 struct hsspi {
 	spinlock_t lock; /* protect work_list, layers and state */
 	struct list_head work_list;
-	struct hsspi_layer *layers[5];
+	struct hsspi_layer *layers[UL_MAX_IDX];
 	enum hsspi_state state;
 
 	DECLARE_BITMAP(flags, HSSPI_FLAGS_MAX);
@@ -149,10 +161,15 @@ struct hsspi {
 	// re-enable SS_IRQ
 	void (*odw_cleared)(struct hsspi *hsspi);
 
+	// wakeup QM35
+	void (*wakeup_enter)(struct hsspi *hsspi);
+	void (*wakeup_release)(struct hsspi *hsspi);
+
 	struct spi_device *spi;
 	int spi_error;
 
 	struct stc_header *host, *soc;
+	ktime_t next_cs_active_time;
 };
 
 /**
@@ -216,6 +233,20 @@ int hsspi_unregister(struct hsspi *hsspi, struct hsspi_layer *layer);
  * the RDY bit was not present in the SOC STC header.
  */
 void hsspi_set_spi_slave_ready(struct hsspi *hsspi);
+
+/**
+ * hsspi_set_spi_slave_off() - tell the hsspi that qm35 went asleep
+ * @hsspi: pointer to a &struct hsspi
+ *
+ * This function is called in the exton irq handler. It notices the
+ * HSSPI driver that the QM went asleep.
+ *
+ * The HSSPI must work with or without the exton gpio but the sleep
+ * states on the qm35 would be affected.
+ *
+ * W/o the gpio we will ignore the fact that qm35 might have gone asleep.
+ */
+void hsspi_set_spi_slave_off(struct hsspi *hsspi);
 
 /**
  * hsspi_set_output_data_waiting() - tell the hsspi that the ss_irq is active
@@ -282,6 +313,5 @@ void hsspi_start(struct hsspi *hsspi);
  *
  */
 void hsspi_stop(struct hsspi *hsspi);
-
 
 #endif // __HSSPI_H__

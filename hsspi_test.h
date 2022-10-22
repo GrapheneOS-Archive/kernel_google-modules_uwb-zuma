@@ -23,33 +23,17 @@
  * Qorvo.
  * Please contact Qorvo to inquire about licensing terms.
  *
- * QM35 COREDUMP layer HSSPI Protocol
+ * QM35 Ringbuffer
  */
 
-#ifndef __HSSPI_COREDUMP_H__
-#define __HSSPI_COREDUMP_H__
-
-#include <linux/mutex.h>
-#include <linux/sched.h>
+#ifndef __HSSPI_TEST_H___
+#define __HSSPI_TEST_H___
 
 #include "hsspi.h"
-#include "debug.h"
 
-struct coredump_packet {
-	struct hsspi_block blk;
-};
+int hsspi_test_init(struct hsspi *hsspi);
+void hsspi_test_deinit(struct hsspi *hsspi);
 
-struct coredump_layer {
-	struct hsspi_layer hlayer;
-	void *coredump_data;
-	uint32_t coredump_data_wr_idx;
-	uint32_t coredump_size;
-	uint16_t coredump_crc;
-	uint8_t coredump_status;
-	struct timer_list timer;
-};
+void hsspi_test_set_inter_frame_ms(int ms);
 
-int coredump_layer_init(struct coredump_layer *coredump, struct debug *debug);
-void coredump_layer_deinit(struct coredump_layer *coredump);
-
-#endif // __HSSPI_COREDUMP_H__
+#endif /* __HSSPI_TEST_H___ */

@@ -31,12 +31,15 @@
 #include <linux/fsnotify.h>
 
 #include <qmrom.h>
+#include <qmrom_spi.h>
 
 #include "qm35.h"
 #include "debug.h"
+#include "hsspi_test.h"
 
 static const struct file_operations debug_enable_fops;
 static const struct file_operations debug_log_level_fops;
+static const struct file_operations debug_test_hsspi_sleep_fops;
 
 static void *priv_from_file(const struct file *filp)
 {
@@ -119,6 +122,18 @@ static ssize_t debug_log_level_read(struct file *filp, char __user *buff,
 
 	return simple_read_from_buffer(buff, count, off, log_level,
 				       sizeof(log_level));
+}
+
+static ssize_t debug_test_hsspi_sleep_write(struct file *filp, const char __user *buff,
+				     size_t count, loff_t *off)
+{
+	int sleep_inter_frame_ms;
+
+	if (kstrtoint_from_user(buff, count, 10, &sleep_inter_frame_ms))
+		return -EFAULT;
+
+	hsspi_test_set_inter_frame_ms(sleep_inter_frame_ms);
+	return count;
 }
 
 static ssize_t debug_traces_read(struct file *filp, char __user *buff,
@@ -232,6 +247,78 @@ static ssize_t debug_coredump_read(struct file *filep, char __user *buff,
 	return simple_read_from_buffer(buff, count, off, cd, cd_len);
 }
 
+static int debug_debug_certificate_open(struct inode *inodep, struct file *filep)
+{
+	struct debug *debug = priv_from_file(filep);
+
+	if (debug->certificate != NULL)
+		return -EBUSY;
+
+	debug->certificate = kmalloc(sizeof(*debug->certificate) + DEBUG_CERTIFICATE_SIZE,
+				     GFP_KERNEL);
+	if (debug->certificate == NULL)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static int debug_debug_certificate_close(struct inode *inodep, struct file *filep)
+{
+	struct debug *debug = priv_from_file(filep);
+	struct qm35_ctx *qm35_hdl;
+	int ret;
+	const char *operation = filep->f_pos ? "flashing" : "erasing";
+
+	qm35_hdl = container_of(debug, struct qm35_ctx, debug);
+
+	qm35_hsspi_stop(qm35_hdl);
+
+	dev_dbg(&qm35_hdl->spi->dev, "%s debug certificate (%lld bytes)\n", operation,
+		filep->f_pos);
+
+	if (filep->f_pos) {
+
+		debug->certificate->size = filep->f_pos;
+
+	} else {
+
+		/* WA: qmrom_erase_dbg_cert is not working, waiting to find the root
+		 * cause, workaround is to write a zeroed certificate
+		 * ret = qmrom_erase_dbg_cert(qm35_hdl->spi, qmrom_spi_reset_device, qm35_hdl);
+		 */
+		debug->certificate->size = DEBUG_CERTIFICATE_SIZE;
+		memset(debug->certificate->data, 0, DEBUG_CERTIFICATE_SIZE);
+	}
+
+	ret = qmrom_flash_dbg_cert(qm35_hdl->spi, debug->certificate,
+							   qmrom_spi_reset_device, qm35_hdl);
+
+	if (ret)
+		dev_err(&qm35_hdl->spi->dev, "%s debug certificate fails: %d\n", operation, ret);
+	else
+		dev_info(&qm35_hdl->spi->dev, "%s debug certificate success\n", operation);
+
+	msleep(QM_BEFORE_RESET_MS);
+	qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+	msleep(QM_BOOT_MS);
+
+	qm35_hsspi_start(qm35_hdl);
+
+	kfree(debug->certificate);
+	debug->certificate = NULL;
+
+	return 0;
+}
+
+static ssize_t debug_debug_certificate_write(struct file *filp,
+					const char __user *buff, size_t count, loff_t *off)
+{
+	struct debug *debug = priv_from_file(filp);
+
+	return simple_write_to_buffer(debug->certificate->data,
+				      DEBUG_CERTIFICATE_SIZE, off, buff, count);
+}
+
 static const struct file_operations debug_enable_fops = {
 	.owner = THIS_MODULE,
 	.write = debug_enable_write,
@@ -242,6 +329,11 @@ static const struct file_operations debug_log_level_fops = {
 	.owner = THIS_MODULE,
 	.write = debug_log_level_write,
 	.read = debug_log_level_read
+};
+
+static const struct file_operations debug_test_hsspi_sleep_fops = {
+	.owner = THIS_MODULE,
+	.write = debug_test_hsspi_sleep_write
 };
 
 static const struct file_operations debug_traces_fops = {
@@ -258,6 +350,13 @@ static const struct file_operations debug_coredump_fops = {
 	.read = debug_coredump_read,
 };
 
+static const struct file_operations debug_debug_certificate_fops = {
+	.owner = THIS_MODULE,
+	.open = debug_debug_certificate_open,
+	.write = debug_debug_certificate_write,
+	.release = debug_debug_certificate_close,
+};
+
 int debug_create_module_entry(struct debug *debug,
 			      struct log_module *log_module)
 {
@@ -271,7 +370,7 @@ int debug_create_module_entry(struct debug *debug,
 		return -1;
 	}
 
-	file = debugfs_create_file("log_level", 0666, dir, log_module,
+	file = debugfs_create_file("log_level", 0644, dir, log_module,
 				   &debug_log_level_fops);
 	if (!file) {
 		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/%s/log_level\n",
@@ -330,7 +429,7 @@ int debug_init(struct debug *debug, struct dentry *root)
 		goto unregister;
 	}
 
-	file = debugfs_create_file("enable", 0666, debug->fw_dir, debug,
+	file = debugfs_create_file("enable", 0644, debug->fw_dir, debug,
 				   &debug_enable_fops);
 	if (!file) {
 		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/enable\n");
@@ -351,10 +450,25 @@ int debug_init(struct debug *debug, struct dentry *root)
 		goto unregister;
 	}
 
-	file = debugfs_create_file("devid", S_IRUGO, debug->fw_dir, debug,
+	file = debugfs_create_file("devid", 0444, debug->fw_dir, debug,
 				   &debug_devid_fops);
 	if (!file) {
 		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/devid\n");
+		goto unregister;
+	}
+
+	debug->certificate = NULL;
+	file = debugfs_create_file("debug_certificate", 0200, debug->fw_dir, debug,
+				&debug_debug_certificate_fops);
+	if (!file) {
+		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/debug_certificate\n");
+		goto unregister;
+	}
+
+	file = debugfs_create_file("test_sleep_hsspi_ms", 0200, debug->fw_dir, debug,
+				   &debug_test_hsspi_sleep_fops);
+	if (!file) {
+		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/test_sleep_hsspi\n");
 		goto unregister;
 	}
 

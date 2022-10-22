@@ -16,13 +16,15 @@
 #include "hsspi_log.h"
 #include "debug.h"
 
-enum {
-	UL_RESERVED,
-	UL_BOOT_FLASH,
-	UL_UCI_APP,
-	UL_COREDUMP,
-	UL_LOG,
-};
+#define DEBUG_CERTIFICATE_SIZE 2560
+#define QM_RESET_LOW_MS  2
+/*
+ * value found using a SALAE
+ */
+#define QM_BOOT_MS 1450
+#define QM_BEFORE_RESET_MS 450
+
+struct regulator;
 
 /**
  * struct qm35_ctx - QM35 driver context
@@ -32,9 +34,12 @@ struct qm35_ctx {
 	unsigned int		state;
 	struct miscdevice	uci_dev;
 	struct spi_device	*spi;
+	struct gpio_desc	*gpio_csn;
 	struct gpio_desc	*gpio_reset;
 	struct gpio_desc	*gpio_ss_rdy;
 	struct gpio_desc	*gpio_ss_irq;
+	struct gpio_desc	*gpio_exton;
+	struct gpio_desc	*gpio_wakeup;
 	spinlock_t		lock;
 	bool			out_data_wait;
 	bool			out_active;
@@ -44,6 +49,10 @@ struct qm35_ctx {
 	struct coredump_layer	coredump_layer;
 	struct log_layer	log_layer;
 	struct debug		debug;
+	struct regulator	*vdd1;
+	struct regulator	*vdd2;
+	struct regulator	*vdd3;
+	bool                    regulators_enabled;
 };
 
 static inline unsigned int qm35_get_state(struct qm35_ctx *qm35_hdl)
@@ -75,5 +84,10 @@ static inline int qm35_reset(struct qm35_ctx *qm35_hdl, int timeout_ms)
 }
 
 int qm_get_soc_id(struct qm35_ctx *qm35_hdl, uint8_t *soc_id);
+
+void qm35_hsspi_start(struct qm35_ctx *qm35_hdl);
+void qm35_hsspi_stop(struct qm35_ctx *qm35_hdl);
+
+void qmrom_set_fwname(const char *name);
 
 #endif /* __QM35_H___ */

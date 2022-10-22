@@ -223,7 +223,7 @@ static void log_received(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 	qm35_hdl = container_of(layer, struct qm35_ctx, log_layer);
 
 	if (blk->length < sizeof(struct log_packet_hdr)) {
-		pr_err("qm35: log packet header too small: %d bytes",
+		pr_err("qm35: log packet header too small: %d bytes\n",
 		       blk->length);
 		goto out;
 	}
@@ -232,7 +232,7 @@ static void log_received(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 	body = blk->data + sizeof(struct log_packet_hdr);
 
 	if (blk->length < sizeof(struct log_packet_hdr) + hdr.b_size) {
-		pr_err("qm35: incomplete log packet: %d/%d bytes",
+		pr_err("qm35: incomplete log packet: %d/%d bytes\n",
 		       blk->length, hdr.b_size);
 		goto out;
 	}
@@ -285,7 +285,7 @@ static void log_enable_set(struct debug *dbg, int enable)
 	qm35_hdl = container_of(dbg, struct qm35_ctx, debug);
 
 	if (qm35_hdl->log_layer.enabled) {
-		pr_warn("qm35: logging already enabled");
+		pr_warn("qm35: logging already enabled\n");
 		return;
 	}
 

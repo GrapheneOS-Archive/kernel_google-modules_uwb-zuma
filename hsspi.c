@@ -27,6 +27,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/delay.h>
 
 #include "qm35-trace.h"
 #include "hsspi.h"
@@ -43,6 +44,7 @@
 #define STC_SOC_ERR     BIT(4)
 
 #define SS_READY_TIMEOUT_MS (250)
+#define INTER_CS_ACTIVE_TIME_US (10)
 
 struct hsspi_work {
 	struct list_head list;
@@ -55,6 +57,8 @@ struct hsspi_work {
 		struct completion *completion;
 	};
 };
+
+int test_sleep_after_ss_ready_us = 0;
 
 static inline bool layer_id_is_valid(struct hsspi *hsspi, u8 ul)
 {
@@ -119,6 +123,62 @@ static bool is_txrx_waiting(struct hsspi *hsspi)
 }
 
 /**
+ * hsspi_wait_ss_ready() - waits for ss_ready to be up
+ *
+ * @hsspi: &struct hsspi
+ *
+ * Return: 0 if ss_ready is up and EAGAIN if not.
+ */
+static int hsspi_wait_ss_ready(struct hsspi *hsspi)
+{
+	int ret;
+
+	ret = wait_event_interruptible_timeout(
+			hsspi->wq_ready,
+			test_and_clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags),
+			msecs_to_jiffies(SS_READY_TIMEOUT_MS));
+	if (ret == 0) {
+		dev_err(&hsspi->spi->dev, "timed out waiting for ss_ready(%d)\n",
+			test_bit(HSSPI_FLAGS_SS_READY, hsspi->flags));
+		return -EAGAIN;
+	}
+	if (ret < 0) {
+		dev_err(&hsspi->spi->dev, "Error %d while waiting for ss_ready\n", ret);
+		return ret;
+	}
+	return 0;
+}
+
+/**
+ * wait_cs_active_min_interval() - waits the time necessary to respect the
+ * minimium interval between two chip selects active.
+ *
+ * @hsspi: &struct hsspi
+ */
+static void wait_cs_active_min_interval(struct hsspi *hsspi)
+{
+	/* The HSSPI chip select shall not be activated too early after
+	* it was deselected.
+	*/
+	ktime_t delta = hsspi->next_cs_active_time - ktime_get();
+	if (delta > 0) {
+		delta = ktime_to_us(delta);
+		usleep_range(delta, delta);
+	}
+}
+
+/**
+ * update_next_cs_interval() - update the next time the chip select
+ * can be activated.
+ *
+ * @hsspi: &struct hsspi
+ */
+static void update_next_cs_interval(struct hsspi *hsspi)
+{
+	hsspi->next_cs_active_time = ktime_add(ktime_get(), INTER_CS_ACTIVE_TIME_US);
+}
+
+/**
  * spi_xfer() - Single SPI transfer
  *
  * @hsspi: &struct hsspi
@@ -141,7 +201,7 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			.len = length,
 		},
 	};
-	int ret;
+	int ret, retry = 3;
 
 	hsspi->soc->flags = 0;
 	hsspi->soc->ul = 0;
@@ -150,27 +210,55 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 	if (hsspi->spi_error)
 		return hsspi->spi_error;
 
-	ret = wait_event_interruptible_timeout(
-		hsspi->wq_ready,
-		test_and_clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags),
-		msecs_to_jiffies(SS_READY_TIMEOUT_MS));
-	if (ret <= 0) {
-		dev_err(&hsspi->spi->dev, "not able to caught ss_ready: %d\n", ret);
-		return -EAGAIN;
-	}
+	do {
+		/* The HSSPI chip select shall not be activated too early after
+		 * it was deselected.
+		 */
+		wait_cs_active_min_interval(hsspi);
+		hsspi->wakeup_enter(hsspi);
+		ret = hsspi_wait_ss_ready(hsspi);
+		if (ret < 0) {
+			hsspi->wakeup_release(hsspi);
+			update_next_cs_interval(hsspi);
+			continue;
+		}
 
-	ret = spi_sync_transfer(hsspi->spi, xfers, length ? 2 : 1);
+		if (test_sleep_after_ss_ready_us > 0)
+			usleep_range(test_sleep_after_ss_ready_us, test_sleep_after_ss_ready_us+1);
 
-	trace_hsspi_spi_xfer(&hsspi->spi->dev, hsspi->host, hsspi->soc, ret);
+		ret = spi_sync_transfer(hsspi->spi, xfers, length ? 2 : 1);
+		hsspi->wakeup_release(hsspi);
+		update_next_cs_interval(hsspi);
 
-	if (ret)
-		dev_err(&hsspi->spi->dev, "spi_sync_transfer: %d\n", ret);
-	else if (!(hsspi->soc->flags & STC_SOC_RDY)) {
-		ret = -EAGAIN;
-		dev_err(&hsspi->spi->dev, "FW not ready\n");
-	}
+		trace_hsspi_spi_xfer(&hsspi->spi->dev, hsspi->host, hsspi->soc, ret);
+
+		if (ret) {
+			dev_err(&hsspi->spi->dev, "spi_sync_transfer: %d\n", ret);
+			continue;
+		}
+
+		if (!(hsspi->soc->flags & STC_SOC_RDY)) {
+			dev_err(&hsspi->spi->dev, "FW not ready (flags 0x%02x)\n", hsspi->soc->flags);
+			ret = -EAGAIN;
+			continue;
+		}
+
+		/* All looks good! */
+		break;
+	} while ((ret == -EAGAIN) && (--retry > 0));
 
 	return ret;
+}
+
+static void check_soc_flag(const struct device *dev, const char *func_name,
+			   u8 soc_flags, bool is_tx)
+{
+	u8 expected;
+
+	expected = is_tx ? 0x0 : STC_SOC_OA;
+
+	if ((soc_flags & (STC_SOC_ERR|STC_SOC_OA)) != expected)
+		dev_warn(dev, "%s: bad soc flags 0x%hhx\n", func_name, soc_flags);
 }
 
 /**
@@ -204,6 +292,17 @@ static int hsspi_rx(struct hsspi *hsspi, u8 ul, u16 length)
 		layer->ops->received(layer, blk, ret);
 	} else
 		ret = spi_xfer(hsspi, NULL, NULL, 0);
+
+	if (ret)
+		return ret;
+
+	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, false);
+
+	if ((hsspi->soc->ul != ul) || (hsspi->soc->length != length))
+		dev_warn(&hsspi->spi->dev,
+			 "%s: received %hhu %hu but expecting %hhu %hu\n",
+			 __func__, hsspi->soc->ul, hsspi->soc->length,
+			 ul, length);
 
 	if (!(hsspi->soc->flags & STC_SOC_ODW)
 	    && test_and_clear_bit(HSSPI_FLAGS_SS_IRQ, hsspi->flags))
@@ -241,6 +340,8 @@ static int hsspi_tx(struct hsspi *hsspi, struct hsspi_layer *layer,
 	if (ret)
 		return ret;
 
+	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, true);
+
 	if (hsspi->host->flags & STC_HOST_PRD)
 		return hsspi_rx(hsspi, hsspi->soc->ul, hsspi->soc->length);
 
@@ -267,6 +368,8 @@ static int hsspi_pre_read(struct hsspi *hsspi)
 	ret = spi_xfer(hsspi, NULL, NULL, 0);
 	if (ret)
 		return ret;
+
+	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, true);
 
 	return hsspi_rx(hsspi, hsspi->soc->ul, hsspi->soc->length);
 }
@@ -454,9 +557,16 @@ int hsspi_unregister(struct hsspi *hsspi, struct hsspi_layer *layer)
 
 void hsspi_set_spi_slave_ready(struct hsspi *hsspi)
 {
+	clear_bit(HSSPI_FLAGS_OFF, hsspi->flags);
 	set_bit(HSSPI_FLAGS_SS_READY, hsspi->flags);
 
 	wake_up_interruptible(&hsspi->wq_ready);
+}
+
+void hsspi_set_spi_slave_off(struct hsspi *hsspi)
+{
+	clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags);
+	set_bit(HSSPI_FLAGS_OFF, hsspi->flags);
 }
 
 void hsspi_set_output_data_waiting(struct hsspi *hsspi)
@@ -521,7 +631,7 @@ int hsspi_send(struct hsspi *hsspi, struct hsspi_layer *layer,
 
 	if (ret) {
 		kfree(tx_work);
-		dev_err(&hsspi->spi->dev, "hsspi_send: %d\n", ret);
+		dev_err(&hsspi->spi->dev, "%s: %d\n", __func__, ret);
 		return ret;
 	}
 
