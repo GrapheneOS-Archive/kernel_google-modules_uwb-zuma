@@ -51,6 +51,7 @@ struct debug_trace_ops {
 
 struct debug_coredump_ops {
 	char *(*coredump_get)(struct debug *dbg, size_t *len);
+	int (*coredump_force)(struct debug *dbg);
 };
 
 struct debug {

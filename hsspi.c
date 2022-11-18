@@ -201,7 +201,7 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			.len = length,
 		},
 	};
-	int ret, retry = 3;
+	int ret, retry = 20;
 
 	hsspi->soc->flags = 0;
 	hsspi->soc->ul = 0;

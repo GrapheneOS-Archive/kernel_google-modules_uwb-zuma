@@ -65,7 +65,16 @@ int spi_proto_prepare_write_cmd(void *spi_handle, int do_exp_resp,
 				enum chip_revision_e revision)
 {
 	uint8_t dev_ready_flag = SPI_DEVICE_READY_FLAGS;
-	int rc = spi_proto_wait_for_device_flag(spi_handle,
+	int rc;
+
+	if (revision == CHIP_REVISION_A0) {
+		qmrom_spi_set_freq(DEFAULT_SPI_CLOCKRATE_A0);
+	}
+	else {
+		qmrom_spi_set_freq(DEFAULT_SPI_CLOCKRATE);
+	}
+
+	rc = spi_proto_wait_for_device_flag(spi_handle,
 						dev_ready_flag,
 						sstc, hstc,
 						SPI_DEVICE_POLL_RETRY);

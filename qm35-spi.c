@@ -471,10 +471,6 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 	if (ret)
 		return ret;
 
-	/* we can have miss an edge */
-	if (gpiod_get_value(qm35_ctx->gpio_ss_rdy))
-		hsspi_set_spi_slave_ready(&qm35_ctx->hsspi);
-
 	/* get SS_IRQ GPIO */
 	qm35_ctx->gpio_ss_irq = devm_gpiod_get_optional(
 		&qm35_ctx->spi->dev, "ss-irq", GPIOD_IN);
@@ -653,25 +649,17 @@ static int qm35_probe(struct spi_device *spi)
 	uci_misc->fops	 = &uci_fops;
 	uci_misc->parent = &spi->dev;
 
-	ret = misc_register(&qm35_ctx->uci_dev);
-	if (ret) {
-		dev_err(&spi->dev, "Failed to register uci device\n");
-		goto poweroff;
-	}
-
-	dev_info(&spi->dev, "Registered: [%s] misc device\n", uci_misc->name);
-
 	qm35_ctx->state = QM35_CTRL_STATE_UNKNOWN;
 
 	if (flash_on_probe) {
 		ret = qm_firmware_load(qm35_ctx);
 		if (ret)
-			goto misc_deregister;
+			goto poweroff;
 	}
 
 	ret = hsspi_init(&qm35_ctx->hsspi, spi);
 	if (ret)
-		goto misc_deregister;
+		goto poweroff;
 
 	ret = uci_layer_init(&qm35_ctx->uci_layer);
 	if (ret)
@@ -709,6 +697,18 @@ static int qm35_probe(struct spi_device *spi)
 
 	hsspi_start(&qm35_ctx->hsspi);
 
+	/* we can have missed an edge */
+	if (gpiod_get_value(qm35_ctx->gpio_ss_rdy))
+		hsspi_set_spi_slave_ready(&qm35_ctx->hsspi);
+
+	ret = misc_register(&qm35_ctx->uci_dev);
+	if (ret) {
+		dev_err(&spi->dev, "Failed to register uci device\n");
+		goto log_layer_unregister;
+	}
+
+	dev_info(&spi->dev, "Registered: [%s] misc device\n", uci_misc->name);
+
 	dev_info(&spi->dev, "QM35 spi driver probed\n");
 	return 0;
 
@@ -728,8 +728,6 @@ uci_layer_deinit:
 	uci_layer_deinit(&qm35_ctx->uci_layer);
 hsspi_deinit:
 	hsspi_deinit(&qm35_ctx->hsspi);
-misc_deregister:
-	misc_deregister(&qm35_ctx->uci_dev);
 poweroff:
 	qm35_regulators_set(qm35_ctx, false);
 	return ret;
@@ -738,6 +736,8 @@ poweroff:
 static int qm35_remove(struct spi_device *spi)
 {
 	struct qm35_ctx *qm35_hdl = spi_get_drvdata(spi);
+
+	misc_deregister(&qm35_hdl->uci_dev);
 
 	hsspi_stop(&qm35_hdl->hsspi);
 
@@ -751,8 +751,6 @@ static int qm35_remove(struct spi_device *spi)
 	uci_layer_deinit(&qm35_hdl->uci_layer);
 
 	hsspi_deinit(&qm35_hdl->hsspi);
-
-	misc_deregister(&qm35_hdl->uci_dev);
 
 	qm35_regulators_set(qm35_hdl, false);
 

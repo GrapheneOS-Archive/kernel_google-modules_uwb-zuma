@@ -237,10 +237,27 @@ int qmrom_get_soc_info(void *spi_handle,
 	struct stc *hstc, *sstc;
 	uint8_t *payload;
 	int i;
+	enum chip_revision_e revision;
 
 	rc = qmrom_allocate_stcs(&hstc, &sstc);
 	if (rc)
 		return rc;
+
+	LOG_INFO("Rebooting the board\n");
+	rc = qmrom_reboot_bootloader(spi_handle, reset_fn, reset_handle);
+	if (rc)
+		goto out;
+
+	LOG_INFO("Getting the chip revision\n");
+	rc = qmrom_chip_revision(spi_handle, sstc, hstc, &revision);
+	if (rc)
+		goto out;
+
+	if (revision == CHIP_REVISION_A0) {
+		LOG_WARN("%s: SoC info not supported on chip revision A0\n", __func__);
+		rc = -1;
+		goto out;
+	}
 
 	LOG_INFO("Rebooting the board\n");
 	rc = qmrom_reboot_bootloader(spi_handle, reset_fn, reset_handle);
@@ -336,7 +353,7 @@ int qmrom_download_fw(void *spi_handle,
 	if (rc)
 		goto fail;
 
-	LOG_INFO("Getting the board revision\n");
+	LOG_INFO("Getting the chip revision\n");
 	rc = qmrom_chip_revision(spi_handle, sstc, hstc, &revision);
 	if (rc)
 		goto fail;
@@ -456,7 +473,7 @@ static int qmrom_chip_revision(void *spi_handle,
 		rc = 1;
 	}
 
-	LOG_INFO("detected board revision: %02x\n", *revision);
+	LOG_INFO("detected chip revision: %02x\n", *revision);
 out:
 	return rc;
 }

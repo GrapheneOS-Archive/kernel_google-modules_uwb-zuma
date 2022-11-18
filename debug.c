@@ -247,6 +247,27 @@ static ssize_t debug_coredump_read(struct file *filep, char __user *buff,
 	return simple_read_from_buffer(buff, count, off, cd, cd_len);
 }
 
+static ssize_t debug_coredump_write(struct file *filp, const char __user *buff,
+				  size_t count, loff_t *off)
+{
+	struct debug *debug;
+	u8 force;
+
+	debug = priv_from_file(filp);
+
+	if (kstrtou8_from_user(buff, count, 10, &force))
+		return -EFAULT;
+
+	if (debug->coredump_ops && force != 0)
+		debug->coredump_ops->coredump_force(debug);
+	else if (force == 0)
+		pr_warn("qm35: write non null value to force coredump\n");
+	else
+		return -ENOSYS;
+
+	return count;
+}
+
 static int debug_debug_certificate_open(struct inode *inodep, struct file *filep)
 {
 	struct debug *debug = priv_from_file(filep);
@@ -348,6 +369,7 @@ static const struct file_operations debug_traces_fops = {
 static const struct file_operations debug_coredump_fops = {
 	.owner = THIS_MODULE,
 	.read = debug_coredump_read,
+	.write = debug_coredump_write,
 };
 
 static const struct file_operations debug_debug_certificate_fops = {
