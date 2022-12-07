@@ -32,6 +32,7 @@
 #define COREDUMP_HEADER_NTF 0x00
 #define COREDUMP_BODY_NTF 0x01
 #define COREDUMP_RCV_STATUS 0x02
+#define COREDUMP_FORCE_CMD 0x03
 
 #define COREDUMP_RCV_NACK 0x00
 #define COREDUMP_RCV_ACK 0x01
@@ -296,8 +297,30 @@ char *debug_coredump_get(struct debug *dbg, size_t *len)
 	return data;
 }
 
+int debug_coredump_force(struct debug *dbg)
+{
+	struct coredump_packet *p;
+	struct coredump_common_hdr hdr = { .cmd_id = COREDUMP_FORCE_CMD };
+	struct qm35_ctx *qm35_hdl;
+
+	pr_info("qm35: force coredump");
+
+	qm35_hdl = container_of(dbg, struct qm35_ctx, debug);
+
+	p = coredump_packet_alloc(sizeof(hdr));
+	if (!p)
+		return -ENOMEM;
+
+	memcpy(p->blk.data, &hdr, sizeof(hdr));
+
+	return hsspi_send(&qm35_hdl->hsspi, &qm35_hdl->coredump_layer.hlayer,
+			 &p->blk);
+}
+
+
 static const struct debug_coredump_ops debug_coredump_ops = {
 	.coredump_get = debug_coredump_get,
+	.coredump_force = debug_coredump_force,
 };
 
 int coredump_layer_init(struct coredump_layer *layer, struct debug *debug)

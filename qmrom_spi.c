@@ -34,6 +34,8 @@
 #include "qm35.h"
 
 static const char *fwname = NULL;
+// Initialize to the lowest default frequency
+static unsigned int speed_hz = DEFAULT_SPI_CLOCKRATE_A0;
 
 void qmrom_set_fwname(const char *name)
 {
@@ -49,7 +51,7 @@ int qmrom_spi_transfer(void *handle, char *rbuf, const char *wbuf, size_t size)
 			.tx_buf = wbuf,
 			.rx_buf = rbuf,
 			.len = size,
-			.speed_hz = DEFAULT_SPI_CLOCKRATE,
+			.speed_hz = qmrom_spi_get_freq(),
 		},
 	};
 
@@ -66,8 +68,7 @@ int qmrom_spi_set_cs_level(void *handle, int level)
 			.tx_buf = &dummy,
 			.len = 1,
 			.cs_change = !level,
-			.speed_hz = DEFAULT_SPI_CLOCKRATE,
-
+			.speed_hz = qmrom_spi_get_freq(),
 		},
 	};
 
@@ -128,4 +129,14 @@ int qmrom_spi_wait_for_ready_line(void *handle, unsigned int timeout_ms)
 	usleep_range(timeout_ms * 1000, timeout_ms * 1000);
 
 	return 0;
+}
+
+void qmrom_spi_set_freq(unsigned int freq)
+{
+	speed_hz = freq;
+}
+
+unsigned int qmrom_spi_get_freq()
+{
+	return speed_hz;
 }

@@ -23,7 +23,8 @@ struct firmware {
 #include <linux/firmware.h>
 #endif
 
-#define DEFAULT_SPI_CLOCKRATE 750000
+#define DEFAULT_SPI_CLOCKRATE_A0 750000
+#define DEFAULT_SPI_CLOCKRATE 3000000
 #define DEFAULT_SPI_LATENCY_MS 2
 
 #define SPI_ERR_NOCHAN SPI_ERR_BASE - 1
@@ -50,5 +51,7 @@ int qmrom_spi_reset_device(void *reset_handle);
 const struct firmware *qmrom_spi_get_firmware(void *handle, enum chip_revision_e revision, int lcs_state);
 void qmrom_spi_release_firmware(const struct firmware *fw);
 int qmrom_spi_wait_for_ready_line(void *handle, unsigned int timeout_ms);
+void qmrom_spi_set_freq(unsigned int freq);
+unsigned int qmrom_spi_get_freq(void);
 
 #endif /* __QMROM_SPI_H__ */
