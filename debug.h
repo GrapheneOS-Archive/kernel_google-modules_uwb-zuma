@@ -46,6 +46,7 @@ struct debug_trace_ops {
 	rb_entry_size_t (*trace_get_next_size)(struct debug *dbg);
 	bool (*trace_next_avail)(struct debug *dbg);
 	void (*trace_reset)(struct debug *dbg);
+	int (*get_dev_id)(struct debug *dbg, uint16_t *dev_id);
 	int (*get_soc_id)(struct debug *dbg, uint8_t *soc_id);
 };
 
@@ -57,12 +58,13 @@ struct debug_coredump_ops {
 struct debug {
 	struct dentry *root_dir;
 	struct dentry *fw_dir;
+	struct dentry *chip_dir;
 	const struct debug_trace_ops *trace_ops;
 	const struct debug_coredump_ops *coredump_ops;
 	struct wait_queue_head wq;
 	struct file *pv_filp;
 	struct mutex pv_filp_lock;
-	struct binary_chunk *certificate;
+	struct firmware *certificate;
 };
 
 // TODO move this from here to a commom place for both log layer and debug
@@ -74,12 +76,15 @@ struct log_module {
 	struct debug *debug;
 };
 
-int debug_init(struct debug *debug, struct dentry *root);
+int debug_init_root(struct debug *debug, struct dentry *root);
+int debug_init(struct debug *debug);
 void debug_deinit(struct debug *debug);
 
 int debug_create_module_entry(struct debug *debug,
 			      struct log_module *log_module);
 
 void debug_new_trace_available(struct debug *debug);
+
+void debug_soc_info_available(struct debug *debug);
 
 #endif // __DEBUG_H__
