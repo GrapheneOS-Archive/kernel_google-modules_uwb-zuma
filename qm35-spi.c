@@ -56,7 +56,6 @@
 #include "hsspi_test.h"
 
 #define QM35_REGULATOR_DELAY_US 1000
-#define QMROM_RETRIES 10
 
 static int qm_firmware_load(struct qm35_ctx *qm35_hdl);
 static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on);
@@ -89,16 +88,7 @@ static bool wake_use_csn = false;
 module_param(wake_use_csn, bool, 0444);
 MODULE_PARM_DESC(wake_use_csn, "Use HSSPI CSn pin to wake up QM35");
 
-int trace_spi_xfers;
-module_param(trace_spi_xfers, int, 0444);
-MODULE_PARM_DESC(trace_spi_xfers, "Trace all the SPI transfers");
-
-int qmrom_retries = QMROM_RETRIES;
-module_param(qmrom_retries, int, 0444);
-MODULE_PARM_DESC(qmrom_retries, "QMROM retries");
-
 static uint8_t qm_soc_id[ROM_SOC_ID_LEN];
-static uint16_t qm_dev_id;
 
 /*
  * uci_open() : open operation for uci device
@@ -408,63 +398,36 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 {
 	struct spi_device *spi = qm35_hdl->spi;
 	unsigned int state = qm35_get_state(qm35_hdl);
-	const struct firmware *fw;
-	struct qmrom_handle *h;
 	int ret;
+	uint8_t uuid[ROM_UUID_LEN];
+	uint8_t lcs_state = CC_BSV_SECURE_LCS;
 
 	qm35_set_state(qm35_hdl, QM35_CTRL_STATE_FW_DOWNLOADING);
 
 	qmrom_set_log_device(&spi->dev, LOG_WARN);
 
-	h = qmrom_init(&spi->dev,
-			qm35_hdl,
-			qm35_hdl->gpio_ss_rdy,
-			qmrom_retries,
-			qmrom_spi_reset_device);
-	if (!h) {
-		pr_err("qmrom_init failed\n");
-		ret = -1;
-		goto out;
+	dev_info(&spi->dev, "Get device info\n");
+	ret = qmrom_get_soc_info(&spi->dev, qmrom_spi_reset_device, qm35_hdl,
+				 qm_soc_id, uuid, &lcs_state);
+	if (!ret) {
+		dev_info(&spi->dev, "    devid:     %*phN\n", ROM_SOC_ID_LEN, qm_soc_id);
+		dev_info(&spi->dev, "    uuid:      %*phN\n", ROM_UUID_LEN, uuid);
+		dev_info(&spi->dev, "    lcs_state: %hhu\n", lcs_state);
 	}
 
-	dev_info(&spi->dev, "    chip_ver:  %x\n", h->chip_rev);
-	dev_info(&spi->dev, "    dev_id:    deca%04x\n", h->device_version);
-
-	if (h->chip_rev != CHIP_REVISION_A0) {
-		dev_info(&spi->dev, "    soc_id:    %*phN\n", ROM_SOC_ID_LEN, h->soc_id);
-		dev_info(&spi->dev, "    uuid:      %*phN\n", ROM_UUID_LEN, h->uuid);
-		dev_info(&spi->dev, "    lcs_state: %hhu\n", h->lcs_state);
-
-		memcpy(&qm_dev_id, &h->device_version, sizeof(qm_dev_id));
-		memcpy(qm_soc_id, h->soc_id, ROM_SOC_ID_LEN);
-
-		debug_soc_info_available(&qm35_hdl->debug);
-	} else {
-		dev_dbg(&spi->dev, "SoC info not supported on chip revision A0\n");
-	}
-
-	dev_dbg(&spi->dev, "Starting device flashing!\n");
-	fw = qmrom_spi_get_firmware(&spi->dev,
-					      h->chip_rev, h->lcs_state);
-	ret = qmrom_flash_fw(h, fw);
-	qmrom_spi_release_firmware(fw);
+	dev_info(&spi->dev, "Starting device flashing!\n");
+	ret = qmrom_download_fw(spi, qmrom_spi_get_firmware,
+				qmrom_spi_release_firmware,
+				qmrom_spi_reset_device, qm35_hdl, 0, lcs_state);
 
 	if (ret)
 		dev_err(&spi->dev, "Firmware download failed!\n");
 	else
 		dev_info(&spi->dev, "Device flashing completed!\n");
 
-out:
 	qm35_set_state(qm35_hdl, state);
 
 	return ret;
-}
-
-int qm_get_dev_id(struct qm35_ctx *qm35_hdl, uint16_t *dev_id)
-{
-	memcpy(dev_id, &qm_dev_id, sizeof(qm_dev_id));
-
-	return 0;
 }
 
 int qm_get_soc_id(struct qm35_ctx *qm35_hdl, uint8_t *soc_id)
@@ -688,14 +651,10 @@ static int qm35_probe(struct spi_device *spi)
 
 	qm35_ctx->state = QM35_CTRL_STATE_UNKNOWN;
 
-	/* we need the debugfs root initialized here to be able
-	 * to display the soc info populated if flash_on_probe
-	 * is set for chips different than A0
-	 */
-	ret = debug_init_root(&qm35_ctx->debug, NULL);
-	if (ret) {
-		debug_deinit(&qm35_ctx->debug);
-		goto poweroff;
+	if (flash_on_probe) {
+		ret = qm_firmware_load(qm35_ctx);
+		if (ret)
+			goto poweroff;
 	}
 
 	ret = hsspi_init(&qm35_ctx->hsspi, spi);
@@ -706,7 +665,7 @@ static int qm35_probe(struct spi_device *spi)
 	if (ret)
 		goto hsspi_deinit;
 
-	ret = debug_init(&qm35_ctx->debug);
+	ret = debug_init(&qm35_ctx->debug, NULL);
 	if (ret)
 		goto uci_layer_deinit;
 
@@ -735,12 +694,6 @@ static int qm35_probe(struct spi_device *spi)
 	ret = hsspi_irqs_setup(qm35_ctx);
 	if (ret)
 		goto log_layer_unregister;
-
-	if (flash_on_probe) {
-		ret = qm_firmware_load(qm35_ctx);
-		if (ret)
-			goto log_layer_unregister;
-	}
 
 	hsspi_start(&qm35_ctx->hsspi);
 

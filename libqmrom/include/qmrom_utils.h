@@ -11,14 +11,9 @@
 #define __QMROM_UTILS_H__
 
 #ifndef __KERNEL__
-#include <stdlib.h>
-#include <stdint.h>
 
-#ifndef __linux__
-extern void usleep(unsigned int us);
-#else
 #include <unistd.h>
-#endif
+#include <stdlib.h>
 
 #define qmrom_msleep(ms)           \
 	do {                       \

@@ -1,9 +1,7 @@
 set(SOURCES
-    src/qmrom_common.c
-    src/qmrom_a0.c
-    src/qmrom_b0.c
-    src/qmrom_c0.c
+    src/qmrom.c
     src/qmrom_log.c
+    src/spi_rom_protocol.c
 )
 
 add_library(qmrom SHARED ${SOURCES})
