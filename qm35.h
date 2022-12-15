@@ -83,7 +83,6 @@ static inline int qm35_reset(struct qm35_ctx *qm35_hdl, int timeout_ms)
 	return -ENODEV;
 }
 
-int qm_get_dev_id(struct qm35_ctx *qm35_hdl, uint16_t *dev_id);
 int qm_get_soc_id(struct qm35_ctx *qm35_hdl, uint8_t *soc_id);
 
 void qm35_hsspi_start(struct qm35_ctx *qm35_hdl);

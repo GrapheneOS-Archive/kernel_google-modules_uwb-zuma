@@ -15,6 +15,7 @@
 
 #ifndef __KERNEL__
 #include <stdint.h>
+#include <unistd.h>
 #else
 #include <linux/types.h>
 #endif
@@ -40,7 +41,6 @@ struct stc {
 					uint8_t out_active : 1; // Output active indication: Set to one by the SOC SPI driver to tell the HOST that it is outputting data on MISO line and expecting that the host is doing a read transaction at this time. This is set to zero for all other transactions.
 					uint8_t out_waiting : 1; // Output data waiting indication: Set to one by the SOC SPI driver to tell the HOST there is data awaiting reading. This is set to zero when there is no data pending output.
 				} soc_flags;
-				uint8_t raw_flags;
 			};
 			uint8_t ul;
 			uint16_t len;
@@ -63,13 +63,13 @@ struct stc {
 #define SPI_DEVICE_READY_FLAGS SPI_SH_ODW_BIT_MASK
 
 /* Communication parameters */
-#define MAX_STC_FRAME_LEN 2048
+#define MAX_STC_FRAME_LEN 1024
 #define MAX_STC_PAYLOAD_LEN (MAX_STC_FRAME_LEN - sizeof(struct stc))
 #define SPI_NUM_READS_FOR_READY 1
 #define SPI_NUM_FAILS_RETRY 4
 #define SPI_ET_PROTOCOL 5
 #define SPI_RST_LOW_DELAY_MS 20
-#define SPI_INTERCMD_DELAY_MS 1
+#define SPI_INTERCMD_DELAY_MS 10
 #define SPI_DEVICE_POLL_RETRY 10
 #define SPI_READY_TIMEOUT_MS 50
 #define SPI_ET_VERSION_LOCATION 0x601f0000
@@ -88,5 +88,139 @@ struct stc {
 #define SPI_ROM_WRITE_IMAGE_CERT_SIZE 40
 #define SPI_ROM_WRITE_IMAGE_SIZE_SIZE 4
 #define SPI_ROM_DBG_CERT_SIZE_SIZE 5
+
+_Static_assert(MAX_STC_PAYLOAD_LEN == 1020,
+	       "MAX_STC_PAYLOAD_LEN should be 1020...");
+
+enum spi_rsp_e {
+	SPI_RSP_WAIT_DOWNLOAD_MODE = 1, /*Waiting for download command*/
+	SPI_RSP_WAIT_FOR_KEY1_CERT_A0,
+	SPI_RSP_WAIT_FOR_KEY2_CERT_A0,
+	SPI_RSP_WAIT_FOR_IMAGE_CERT_A0,
+	SPI_RSP_WAIT_IMAGE_SIZE,
+	SPI_RSP_WAIT_FOR_IMAGE,
+	SPI_RSP_DOWNLOAD_OK,
+	SPI_RSP_BOOT_OK,
+	SPI_RSP_ERROR_CS, /*Checksum/CRC error*/
+	SPI_RSP_ERROR_CERTIFICATE, /*Got error certificate RSA/FW ver/Didn't get all the data before switching to image/...*/
+	SPI_RSP_CMD_TOO_SHORT, /*Got command smaller than SPI_HEADER_SIZE. Each command must be at least this size.*/
+	SPI_RSP_ERROR_LOADING_IN_DOWNLOAD, /*Error checking certificates or image, going to download mode*/
+	SPI_RSP_WAIT_FOR_KEY1_CERT_B0 = 0x11,
+	SPI_RSP_WAIT_FOR_KEY2_CERT_B0 = 0x12,
+	SPI_RSP_WAIT_FOR_IMAGE_CERT_B0 = 0x13,
+	SPI_RSP_WAIT_DBG_CERT_B0 = 0x14,
+	SPI_RSP_WAIT_DBG_CERT_SIZE_B0 = 0x1e,
+};
+
+enum spi_cmd_dnld_e {
+	SPI_BOOT_DOWNLOAD_RRAM_CMD_A0 = 0x40,
+	SPI_BOOT_JUMP_RRAM_CMD,
+	SPI_BOOT_DOWNLOAD_SRAM_CMD,
+	SPI_BOOT_JUMP_SRAM_CMD,
+
+	SPI_BOOT_DOWNLOAD_SEC_ICV_CMD_B0 = 0,
+	SPI_BOOT_DOWNLOAD_SEC_OEM_CMD_B0 = 1,
+	SPI_BOOT_GET_CHIP_VER_B0 = 2,
+	SPI_BOOT_GET_CHIP_INFO_B0 = 3,
+	SPI_BOOT_ERASE_DEBUG_CERT_B0 = 4,
+	SPI_BOOT_DOWNLOAD_DEBUG_CERT_B0 = 5,
+	SPI_BOOT_DOWNLOAD_SEC_IMAGE_DATA_B0 = 0xf,
+	SPI_BOOT_DOWNLOAD_CERT_DATA_B0 = 0x10,
+	SPI_BOOT_DEBUG_CERT_SIZE_B0 = 0x11,
+};
+
+enum spi_ul_e {
+	SPI_UL_NO_PROTOCOL = 0,
+	SPI_UL_ROM_BOOT_PROTO = 1,
+	SPI_UL_EMB_TEST = 5,
+};
+
+int spi_proto_prepare_write_cmd(void *spi_handle, int do_exp_resp,
+				uint8_t exp_resp, int read_len,
+				struct stc *sstc, struct stc *hstc,
+				enum chip_revision_e revision);
+int spi_proto_send_stc(void *spi_handle, struct stc *sstc,
+		       const struct stc *hstc, enum chip_revision_e revision);
+int spi_proto_wait_for_device_flag(void *spi_handle, uint8_t flag_mask,
+				   struct stc *sstc, struct stc *hstc,
+				   int retries);
+
+#define dump_full_hstc(log_lvl, s, ...)                                                             \
+	do {                                                                                        \
+		log_lvl(__VA_ARGS__);                                                               \
+		log_lvl(" # host stc: {.rvd 0x%x, .rd %d, .prd %d, .wr %d, .ul 0x%x, .len %u} -- ", \
+			s->host_flags.reserved, s->host_flags.read,                                 \
+			s->host_flags.pre_read, s->host_flags.write, s->ul,                         \
+			s->len);                                                                    \
+		hexdump(log_lvl, (unsigned char *)s,                                                \
+			sizeof(struct stc) + s->len);                                               \
+	} while (0)
+
+#define dump_full_sstc(log_lvl, s, ...)                                                                          \
+	do {                                                                                                     \
+		uint16_t l = s->len;                                                                             \
+		log_lvl(__VA_ARGS__);                                                                            \
+		log_lvl(" # soc stc: {.rvd 0x%x, .err %d, .rdy %d, .oact %d, .owait %d, .ul 0x%x, .len %u} -- ", \
+			s->soc_flags.reserved, s->soc_flags.err,                                                 \
+			s->soc_flags.ready, s->soc_flags.out_active,                                             \
+			s->soc_flags.out_waiting, s->ul, l);                                                     \
+		hexdump(log_lvl, (unsigned char *)s, sizeof(struct stc) + l);                                    \
+	} while (0)
+
+#define dump_decoded_hstc(log_lvl, s, ...)                                                        \
+	do {                                                                                      \
+		log_lvl(__VA_ARGS__);                                                             \
+		log_lvl(" # host stc: {.rvd 0x%x, .rd %d, .prd %d, .wr %d, .ul 0x%x, .len %u}\n", \
+			s->host_flags.reserved, s->host_flags.read,                               \
+			s->host_flags.pre_read, s->host_flags.write, s->ul,                       \
+			s->len);                                                                  \
+	} while (0)
+
+#define dump_decoded_sstc(log_lvl, s, ...)                                                                     \
+	do {                                                                                                   \
+		log_lvl(__VA_ARGS__);                                                                          \
+		log_lvl(" # soc stc: {.rvd 0x%x, .err %d, .rdy %d, .oact %d, .owait %d, .ul 0x%x, .len %u}\n", \
+			s->soc_flags.reserved, s->soc_flags.err,                                               \
+			s->soc_flags.ready, s->soc_flags.out_active,                                           \
+			s->soc_flags.out_waiting, s->ul, s->len);                                              \
+	} while (0)
+
+#define dump_raw_hstc(log_lvl, s, ...)                             \
+	do {                                                           \
+		log_lvl(__VA_ARGS__);                                      \
+		log_lvl(" # host stc %d data bytes -- ", s->len);          \
+		hexdump(log_lvl, (unsigned char *)s,                       \
+			sizeof(struct stc) + s->len);                          \
+	} while (0)
+
+#define dump_raw_sstc(log_lvl, s, ...)                             \
+	do {                                                           \
+		log_lvl(__VA_ARGS__);                                      \
+		log_lvl(" # soc stc %d data bytes -- ", s->len);           \
+		hexdump(log_lvl, (unsigned char *)s,                       \
+			sizeof(struct stc) + s->len);                          \
+	} while (0)
+
+#define dump_raw_hsstc(log_lvl, h, s, ...)                         \
+	do {                                                           \
+		log_lvl(__VA_ARGS__);                                      \
+		log_lvl("%04x:", (uint32_t)(h->len + sizeof(struct stc))); \
+		hexrawdump(log_lvl, (unsigned char *)h,                    \
+			   sizeof(struct stc) + h->len);                       \
+		log_lvl(":");                                              \
+		hexrawdump(log_lvl, (unsigned char *)s,                    \
+			   sizeof(struct stc) + h->len);                       \
+		log_lvl("\n");                                             \
+	} while (0)
+
+#define dump_raw_buffer(log_lvl, t, r, l, ...)                     \
+	do {                                                           \
+		log_lvl(__VA_ARGS__);                                      \
+		log_lvl("%04x:", l);                                       \
+		hexrawdump(log_lvl, t, l);                                 \
+		log_lvl(":");                                              \
+		hexrawdump(log_lvl, r, l);                                 \
+		log_lvl("\n");                                             \
+	} while (0)
 
 #endif /* __SPI_ROM_PROTOCOL_H__ */

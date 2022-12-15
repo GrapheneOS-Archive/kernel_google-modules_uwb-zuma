@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
+
 /*
  * This file is part of the QM35 UCI stack for linux.
  *
@@ -267,6 +268,78 @@ static ssize_t debug_coredump_write(struct file *filp, const char __user *buff,
 	return count;
 }
 
+static int debug_debug_certificate_open(struct inode *inodep, struct file *filep)
+{
+	struct debug *debug = priv_from_file(filep);
+
+	if (debug->certificate != NULL)
+		return -EBUSY;
+
+	debug->certificate = kmalloc(sizeof(*debug->certificate) + DEBUG_CERTIFICATE_SIZE,
+				     GFP_KERNEL);
+	if (debug->certificate == NULL)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static int debug_debug_certificate_close(struct inode *inodep, struct file *filep)
+{
+	struct debug *debug = priv_from_file(filep);
+	struct qm35_ctx *qm35_hdl;
+	int ret;
+	const char *operation = filep->f_pos ? "flashing" : "erasing";
+
+	qm35_hdl = container_of(debug, struct qm35_ctx, debug);
+
+	qm35_hsspi_stop(qm35_hdl);
+
+	dev_dbg(&qm35_hdl->spi->dev, "%s debug certificate (%lld bytes)\n", operation,
+		filep->f_pos);
+
+	if (filep->f_pos) {
+
+		debug->certificate->size = filep->f_pos;
+
+	} else {
+
+		/* WA: qmrom_erase_dbg_cert is not working, waiting to find the root
+		 * cause, workaround is to write a zeroed certificate
+		 * ret = qmrom_erase_dbg_cert(qm35_hdl->spi, qmrom_spi_reset_device, qm35_hdl);
+		 */
+		debug->certificate->size = DEBUG_CERTIFICATE_SIZE;
+		memset(debug->certificate->data, 0, DEBUG_CERTIFICATE_SIZE);
+	}
+
+	ret = qmrom_flash_dbg_cert(qm35_hdl->spi, debug->certificate,
+							   qmrom_spi_reset_device, qm35_hdl);
+
+	if (ret)
+		dev_err(&qm35_hdl->spi->dev, "%s debug certificate fails: %d\n", operation, ret);
+	else
+		dev_info(&qm35_hdl->spi->dev, "%s debug certificate success\n", operation);
+
+	msleep(QM_BEFORE_RESET_MS);
+	qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+	msleep(QM_BOOT_MS);
+
+	qm35_hsspi_start(qm35_hdl);
+
+	kfree(debug->certificate);
+	debug->certificate = NULL;
+
+	return 0;
+}
+
+static ssize_t debug_debug_certificate_write(struct file *filp,
+					const char __user *buff, size_t count, loff_t *off)
+{
+	struct debug *debug = priv_from_file(filp);
+
+	return simple_write_to_buffer(debug->certificate->data,
+				      DEBUG_CERTIFICATE_SIZE, off, buff, count);
+}
+
 static const struct file_operations debug_enable_fops = {
 	.owner = THIS_MODULE,
 	.write = debug_enable_write,
@@ -297,6 +370,13 @@ static const struct file_operations debug_coredump_fops = {
 	.owner = THIS_MODULE,
 	.read = debug_coredump_read,
 	.write = debug_coredump_write,
+};
+
+static const struct file_operations debug_debug_certificate_fops = {
+	.owner = THIS_MODULE,
+	.open = debug_debug_certificate_open,
+	.write = debug_debug_certificate_write,
+	.release = debug_debug_certificate_close,
 };
 
 int debug_create_module_entry(struct debug *debug,
@@ -337,21 +417,6 @@ void debug_new_trace_available(struct debug *debug)
 static int debug_devid_show(struct seq_file *s, void *unused)
 {
 	struct debug *debug = (struct debug *)s->private;
-	uint16_t dev_id;
-	int rc;
-
-	if (debug->trace_ops && debug->trace_ops->get_dev_id) {
-		rc = debug->trace_ops->get_dev_id(debug, &dev_id);
-		if (rc < 0)
-			return -EIO;
-		seq_printf(s, "deca%04x\n", dev_id);
-	}
-	return 0;
-}
-
-static int debug_socid_show(struct seq_file *s, void *unused)
-{
-	struct debug *debug = (struct debug *)s->private;
 	uint8_t soc_id[ROM_SOC_ID_LEN];
 	int rc;
 
@@ -365,56 +430,20 @@ static int debug_socid_show(struct seq_file *s, void *unused)
 }
 
 DEFINE_SHOW_ATTRIBUTE(debug_devid);
-DEFINE_SHOW_ATTRIBUTE(debug_socid);
 
-void debug_soc_info_available(struct debug *debug)
-{
-	struct dentry *file;
-
-	debug->chip_dir = debugfs_create_dir("chip", debug->root_dir);
-	if (!debug->chip_dir) {
-		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/chip\n");
-		goto unregister;
-	}
-
-	file = debugfs_create_file("dev_id", 0444, debug->chip_dir, debug,
-				   &debug_devid_fops);
-	if (!file) {
-		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/dev_id\n");
-		goto unregister;
-	}
-
-	file = debugfs_create_file("soc_id", 0444, debug->chip_dir, debug,
-				   &debug_socid_fops);
-	if (!file) {
-		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/soc_id\n");
-		goto unregister;
-	}
-
-	return;
-
-unregister:
-	debugfs_remove_recursive(debug->chip_dir);
-}
-
-int debug_init_root(struct debug *debug, struct dentry *root)
-{
-	debug->root_dir = debugfs_create_dir("uwb0", root);
-	if (!debug->root_dir) {
-		pr_err("qm35: failed to create /sys/kernel/debug/uwb0\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-int debug_init(struct debug *debug)
+int debug_init(struct debug *debug, struct dentry *root)
 {
 	struct dentry *file;
 
 	init_waitqueue_head(&debug->wq);
 	mutex_init(&debug->pv_filp_lock);
 	debug->pv_filp = NULL;
+
+	debug->root_dir = debugfs_create_dir("uwb0", root);
+	if (!debug->root_dir) {
+		pr_err("qm35: failed to create /sys/kernel/debug/uwb0\n");
+		goto unregister;
+	}
 
 	debug->fw_dir = debugfs_create_dir("fw", debug->root_dir);
 	if (!debug->fw_dir) {
@@ -440,6 +469,21 @@ int debug_init(struct debug *debug)
 				   &debug_coredump_fops);
 	if (!file) {
 		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/coredump\n");
+		goto unregister;
+	}
+
+	file = debugfs_create_file("devid", 0444, debug->fw_dir, debug,
+				   &debug_devid_fops);
+	if (!file) {
+		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/devid\n");
+		goto unregister;
+	}
+
+	debug->certificate = NULL;
+	file = debugfs_create_file("debug_certificate", 0200, debug->fw_dir, debug,
+				&debug_debug_certificate_fops);
+	if (!file) {
+		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/debug_certificate\n");
 		goto unregister;
 	}
 
