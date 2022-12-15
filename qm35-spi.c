@@ -97,6 +97,10 @@ int qmrom_retries = QMROM_RETRIES;
 module_param(qmrom_retries, int, 0444);
 MODULE_PARM_DESC(qmrom_retries, "QMROM retries");
 
+int reset_on_error = 1;
+module_param(reset_on_error, int, 0444);
+MODULE_PARM_DESC(reset_on_error, "Reset the QM35 on successive errors");
+
 static uint8_t qm_soc_id[ROM_SOC_ID_LEN];
 static uint16_t qm_dev_id;
 
@@ -328,6 +332,7 @@ static irqreturn_t qm35_ss_rdy_handler(int irq, void *data)
 
 	old_time = current_time;
 #endif
+	hsspi_clear_spi_slave_busy(&qm35_hdl->hsspi);
 	hsspi_set_spi_slave_ready(&qm35_hdl->hsspi);
 
 	return IRQ_HANDLED;
@@ -355,11 +360,21 @@ static void qm35_wakeup_release(struct hsspi *hsspi)
 		gpiod_set_value(qm35_hdl->gpio_wakeup, 0);
 }
 
+static void qm35_reset_hook(struct hsspi *hsspi)
+{
+	struct qm35_ctx *qm35_hdl =
+		container_of(hsspi, struct qm35_ctx, hsspi);
+
+	if (reset_on_error)
+		qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+	usleep_range(QM_BEFORE_RESET_MS * 1000, QM_BEFORE_RESET_MS * 1000);
+}
+
 static irqreturn_t qm35_exton_handler(int irq, void *data)
 {
 	struct qm35_ctx *qm35_hdl = data;
 
-	hsspi_set_spi_slave_off(&qm35_hdl->hsspi);
+	hsspi_clear_spi_slave_ready(&qm35_hdl->hsspi);
 	return IRQ_HANDLED;
 }
 
@@ -525,6 +540,7 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 	qm35_ctx->hsspi.odw_cleared = reenable_ss_irq;
 	qm35_ctx->hsspi.wakeup_enter = qm35_wakeup_enter;
 	qm35_ctx->hsspi.wakeup_release = qm35_wakeup_release;
+	qm35_ctx->hsspi.reset_qm35 = qm35_reset_hook;
 
 	ret = devm_request_irq(&qm35_ctx->spi->dev, qm35_ctx->spi->irq,
 			       &qm35_irq_handler, ss_irqflags,
@@ -548,7 +564,7 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 			return ret;
 
 		if (!gpiod_get_value(qm35_ctx->gpio_exton))
-			hsspi_set_spi_slave_off(&qm35_ctx->hsspi);
+			hsspi_clear_spi_slave_ready(&qm35_ctx->hsspi);
 	}
 
 	/* Get spi csn */
@@ -742,11 +758,9 @@ static int qm35_probe(struct spi_device *spi)
 			goto log_layer_unregister;
 	}
 
+	hsspi_set_gpios(&qm35_ctx->hsspi, qm35_ctx->gpio_ss_rdy,
+		qm35_ctx->gpio_exton);
 	hsspi_start(&qm35_ctx->hsspi);
-
-	/* we can have missed an edge */
-	if (gpiod_get_value(qm35_ctx->gpio_ss_rdy))
-		hsspi_set_spi_slave_ready(&qm35_ctx->hsspi);
 
 	ret = misc_register(&qm35_ctx->uci_dev);
 	if (ret) {

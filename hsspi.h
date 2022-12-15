@@ -127,7 +127,7 @@ struct hsspi_layer {
 enum hsspi_flags {
 	HSSPI_FLAGS_SS_IRQ = 0,
 	HSSPI_FLAGS_SS_READY = 1,
-	HSSPI_FLAGS_OFF = 2,
+	HSSPI_FLAGS_SS_BUSY = 2,
 	HSSPI_FLAGS_MAX = 3,
 };
 
@@ -165,11 +165,16 @@ struct hsspi {
 	void (*wakeup_enter)(struct hsspi *hsspi);
 	void (*wakeup_release)(struct hsspi *hsspi);
 
+	// reset QM35
+	void (*reset_qm35)(struct hsspi *hsspi);
+
 	struct spi_device *spi;
-	int spi_error;
 
 	struct stc_header *host, *soc;
 	ktime_t next_cs_active_time;
+
+	struct gpio_desc *gpio_ss_rdy;
+	struct gpio_desc *gpio_exton;
 };
 
 /**
@@ -184,6 +189,8 @@ struct hsspi {
  *
  */
 int hsspi_init(struct hsspi *hsspi, struct spi_device *spi);
+void hsspi_set_gpios(struct hsspi *hsspi, struct gpio_desc *gpio_ss_rdy,
+		     struct gpio_desc *gpio_exton);
 
 /**
  * hsspi_deinit() - Initialiaze the HSSPI
@@ -225,28 +232,32 @@ int hsspi_unregister(struct hsspi *hsspi, struct hsspi_layer *layer);
  *
  * This function is called in the ss_ready irq handler. It notices the
  * HSSPI driver that the QM is ready for transfer.
- *
- * The HSSPI must work with or without the ss_rdy gpio. The current
- * implementation is far from ideal regarding this requirement.
- *
- * W/o the gpio we should send SPI transfer right away and retry it if
- * the RDY bit was not present in the SOC STC header.
  */
 void hsspi_set_spi_slave_ready(struct hsspi *hsspi);
 
 /**
- * hsspi_set_spi_slave_off() - tell the hsspi that qm35 went asleep
+ * hsspi_clear_spi_slave_ready() - tell the hsspi that the ss_ready has
+ * been lowered meaning that the fw is busy or asleep,
+ * @hsspi: pointer to a &struct hsspi
+ */
+void hsspi_clear_spi_slave_ready(struct hsspi *hsspi);
+
+/**
+ * hsspi_set_spi_slave_busy() - tell the hsspi that the ss_ready has
+ * not been lowered and raised again meaning that the fw is busy,
+ * @hsspi: pointer to a &struct hsspi
+ */
+void hsspi_set_spi_slave_busy(struct hsspi *hsspi);
+
+/**
+ * hsspi_clear_spi_slave_busy() - tell the hsspi that the ss_ready has
+ * been lowered and raised again meaning that the fw is not busy anymore,
  * @hsspi: pointer to a &struct hsspi
  *
- * This function is called in the exton irq handler. It notices the
- * HSSPI driver that the QM went asleep.
- *
- * The HSSPI must work with or without the exton gpio but the sleep
- * states on the qm35 would be affected.
- *
- * W/o the gpio we will ignore the fact that qm35 might have gone asleep.
+ * This function is called in the ss_ready irq handler. It notices the
+ * HSSPI driver that the QM has acknowledged the last SPI xfer.
  */
-void hsspi_set_spi_slave_off(struct hsspi *hsspi);
+void hsspi_clear_spi_slave_busy(struct hsspi *hsspi);
 
 /**
  * hsspi_set_output_data_waiting() - tell the hsspi that the ss_irq is active
