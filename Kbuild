@@ -6,9 +6,11 @@ qm35-y := \
 	qm35-spi.o \
 	qm35_rb.o \
 	qmrom_spi.o \
-	libqmrom/src/qmrom.o \
+	libqmrom/src/qmrom_common.o \
+	libqmrom/src/qmrom_a0.o \
+	libqmrom/src/qmrom_b0.o \
+	libqmrom/src/qmrom_c0.o \
 	libqmrom/src/qmrom_log.o \
-	libqmrom/src/spi_rom_protocol.o \
 	hsspi.o \
 	hsspi_uci.o \
 	hsspi_log.o \

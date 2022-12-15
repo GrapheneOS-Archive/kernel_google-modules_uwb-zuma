@@ -16,15 +16,13 @@
 
 #ifndef __KERNEL__
 struct firmware {
-	uint32_t size;
-	uint8_t data[0];
+	size_t size;
+	const uint8_t *data;
 };
 #else
 #include <linux/firmware.h>
 #endif
 
-#define DEFAULT_SPI_CLOCKRATE_A0 750000
-#define DEFAULT_SPI_CLOCKRATE 3000000
 #define DEFAULT_SPI_LATENCY_MS 2
 
 #define SPI_ERR_NOCHAN SPI_ERR_BASE - 1
