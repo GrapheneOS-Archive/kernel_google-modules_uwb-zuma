@@ -34,8 +34,8 @@
 #include "qm35.h"
 
 static const char *fwname = NULL;
-// Initialize to the lowest default frequency
-static unsigned int speed_hz = DEFAULT_SPI_CLOCKRATE_A0;
+static unsigned int speed_hz;
+extern int trace_spi_xfers;
 
 void qmrom_set_fwname(const char *name)
 {
@@ -45,6 +45,7 @@ void qmrom_set_fwname(const char *name)
 int qmrom_spi_transfer(void *handle, char *rbuf, const char *wbuf, size_t size)
 {
 	struct spi_device *spi = (struct spi_device *)handle;
+	int rc;
 
 	struct spi_transfer xfer[] = {
 		{
@@ -55,7 +56,16 @@ int qmrom_spi_transfer(void *handle, char *rbuf, const char *wbuf, size_t size)
 		},
 	};
 
-	return spi_sync_transfer(spi, xfer, ARRAY_SIZE(xfer));
+	rc = spi_sync_transfer(spi, xfer, ARRAY_SIZE(xfer));
+
+	if (trace_spi_xfers) {
+		print_hex_dump(KERN_DEBUG, "tx:", DUMP_PREFIX_NONE,
+			16, 1, wbuf, size, false);
+		print_hex_dump(KERN_DEBUG, "rx:", DUMP_PREFIX_NONE,
+			16, 1, rbuf, size, false);
+	}
+
+	return rc;
 }
 
 int qmrom_spi_set_cs_level(void *handle, int level)
@@ -96,8 +106,7 @@ const struct firmware *qmrom_spi_get_firmware(void *handle,
 		if (revision == CHIP_REVISION_A0)
 			snprintf(_fw_name, sizeof(_fw_name), "qm35_%02x.bin", revision);
 		else
-			snprintf(_fw_name, sizeof(_fw_name), "qm35_%02x_%.3s.bin",
-				revision,
+			snprintf(_fw_name, sizeof(_fw_name), "qm35_b0_%.3s.bin",
 				lcs_state == CC_BSV_SECURE_LCS ? "oem" : "icv");
 	} else {
 		fw_name = fwname;
@@ -123,12 +132,13 @@ void qmrom_spi_release_firmware(const struct firmware *fw)
 	release_firmware(fw);
 }
 
-// FIXME: wait for ss ready mock
 int qmrom_spi_wait_for_ready_line(void *handle, unsigned int timeout_ms)
 {
-	usleep_range(timeout_ms * 1000, timeout_ms * 1000);
-
-	return 0;
+	int count_down = (int)timeout_ms;
+	while (!gpiod_get_value(handle) && (--count_down >= 0)) {
+		usleep_range(1000, 1100);
+	}
+	return gpiod_get_value(handle) ? 0 : -1;
 }
 
 void qmrom_spi_set_freq(unsigned int freq)

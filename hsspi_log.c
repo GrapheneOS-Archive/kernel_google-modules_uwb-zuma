@@ -404,6 +404,15 @@ static void log_trace_reset(struct debug *dbg)
 	rb_reset(&qm35_hdl->log_layer.rb);
 }
 
+static int get_dev_id(struct debug *dbg, uint16_t *dev_id)
+{
+	struct qm35_ctx *qm35_hdl;
+
+	qm35_hdl = container_of(dbg, struct qm35_ctx, debug);
+
+	return qm_get_dev_id(qm35_hdl, dev_id);
+}
+
 static int get_soc_id(struct debug *dbg, uint8_t *soc_id)
 {
 	struct qm35_ctx *qm35_hdl;
@@ -422,6 +431,7 @@ static const struct debug_trace_ops debug_trace_ops = {
 	.trace_get_next_size = log_trace_get_next_size,
 	.trace_next_avail = log_trace_next_avail,
 	.trace_reset = log_trace_reset,
+	.get_dev_id = get_dev_id,
 	.get_soc_id = get_soc_id,
 };
 
