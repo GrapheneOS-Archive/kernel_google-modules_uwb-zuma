@@ -139,6 +139,7 @@ static void qmrom_c0_poll_soc(struct qmrom_handle *handle)
 static int qmrom_c0_wait_ready(struct qmrom_handle *handle)
 {
 	int retries = handle->comms_retries;
+
 	qmrom_c0_poll_soc(handle);
 
 	/* handle->sstc has been updated */
@@ -149,17 +150,12 @@ static int qmrom_c0_wait_ready(struct qmrom_handle *handle)
 			qmrom_pre_read_c0(handle);
 			qmrom_read_c0(handle);
 		} else if (handle->sstc->soc_flags.out_active) {
-			if (handle->sstc->len > 0xff) {
-				/* likely the wrong endianness, A0? */
-				return -1;
-			}
-			qmrom_read_c0(handle);
+			return qmrom_read_c0(handle);
 		} else qmrom_c0_poll_soc(handle);
 	}
-	if (retries <= 0)
-		LOG_ERR("%s failed after %d replies\n", __func__, handle->comms_retries);
 
-	return retries > 0 ? 0 : -1;
+	return handle->sstc->raw_flags == SPI_SH_READY_CMD_BIT_MASK_C0 ?
+		0 : SPI_ERR_WAIT_READY_TIMEOUT;
 }
 
 static int qmrom_c0_poll_cmd_resp(struct qmrom_handle *handle)
@@ -170,12 +166,7 @@ static int qmrom_c0_poll_cmd_resp(struct qmrom_handle *handle)
 	do {
 		if (handle->sstc->soc_flags.out_waiting) {
 			qmrom_pre_read_c0(handle);
-			if (handle->sstc->len > 0xff) {
-				/* likely the wrong endianness, A0? */
-				return -1;
-			}
-			qmrom_read_c0(handle);
-			break;
+			return qmrom_read_c0(handle);
 		} else qmrom_c0_poll_soc(handle);
 	}
 	while (retries--);

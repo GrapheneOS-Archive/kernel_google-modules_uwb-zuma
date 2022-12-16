@@ -70,8 +70,7 @@ int qmrom_a0_wait_ready(struct qmrom_handle *handle)
 	{
 		qmrom_a0_poll_soc(handle);
 	}
-
-	return retries > 0 ? 0 : -1;
+	return handle->sstc->soc_flags.out_waiting ? 0 : SPI_ERR_WAIT_READY_TIMEOUT;
 }
 
 int qmrom_a0_probe_device(struct qmrom_handle *handle)

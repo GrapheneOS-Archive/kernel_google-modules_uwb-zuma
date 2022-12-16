@@ -85,6 +85,8 @@ int qmrom_pre_read(struct qmrom_handle *handle)
 int qmrom_read(struct qmrom_handle *handle)
 {
 	size_t rd_size = handle->sstc->len;
+	if (rd_size > MAX_STC_FRAME_LEN)
+		return SPI_ERR_INVALID_STC_LEN;
 	LOG_DBG("%s: reading %zu bytes...\n", __func__, rd_size);
 	memset(handle->hstc, 0, sizeof(struct stc) + rd_size);
 	handle->hstc->host_flags.read = 1;
