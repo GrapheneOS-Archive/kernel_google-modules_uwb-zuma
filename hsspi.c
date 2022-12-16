@@ -44,7 +44,8 @@
 #define STC_SOC_ERR     BIT(4)
 
 #define SS_READY_TIMEOUT_MS (250)
-#define INTER_CS_ACTIVE_TIME_US (10)
+
+#define MAX_SUCCESSIVE_ERRORS (5)
 
 struct hsspi_work {
 	struct list_head list;
@@ -133,13 +134,26 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 {
 	int ret;
 
+	if (!test_bit(HSSPI_FLAGS_SS_BUSY, hsspi->flags)) {
+		/* The ss_ready went low, so the fw is not busy anymore,
+		 * if the ss_ready is high, we can proceed, else,
+		 * either the fw went to sleep or crashed, in any case
+		 * we need to wait for it to be ready again.
+		 */
+		clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags);
+		if (gpiod_get_value(hsspi->gpio_ss_rdy)) {
+			return 0;
+		}
+	}
+
 	ret = wait_event_interruptible_timeout(
 			hsspi->wq_ready,
 			test_and_clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags),
 			msecs_to_jiffies(SS_READY_TIMEOUT_MS));
 	if (ret == 0) {
-		dev_err(&hsspi->spi->dev, "timed out waiting for ss_ready(%d)\n",
-			test_bit(HSSPI_FLAGS_SS_READY, hsspi->flags));
+		dev_warn(&hsspi->spi->dev,
+			 "timed out waiting for ss_ready(%d)\n",
+			 test_bit(HSSPI_FLAGS_SS_READY, hsspi->flags));
 		return -EAGAIN;
 	}
 	if (ret < 0) {
@@ -147,35 +161,6 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 		return ret;
 	}
 	return 0;
-}
-
-/**
- * wait_cs_active_min_interval() - waits the time necessary to respect the
- * minimium interval between two chip selects active.
- *
- * @hsspi: &struct hsspi
- */
-static void wait_cs_active_min_interval(struct hsspi *hsspi)
-{
-	/* The HSSPI chip select shall not be activated too early after
-	* it was deselected.
-	*/
-	ktime_t delta = hsspi->next_cs_active_time - ktime_get();
-	if (delta > 0) {
-		delta = ktime_to_us(delta);
-		usleep_range(delta, delta);
-	}
-}
-
-/**
- * update_next_cs_interval() - update the next time the chip select
- * can be activated.
- *
- * @hsspi: &struct hsspi
- */
-static void update_next_cs_interval(struct hsspi *hsspi)
-{
-	hsspi->next_cs_active_time = ktime_add(ktime_get(), INTER_CS_ACTIVE_TIME_US);
 }
 
 /**
@@ -201,34 +186,26 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			.len = length,
 		},
 	};
-	int ret, retry = 20;
+	int ret, retry = 2;
 
 	hsspi->soc->flags = 0;
 	hsspi->soc->ul = 0;
 	hsspi->soc->length = 0;
 
-	if (hsspi->spi_error)
-		return hsspi->spi_error;
-
 	do {
-		/* The HSSPI chip select shall not be activated too early after
-		 * it was deselected.
-		 */
-		wait_cs_active_min_interval(hsspi);
 		hsspi->wakeup_enter(hsspi);
 		ret = hsspi_wait_ss_ready(hsspi);
 		if (ret < 0) {
 			hsspi->wakeup_release(hsspi);
-			update_next_cs_interval(hsspi);
 			continue;
 		}
 
 		if (test_sleep_after_ss_ready_us > 0)
 			usleep_range(test_sleep_after_ss_ready_us, test_sleep_after_ss_ready_us+1);
 
+		hsspi_set_spi_slave_busy(hsspi);
 		ret = spi_sync_transfer(hsspi->spi, xfers, length ? 2 : 1);
 		hsspi->wakeup_release(hsspi);
-		update_next_cs_interval(hsspi);
 
 		trace_hsspi_spi_xfer(&hsspi->spi->dev, hsspi->host, hsspi->soc, ret);
 
@@ -238,7 +215,9 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 		}
 
 		if (!(hsspi->soc->flags & STC_SOC_RDY)) {
-			dev_err(&hsspi->spi->dev, "FW not ready (flags 0x%02x)\n", hsspi->soc->flags);
+			dev_err(&hsspi->spi->dev,
+				"FW not ready (flags %#02x)\n",
+				hsspi->soc->flags);
 			ret = -EAGAIN;
 			continue;
 		}
@@ -257,8 +236,10 @@ static void check_soc_flag(const struct device *dev, const char *func_name,
 
 	expected = is_tx ? 0x0 : STC_SOC_OA;
 
-	if ((soc_flags & (STC_SOC_ERR|STC_SOC_OA)) != expected)
-		dev_warn(dev, "%s: bad soc flags 0x%hhx\n", func_name, soc_flags);
+	if ((soc_flags & (STC_SOC_ERR | STC_SOC_OA)) != expected) {
+		dev_warn(dev, "%s: bad soc flags %#hhx, expected %#hhx\n",
+			 func_name, soc_flags, expected);
+	}
 }
 
 /**
@@ -382,7 +363,9 @@ static int hsspi_pre_read(struct hsspi *hsspi)
 static int hsspi_thread_fn(void *data)
 {
 	struct hsspi *hsspi = data;
+	static int successive_errors;
 
+	successive_errors = 0;
 	while (1) {
 		struct hsspi_work *hw;
 		int ret;
@@ -408,7 +391,7 @@ static int hsspi_thread_fn(void *data)
 			} else {
 				dev_err(&hsspi->spi->dev,
 					"unknown hsspi_work type: %d\n", hw->type);
-				ret = -EINVAL;
+				continue;
 			}
 		} else
 			/* If there is no work, we are here because
@@ -417,11 +400,24 @@ static int hsspi_thread_fn(void *data)
 			ret = hsspi_pre_read(hsspi);
 
 		if (ret) {
-			spin_lock(&hsspi->lock);
-			hsspi->state = HSSPI_ERROR;
-			spin_unlock(&hsspi->lock);
+			successive_errors++;
 
-			hsspi->spi_error = ret;
+			if (successive_errors > MAX_SUCCESSIVE_ERRORS) {
+				dev_err(&hsspi->spi->dev,
+					"Max successive errors %d reached, likely entered ROM code...\n",
+					successive_errors);
+
+				/* When the device reboots, the ROM code might raise
+				 * ss_ready; if a SPI transfer is requested, the AP
+				 * will initiate the SPI xfer and the ROM code will
+				 * enter its command mode infinite loop...
+				 * No choice but rebooting the device.
+				 */
+				hsspi->reset_qm35(hsspi);
+				successive_errors = 0;
+			}
+		} else {
+			successive_errors = 0;
 		}
 	}
 	return 0;
@@ -436,7 +432,6 @@ int hsspi_init(struct hsspi *hsspi, struct spi_device *spi)
 
 	hsspi->state = HSSPI_STOPPED;
 	hsspi->spi = spi;
-	hsspi->spi_error = -EAGAIN;
 
 	init_waitqueue_head(&hsspi->wq);
 	init_waitqueue_head(&hsspi->wq_ready);
@@ -452,6 +447,12 @@ int hsspi_init(struct hsspi *hsspi, struct spi_device *spi)
 
 	dev_info(&hsspi->spi->dev, "HSSPI initialized\n");
 	return 0;
+}
+
+void hsspi_set_gpios(struct hsspi *hsspi, struct gpio_desc *gpio_ss_rdy, struct gpio_desc *gpio_exton)
+{
+	hsspi->gpio_ss_rdy = gpio_ss_rdy;
+	hsspi->gpio_exton = gpio_exton;
 }
 
 int hsspi_deinit(struct hsspi *hsspi)
@@ -555,18 +556,26 @@ int hsspi_unregister(struct hsspi *hsspi, struct hsspi_layer *layer)
 	return 0;
 }
 
+void hsspi_clear_spi_slave_busy(struct hsspi *hsspi)
+{
+	clear_bit(HSSPI_FLAGS_SS_BUSY, hsspi->flags);
+}
+
+void hsspi_set_spi_slave_busy(struct hsspi *hsspi)
+{
+	set_bit(HSSPI_FLAGS_SS_BUSY, hsspi->flags);
+}
+
 void hsspi_set_spi_slave_ready(struct hsspi *hsspi)
 {
-	clear_bit(HSSPI_FLAGS_OFF, hsspi->flags);
 	set_bit(HSSPI_FLAGS_SS_READY, hsspi->flags);
 
 	wake_up_interruptible(&hsspi->wq_ready);
 }
 
-void hsspi_set_spi_slave_off(struct hsspi *hsspi)
+void hsspi_clear_spi_slave_ready(struct hsspi *hsspi)
 {
 	clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags);
-	set_bit(HSSPI_FLAGS_OFF, hsspi->flags);
 }
 
 void hsspi_set_output_data_waiting(struct hsspi *hsspi)
@@ -647,7 +656,6 @@ void hsspi_start(struct hsspi *hsspi)
 	spin_lock(&hsspi->lock);
 
 	hsspi->state = HSSPI_RUNNING;
-	hsspi->spi_error = 0;
 
 	spin_unlock(&hsspi->lock);
 
