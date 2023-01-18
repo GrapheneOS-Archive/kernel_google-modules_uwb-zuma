@@ -36,6 +36,8 @@
 #include "debug.h"
 #include "hsspi_test.h"
 
+extern void debug_rom_code_init(struct debug *debug);
+
 static const struct file_operations debug_enable_fops;
 static const struct file_operations debug_log_level_fops;
 static const struct file_operations debug_test_hsspi_sleep_fops;
@@ -269,6 +271,33 @@ static ssize_t debug_coredump_write(struct file *filp, const char __user *buff,
 	return count;
 }
 
+static ssize_t debug_hw_reset_write(struct file *filp, const char __user *buff,
+				    size_t count, loff_t *off)
+{
+	struct qm35_ctx *qm35_hdl;
+	struct debug *debug;
+	int ret;
+	u8 reset;
+
+	debug = priv_from_file(filp);
+	qm35_hdl = container_of(debug, struct qm35_ctx, debug);
+
+	if (kstrtou8_from_user(buff, count, 10, &reset))
+		return -EFAULT;
+
+	ret = -1;
+	if (reset != 0) {
+		pr_info("qm35: resetting chip...\n");
+		ret = qm35_reset_sync(qm35_hdl);
+	} else
+		pr_warn("qm35: write non null value to force a hw reset\n");
+
+	if (ret)
+		return -ENOSYS;
+
+	return count;
+}
+
 static const struct file_operations debug_enable_fops = {
 	.owner = THIS_MODULE,
 	.write = debug_enable_write,
@@ -299,6 +328,11 @@ static const struct file_operations debug_coredump_fops = {
 	.owner = THIS_MODULE,
 	.read = debug_coredump_read,
 	.write = debug_coredump_write,
+};
+
+static const struct file_operations debug_hw_reset_fops = {
+	.owner = THIS_MODULE,
+	.write = debug_hw_reset_write,
 };
 
 int debug_create_module_entry(struct debug *debug,
@@ -373,12 +407,6 @@ void debug_soc_info_available(struct debug *debug)
 {
 	struct dentry *file;
 
-	debug->chip_dir = debugfs_create_dir("chip", debug->root_dir);
-	if (!debug->chip_dir) {
-		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/chip\n");
-		goto unregister;
-	}
-
 	file = debugfs_create_file("dev_id", 0444, debug->chip_dir, debug,
 				   &debug_devid_fops);
 	if (!file) {
@@ -424,6 +452,19 @@ int debug_init(struct debug *debug)
 		goto unregister;
 	}
 
+	debug->chip_dir = debugfs_create_dir("chip", debug->root_dir);
+	if (!debug->chip_dir) {
+		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/chip\n");
+		goto unregister;
+	}
+
+	file = debugfs_create_file("hw_reset", 0444, debug->chip_dir, debug,
+				   &debug_hw_reset_fops);
+	if (!file) {
+		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/chip/hw_reset\n");
+		goto unregister;
+	}
+
 	file = debugfs_create_file("enable", 0644, debug->fw_dir, debug,
 				   &debug_enable_fops);
 	if (!file) {
@@ -451,6 +492,8 @@ int debug_init(struct debug *debug)
 		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/test_sleep_hsspi\n");
 		goto unregister;
 	}
+
+	debug_rom_code_init(debug);
 
 	return 0;
 

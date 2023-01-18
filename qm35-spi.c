@@ -101,6 +101,10 @@ int reset_on_error = 1;
 module_param(reset_on_error, int, 0444);
 MODULE_PARM_DESC(reset_on_error, "Reset the QM35 on successive errors");
 
+int log_qm_traces = 1;
+module_param(log_qm_traces, int, 0444);
+MODULE_PARM_DESC(log_qm_traces, "Logs the QM35 traces in the kernel messages");
+
 static uint8_t qm_soc_id[ROM_SOC_ID_LEN];
 static uint16_t qm_dev_id;
 
@@ -416,6 +420,18 @@ void qm35_hsspi_stop(struct qm35_ctx *qm35_hdl)
 	}
 }
 
+int qm35_reset_sync(struct qm35_ctx *qm35_hdl)
+{
+	int ret;
+
+	qm35_hsspi_stop(qm35_hdl);
+	ret = qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+	msleep(QM_BOOT_MS);
+	qm35_hsspi_start(qm35_hdl);
+
+	return ret;
+}
+
 static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 {
 	struct spi_device *spi = qm35_hdl->spi;
@@ -444,7 +460,7 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 			 h->soc_id);
 		dev_info(&spi->dev, "    uuid:      %*phN\n", ROM_UUID_LEN,
 			 h->uuid);
-		dev_info(&spi->dev, "    lcs_state: %hhu\n", h->lcs_state);
+		dev_info(&spi->dev, "    lcs_state: %u\n", h->lcs_state);
 
 		memcpy(&qm_dev_id, &h->device_version, sizeof(qm_dev_id));
 		memcpy(qm_soc_id, h->soc_id, ROM_SOC_ID_LEN);
@@ -457,6 +473,12 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 
 	dev_dbg(&spi->dev, "Starting device flashing!\n");
 	fw = qmrom_spi_get_firmware(&spi->dev, h->chip_rev, h->lcs_state);
+	if (fw == NULL) {
+		dev_err(&spi->dev, "Firmware file not present!\n");
+		ret = -1;
+		goto out;
+	}
+
 	ret = qmrom_flash_fw(h, fw);
 	qmrom_spi_release_firmware(fw);
 
@@ -679,6 +701,7 @@ static int qm35_probe(struct spi_device *spi)
 		return -ENOMEM;
 
 	qm35_ctx->spi = spi;
+	qm35_ctx->log_qm_traces = log_qm_traces;
 	spin_lock_init(&qm35_ctx->lock);
 
 	spi_set_drvdata(spi, qm35_ctx);

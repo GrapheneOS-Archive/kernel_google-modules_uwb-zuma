@@ -104,8 +104,19 @@ static void uci_sent(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 	complete(p->write_done);
 }
 
+#define UCI_CONTROL_PACKET_PAYLOAD_SIZE_LOCATION (3)
+
+static size_t get_payload_size_from_header(const u8 *header)
+{
+	bool is_control_packet = (header[0] >> 7) == 0;
+
+	if (is_control_packet)
+		return header[UCI_CONTROL_PACKET_PAYLOAD_SIZE_LOCATION];
+
+	return (header[3] << 8) | header[2];
+}
+
 #define UCI_PACKET_HEADER_SIZE (4)
-#define UCI_PACKET_PAYLOAD_SIZE_LOCATION (3)
 
 static void uci_received(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 			 int status)
@@ -118,15 +129,15 @@ static void uci_received(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 	else {
 		struct uci_packet *next;
 		size_t readn = 0;
-		u8 payload_size;
+		size_t payload_size;
 
 		while (1) {
 			if (blk->length - readn < UCI_PACKET_HEADER_SIZE)
 				// Incomplete UCI header
 				break;
 
-			payload_size = *((u8 *)blk->data + readn +
-					 UCI_PACKET_PAYLOAD_SIZE_LOCATION);
+			payload_size = get_payload_size_from_header(
+				(u8 *)blk->data + readn);
 
 			if (blk->length - readn <=
 			    UCI_PACKET_HEADER_SIZE + payload_size)

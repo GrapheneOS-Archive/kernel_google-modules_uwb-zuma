@@ -53,6 +53,7 @@ struct qm35_ctx {
 	struct regulator *vdd2;
 	struct regulator *vdd3;
 	bool regulators_enabled;
+	bool log_qm_traces;
 };
 
 static inline unsigned int qm35_get_state(struct qm35_ctx *qm35_hdl)
@@ -82,6 +83,8 @@ static inline int qm35_reset(struct qm35_ctx *qm35_hdl, int timeout_ms)
 
 	return -ENODEV;
 }
+
+int qm35_reset_sync(struct qm35_ctx *qm35_hdl);
 
 int qm_get_dev_id(struct qm35_ctx *qm35_hdl, uint16_t *dev_id);
 int qm_get_soc_id(struct qm35_ctx *qm35_hdl, uint8_t *soc_id);

@@ -14,6 +14,7 @@
 #define CHIP_VERSION_CHIP_REV_PAYLOAD_OFFSET 4
 #define CHIP_VERSION_DEV_REV_PAYLOAD_OFFSET 6
 #define CHUNK_SIZE_C0 2040
+#define SPI_READY_TIMEOUT_MS_C0 200
 
 #define SPI_SH_READY_CMD_BIT_MASK_C0 \
 	(SPI_SH_READY_CMD_BIT_MASK >> 4 | SPI_SH_READY_CMD_BIT_MASK)
@@ -78,62 +79,63 @@ static int qmrom_c0_flash_debug_cert(struct qmrom_handle *handle,
 				     struct firmware *dbg_cert);
 static int qmrom_c0_erase_debug_cert(struct qmrom_handle *handle);
 
-#define qmrom_pre_read_c0(h)                                                  \
-	({                                                                    \
-		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
-						       SPI_READY_TIMEOUT_MS); \
-		if (!rc)                                                      \
-			rc = qmrom_pre_read((h));                             \
-		rc;                                                           \
+#define qmrom_pre_read_c0(h)                                            \
+	({                                                              \
+		int rc;                                                 \
+		qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,       \
+					      SPI_READY_TIMEOUT_MS_C0); \
+		rc = qmrom_pre_read((h));                               \
+		rc;                                                     \
 	})
-#define qmrom_read_c0(h)                                                      \
-	({                                                                    \
-		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
-						       SPI_READY_TIMEOUT_MS); \
-		if (!rc)                                                      \
-			rc = qmrom_read((h));                                 \
-		rc;                                                           \
+#define qmrom_read_c0(h)                                                \
+	({                                                              \
+		int rc;                                                 \
+		qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,       \
+					      SPI_READY_TIMEOUT_MS_C0); \
+		rc = qmrom_read((h));                                   \
+		rc;                                                     \
 	})
-#define qmrom_write_cmd_c0(h, cmd)                                            \
-	({                                                                    \
-		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
-						       SPI_READY_TIMEOUT_MS); \
-		if (!rc)                                                      \
-			rc = qmrom_write_cmd((h), (cmd));                     \
-		rc;                                                           \
+#define qmrom_write_cmd_c0(h, cmd)                                      \
+	({                                                              \
+		int rc;                                                 \
+		qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,       \
+					      SPI_READY_TIMEOUT_MS_C0); \
+		rc = qmrom_write_cmd((h), (cmd));                       \
+		rc;                                                     \
 	})
-#define qmrom_write_cmd32_c0(h, cmd)                                          \
-	({                                                                    \
-		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
-						       SPI_READY_TIMEOUT_MS); \
-		if (!rc)                                                      \
-			rc = qmrom_write_cmd32((h), (cmd));                   \
-		rc;                                                           \
+#define qmrom_write_cmd32_c0(h, cmd)                                    \
+	({                                                              \
+		int rc;                                                 \
+		qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,       \
+					      SPI_READY_TIMEOUT_MS_C0); \
+		rc = qmrom_write_cmd32((h), (cmd));                     \
+		rc;                                                     \
 	})
-#define qmrom_write_size_cmd_c0(h, cmd, ds, d)                                \
-	({                                                                    \
-		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
-						       SPI_READY_TIMEOUT_MS); \
-		if (!rc)                                                      \
-			rc = qmrom_write_size_cmd((h), (cmd), (ds), (d));     \
-		rc;                                                           \
+#define qmrom_write_size_cmd_c0(h, cmd, ds, d)                          \
+	({                                                              \
+		int rc;                                                 \
+		qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,       \
+					      SPI_READY_TIMEOUT_MS_C0); \
+		rc = qmrom_write_size_cmd((h), (cmd), (ds), (d));       \
+		rc;                                                     \
 	})
-#define qmrom_write_size_cmd32_c0(h, cmd, ds, d)                              \
-	({                                                                    \
-		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
-						       SPI_READY_TIMEOUT_MS); \
-		if (!rc)                                                      \
-			rc = qmrom_write_size_cmd32((h), (cmd), (ds), (d));   \
-		rc;                                                           \
+#define qmrom_write_size_cmd32_c0(h, cmd, ds, d)                        \
+	({                                                              \
+		int rc;                                                 \
+		qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,       \
+					      SPI_READY_TIMEOUT_MS_C0); \
+		rc = qmrom_write_size_cmd32((h), (cmd), (ds), (d));     \
+		rc;                                                     \
 	})
 
 static void qmrom_c0_poll_soc(struct qmrom_handle *handle)
 {
 	int retries = handle->comms_retries;
 	memset(handle->hstc, 0, sizeof(struct stc));
+	handle->sstc->raw_flags = 0;
 	do {
 		int rc = qmrom_spi_wait_for_ready_line(handle->ss_rdy_handle,
-						       SPI_READY_TIMEOUT_MS);
+						       SPI_READY_TIMEOUT_MS_C0);
 		if (rc) {
 			LOG_ERR("%s qmrom_spi_wait_for_ready_line failed\n",
 				__func__);
@@ -292,7 +294,7 @@ static int qmrom_c0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
 			return SPI_PROTO_WRONG_RESP;
 		}
 	}
-	qmrom_msleep(SPI_READY_TIMEOUT_MS);
+	qmrom_msleep(SPI_READY_TIMEOUT_MS_C0);
 	return 0;
 }
 
@@ -453,6 +455,6 @@ static int qmrom_c0_erase_debug_cert(struct qmrom_handle *handle)
 	if (rc)
 		return rc;
 
-	qmrom_msleep(SPI_READY_TIMEOUT_MS);
+	qmrom_msleep(SPI_READY_TIMEOUT_MS_C0);
 	return 0;
 }

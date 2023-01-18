@@ -46,6 +46,11 @@
 #define SS_READY_TIMEOUT_MS (250)
 
 #define MAX_SUCCESSIVE_ERRORS (5)
+#define SPI_CS_SETUP_DELAY_US (5)
+
+#ifdef HSSPI_MANUAL_CS_SETUP
+#define HSSPI_MANUAL_CS_SETUP_US SPI_CS_SETUP_DELAY_US
+#endif
 
 struct hsspi_work {
 	struct list_head list;
@@ -161,8 +166,29 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 			"Error %d while waiting for ss_ready\n", ret);
 		return ret;
 	}
+	/* WA: QM35 C0 have a very short (<100ns) ss_ready toggle
+	 * in the ROM code when waking up from S4. If we transfer immediately,
+	 * the ROM code will enter its command mode and we'll end up
+	 * communicating with the ROM code instead of the firmware.
+	 */
+	if (!gpiod_get_value(hsspi->gpio_ss_rdy))
+		return -EAGAIN;
 	return 0;
 }
+
+#ifdef HSSPI_MANUAL_CS_SETUP
+int hsspi_set_cs_level(struct spi_device *spi, int level)
+{
+	struct spi_transfer xfer[] = {
+		{
+			.cs_change = !level,
+			.speed_hz = 1000000,
+		},
+	};
+
+	return spi_sync_transfer(spi, xfer, ARRAY_SIZE(xfer));
+}
+#endif
 
 /**
  * spi_xfer() - Single SPI transfer
@@ -206,6 +232,11 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 				     test_sleep_after_ss_ready_us + 1);
 
 		hsspi_set_spi_slave_busy(hsspi);
+#ifdef HSSPI_MANUAL_CS_SETUP
+		hsspi_set_cs_level(hsspi->spi, 0);
+		usleep_range(HSSPI_MANUAL_CS_SETUP_US,
+			     HSSPI_MANUAL_CS_SETUP_US);
+#endif
 		ret = spi_sync_transfer(hsspi->spi, xfers, length ? 2 : 1);
 		hsspi->wakeup_release(hsspi);
 
@@ -233,17 +264,20 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 	return ret;
 }
 
-static void check_soc_flag(const struct device *dev, const char *func_name,
+static bool check_soc_flag(const struct device *dev, const char *func_name,
 			   u8 soc_flags, bool is_tx)
 {
 	u8 expected;
+	bool res;
 
 	expected = is_tx ? 0x0 : STC_SOC_OA;
+	res = (soc_flags & (STC_SOC_ERR | STC_SOC_OA)) == expected;
 
-	if ((soc_flags & (STC_SOC_ERR | STC_SOC_OA)) != expected) {
+	if (!res) {
 		dev_warn(dev, "%s: bad soc flags %#hhx, expected %#hhx\n",
 			 func_name, soc_flags, expected);
 	}
+	return res;
 }
 
 /**
@@ -281,13 +315,18 @@ static int hsspi_rx(struct hsspi *hsspi, u8 ul, u16 length)
 	if (ret)
 		return ret;
 
-	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, false);
+	if (!check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags,
+			    false)) {
+		ret = -1;
+	}
 
-	if ((hsspi->soc->ul != ul) || (hsspi->soc->length != length))
+	if ((hsspi->soc->ul != ul) || (hsspi->soc->length != length)) {
 		dev_warn(&hsspi->spi->dev,
 			 "%s: received %hhu %hu but expecting %hhu %hu\n",
 			 __func__, hsspi->soc->ul, hsspi->soc->length, ul,
 			 length);
+		ret = -1;
+	}
 
 	if (!(hsspi->soc->flags & STC_SOC_ODW) &&
 	    test_and_clear_bit(HSSPI_FLAGS_SS_IRQ, hsspi->flags))
@@ -325,12 +364,13 @@ static int hsspi_tx(struct hsspi *hsspi, struct hsspi_layer *layer,
 	if (ret)
 		return ret;
 
+	/* Ignore tx check flags */
 	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, true);
 
 	if (hsspi->host->flags & STC_HOST_PRD)
 		return hsspi_rx(hsspi, hsspi->soc->ul, hsspi->soc->length);
 
-	return 0;
+	return ret;
 }
 
 /**
@@ -354,6 +394,7 @@ static int hsspi_pre_read(struct hsspi *hsspi)
 	if (ret)
 		return ret;
 
+	/* Ignore pre-read check flags */
 	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, true);
 
 	return hsspi_rx(hsspi, hsspi->soc->ul, hsspi->soc->length);

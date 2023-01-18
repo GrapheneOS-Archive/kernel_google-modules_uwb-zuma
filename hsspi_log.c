@@ -236,6 +236,8 @@ static void log_received(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 		       blk->length, hdr.b_size);
 		goto out;
 	}
+	if (qm35_hdl->log_qm_traces)
+		pr_info("qm35_log: %.*s\n", hdr.b_size - 2, body);
 
 	switch (hdr.cmd_id) {
 	case LOG_CID_TRACE_NTF:
