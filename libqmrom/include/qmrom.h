@@ -76,29 +76,33 @@ struct unstitched_firmware {
 	struct firmware *key2_crt;
 };
 
-#define SSTC2UINT32(handle, offset) ({\
-	uint32_t tmp = 0xbeefdeed; \
-	if ((handle)->sstc->len >= (offset) + sizeof(tmp)) \
-		memcpy(&tmp, &(handle)->sstc->payload[(offset)], sizeof(tmp)); \
-	tmp; \
+#define SSTC2UINT32(handle, offset)                                      \
+	({                                                               \
+		uint32_t tmp = 0xbeefdeed;                               \
+		if ((handle)->sstc->len >= (offset) + sizeof(tmp))       \
+			memcpy(&tmp, &(handle)->sstc->payload[(offset)], \
+			       sizeof(tmp));                             \
+		tmp;                                                     \
 	})
 
-#define SSTC2UINT16(handle, offset) ({\
-	uint16_t tmp = 0xbeed; \
-	if ((handle)->sstc->len >= (offset) + sizeof(tmp)) \
-		memcpy(&tmp, &(handle)->sstc->payload[(offset)], sizeof(tmp)); \
-	tmp; \
+#define SSTC2UINT16(handle, offset)                                      \
+	({                                                               \
+		uint16_t tmp = 0xbeed;                                   \
+		if ((handle)->sstc->len >= (offset) + sizeof(tmp))       \
+			memcpy(&tmp, &(handle)->sstc->payload[(offset)], \
+			       sizeof(tmp));                             \
+		tmp;                                                     \
 	})
 
 /* Those functions allow the libqmrom to call
  * revision specific functions
  */
 typedef int (*flash_fw_fn)(struct qmrom_handle *handle,
-			  const struct firmware *fw);
+			   const struct firmware *fw);
 typedef int (*flash_unstitched_fw_fn)(struct qmrom_handle *handle,
-			  const struct unstitched_firmware *fw);
+				      const struct unstitched_firmware *fw);
 typedef int (*flash_debug_cert_fn)(struct qmrom_handle *handle,
-			  struct firmware *dbg_cert);
+				   struct firmware *dbg_cert);
 typedef int (*erase_debug_cert_fn)(struct qmrom_handle *handle);
 
 struct rom_code_ops {
@@ -112,7 +116,6 @@ struct rom_code_ops {
  * device specific functions
  */
 typedef int (*reset_device_fn)(void *handle);
-
 
 struct device_ops {
 	reset_device_fn reset;
@@ -136,31 +139,28 @@ struct qmrom_handle {
 };
 
 int qmrom_unstitch_fw(const struct firmware *fw,
-			struct unstitched_firmware *unstitched_fw,
-			enum chip_revision_e revision);
-struct qmrom_handle *qmrom_init(void *spi_handle,
-			  void *reset_handle,
-			  void *ss_rdy_handle,
-			  int comms_retries,
-		      reset_device_fn reset);
+		      struct unstitched_firmware *unstitched_fw,
+		      enum chip_revision_e revision);
+struct qmrom_handle *qmrom_init(void *spi_handle, void *reset_handle,
+				void *ss_rdy_handle, int comms_retries,
+				reset_device_fn reset);
 void qmrom_deinit(struct qmrom_handle *handle);
 int qmrom_reboot_bootloader(struct qmrom_handle *handle);
 int qmrom_flash_dbg_cert(struct qmrom_handle *handle,
-			  struct firmware *dbg_cert);
+			 struct firmware *dbg_cert);
 int qmrom_erase_dbg_cert(struct qmrom_handle *handle);
-int qmrom_flash_fw(struct qmrom_handle *handle,
-			  const struct firmware *fw);
+int qmrom_flash_fw(struct qmrom_handle *handle, const struct firmware *fw);
 int qmrom_flash_unstitched_fw(struct qmrom_handle *handle,
-			  const struct unstitched_firmware *fw);
+			      const struct unstitched_firmware *fw);
 
 int qmrom_pre_read(struct qmrom_handle *handle);
 int qmrom_read(struct qmrom_handle *handle);
 int qmrom_write_cmd(struct qmrom_handle *handle, uint8_t cmd);
 int qmrom_write_cmd32(struct qmrom_handle *handle, uint32_t cmd);
 int qmrom_write_size_cmd(struct qmrom_handle *handle, uint8_t cmd,
-		uint16_t data_size, const char *data);
+			 uint16_t data_size, const char *data);
 int qmrom_write_size_cmd32(struct qmrom_handle *handle, uint32_t cmd,
-		uint16_t data_size, const char *data);
+			   uint16_t data_size, const char *data);
 
 #ifdef CHECK_STCS
 void check_stcs(const char *func, int line, struct qmrom_handle *h);

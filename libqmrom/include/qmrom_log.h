@@ -65,11 +65,11 @@ extern struct device *__qmrom_log_dev__;
 
 void qmrom_set_log_device(struct device *dev, enum log_level_e lvl);
 
-#define LOG_ERR(...)                                                      \
-	do {                                                              \
-		if (__qmrom_log_dev__)                                    \
-			if (__log_level__ > LOG_QUIET)                    \
-				dev_err(__qmrom_log_dev__, __VA_ARGS__);  \
+#define LOG_ERR(...)                                                     \
+	do {                                                             \
+		if (__qmrom_log_dev__)                                   \
+			if (__log_level__ > LOG_QUIET)                   \
+				dev_err(__qmrom_log_dev__, __VA_ARGS__); \
 	} while (0)
 #define LOG_WARN(...)                                                     \
 	do {                                                              \
@@ -83,11 +83,11 @@ void qmrom_set_log_device(struct device *dev, enum log_level_e lvl);
 			if (__log_level__ > LOG_WARN)                     \
 				dev_info(__qmrom_log_dev__, __VA_ARGS__); \
 	} while (0)
-#define LOG_DBG(...)                                                      \
-	do {                                                              \
-		if (__qmrom_log_dev__)                                    \
-			if (__log_level__ > LOG_INFO)                     \
-				dev_dbg(__qmrom_log_dev__, __VA_ARGS__);  \
+#define LOG_DBG(...)                                                     \
+	do {                                                             \
+		if (__qmrom_log_dev__)                                   \
+			if (__log_level__ > LOG_INFO)                    \
+				dev_dbg(__qmrom_log_dev__, __VA_ARGS__); \
 	} while (0)
 #endif
 

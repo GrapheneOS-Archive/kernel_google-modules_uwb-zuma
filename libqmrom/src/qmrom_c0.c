@@ -15,7 +15,8 @@
 #define CHIP_VERSION_DEV_REV_PAYLOAD_OFFSET 6
 #define CHUNK_SIZE_C0 2040
 
-#define SPI_SH_READY_CMD_BIT_MASK_C0 (SPI_SH_READY_CMD_BIT_MASK >> 4 | SPI_SH_READY_CMD_BIT_MASK)
+#define SPI_SH_READY_CMD_BIT_MASK_C0 \
+	(SPI_SH_READY_CMD_BIT_MASK >> 4 | SPI_SH_READY_CMD_BIT_MASK)
 
 enum C0_CMD {
 	ROM_CMD_C0_SEC_LOAD_ICV_IMG_TO_RRAM = 0x0,
@@ -72,52 +73,58 @@ enum C0_RESP {
 };
 
 static int qmrom_c0_flash_fw(struct qmrom_handle *handle,
-			  const struct firmware *fw);
+			     const struct firmware *fw);
 static int qmrom_c0_flash_debug_cert(struct qmrom_handle *handle,
-			  struct firmware *dbg_cert);
+				     struct firmware *dbg_cert);
 static int qmrom_c0_erase_debug_cert(struct qmrom_handle *handle);
 
-#define qmrom_pre_read_c0(h) \
-	({ \
-		int rc = qmrom_spi_wait_for_ready_line( \
-			(h)->ss_rdy_handle, SPI_READY_TIMEOUT_MS);\
-		if (!rc) rc = qmrom_pre_read((h)); \
-		rc; \
+#define qmrom_pre_read_c0(h)                                                  \
+	({                                                                    \
+		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
+						       SPI_READY_TIMEOUT_MS); \
+		if (!rc)                                                      \
+			rc = qmrom_pre_read((h));                             \
+		rc;                                                           \
 	})
-#define qmrom_read_c0(h) \
-	({ \
-		int rc = qmrom_spi_wait_for_ready_line( \
-			(h)->ss_rdy_handle, SPI_READY_TIMEOUT_MS);\
-		if (!rc) rc = qmrom_read((h)); \
-		rc; \
+#define qmrom_read_c0(h)                                                      \
+	({                                                                    \
+		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
+						       SPI_READY_TIMEOUT_MS); \
+		if (!rc)                                                      \
+			rc = qmrom_read((h));                                 \
+		rc;                                                           \
 	})
-#define qmrom_write_cmd_c0(h, cmd) \
-	({ \
-		int rc = qmrom_spi_wait_for_ready_line( \
-			(h)->ss_rdy_handle, SPI_READY_TIMEOUT_MS);\
-		if (!rc) rc = qmrom_write_cmd((h), (cmd)); \
-		rc; \
+#define qmrom_write_cmd_c0(h, cmd)                                            \
+	({                                                                    \
+		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
+						       SPI_READY_TIMEOUT_MS); \
+		if (!rc)                                                      \
+			rc = qmrom_write_cmd((h), (cmd));                     \
+		rc;                                                           \
 	})
-#define qmrom_write_cmd32_c0(h, cmd) \
-	({ \
-		int rc = qmrom_spi_wait_for_ready_line( \
-			(h)->ss_rdy_handle, SPI_READY_TIMEOUT_MS);\
-		if (!rc) rc = qmrom_write_cmd32((h), (cmd)); \
-		rc; \
+#define qmrom_write_cmd32_c0(h, cmd)                                          \
+	({                                                                    \
+		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
+						       SPI_READY_TIMEOUT_MS); \
+		if (!rc)                                                      \
+			rc = qmrom_write_cmd32((h), (cmd));                   \
+		rc;                                                           \
 	})
-#define qmrom_write_size_cmd_c0(h, cmd, ds, d) \
-	({ \
-		int rc = qmrom_spi_wait_for_ready_line( \
-			(h)->ss_rdy_handle, SPI_READY_TIMEOUT_MS);\
-		if (!rc) rc = qmrom_write_size_cmd((h), (cmd), (ds), (d)); \
-		rc; \
+#define qmrom_write_size_cmd_c0(h, cmd, ds, d)                                \
+	({                                                                    \
+		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
+						       SPI_READY_TIMEOUT_MS); \
+		if (!rc)                                                      \
+			rc = qmrom_write_size_cmd((h), (cmd), (ds), (d));     \
+		rc;                                                           \
 	})
-#define qmrom_write_size_cmd32_c0(h, cmd, ds, d) \
-	({ \
-		int rc = qmrom_spi_wait_for_ready_line( \
-			(h)->ss_rdy_handle, SPI_READY_TIMEOUT_MS);\
-		if (!rc) rc = qmrom_write_size_cmd32((h), (cmd), (ds), (d)); \
-		rc; \
+#define qmrom_write_size_cmd32_c0(h, cmd, ds, d)                              \
+	({                                                                    \
+		int rc = qmrom_spi_wait_for_ready_line((h)->ss_rdy_handle,    \
+						       SPI_READY_TIMEOUT_MS); \
+		if (!rc)                                                      \
+			rc = qmrom_write_size_cmd32((h), (cmd), (ds), (d));   \
+		rc;                                                           \
 	})
 
 static void qmrom_c0_poll_soc(struct qmrom_handle *handle)
@@ -125,14 +132,16 @@ static void qmrom_c0_poll_soc(struct qmrom_handle *handle)
 	int retries = handle->comms_retries;
 	memset(handle->hstc, 0, sizeof(struct stc));
 	do {
-		int rc = qmrom_spi_wait_for_ready_line(handle->ss_rdy_handle, SPI_READY_TIMEOUT_MS);
+		int rc = qmrom_spi_wait_for_ready_line(handle->ss_rdy_handle,
+						       SPI_READY_TIMEOUT_MS);
 		if (rc) {
-			LOG_ERR("%s qmrom_spi_wait_for_ready_line failed\n", __func__);
+			LOG_ERR("%s qmrom_spi_wait_for_ready_line failed\n",
+				__func__);
 			continue;
 		}
-		qmrom_spi_transfer(handle->spi_handle,
-			(char *)handle->sstc, (const char *)handle->hstc,
-			sizeof(struct stc) + handle->hstc->len);
+		qmrom_spi_transfer(handle->spi_handle, (char *)handle->sstc,
+				   (const char *)handle->hstc,
+				   sizeof(struct stc) + handle->hstc->len);
 	} while (retries-- && handle->sstc->raw_flags == 0);
 }
 
@@ -144,18 +153,19 @@ static int qmrom_c0_wait_ready(struct qmrom_handle *handle)
 
 	/* handle->sstc has been updated */
 	while (retries-- &&
-		handle->sstc->raw_flags != SPI_SH_READY_CMD_BIT_MASK_C0)
-	{
+	       handle->sstc->raw_flags != SPI_SH_READY_CMD_BIT_MASK_C0) {
 		if (handle->sstc->soc_flags.out_waiting) {
 			qmrom_pre_read_c0(handle);
 			qmrom_read_c0(handle);
 		} else if (handle->sstc->soc_flags.out_active) {
 			return qmrom_read_c0(handle);
-		} else qmrom_c0_poll_soc(handle);
+		} else
+			qmrom_c0_poll_soc(handle);
 	}
 
 	return handle->sstc->raw_flags == SPI_SH_READY_CMD_BIT_MASK_C0 ?
-		0 : SPI_ERR_WAIT_READY_TIMEOUT;
+		       0 :
+		       SPI_ERR_WAIT_READY_TIMEOUT;
 }
 
 static int qmrom_c0_poll_cmd_resp(struct qmrom_handle *handle)
@@ -167,13 +177,14 @@ static int qmrom_c0_poll_cmd_resp(struct qmrom_handle *handle)
 		if (handle->sstc->soc_flags.out_waiting) {
 			qmrom_pre_read_c0(handle);
 			return qmrom_read_c0(handle);
-		} else qmrom_c0_poll_soc(handle);
-	}
-	while (retries--);
+		} else
+			qmrom_c0_poll_soc(handle);
+	} while (retries--);
 	if (retries <= 0)
-		LOG_ERR("%s failed after %d replies\n", __func__, handle->comms_retries);
+		LOG_ERR("%s failed after %d replies\n", __func__,
+			handle->comms_retries);
 
-    return retries > 0 ? 0 : -1;
+	return retries > 0 ? 0 : -1;
 }
 
 int qmrom_c0_probe_device(struct qmrom_handle *handle)
@@ -205,10 +216,14 @@ int qmrom_c0_probe_device(struct qmrom_handle *handle)
 	if (rc)
 		return rc;
 
-	handle->chip_rev = SSTC2UINT16(handle, CHIP_VERSION_CHIP_REV_PAYLOAD_OFFSET) & 0xFF;
-	handle->device_version = bswap_16(SSTC2UINT16(handle, CHIP_VERSION_DEV_REV_PAYLOAD_OFFSET));
+	handle->chip_rev =
+		SSTC2UINT16(handle, CHIP_VERSION_CHIP_REV_PAYLOAD_OFFSET) &
+		0xFF;
+	handle->device_version = bswap_16(
+		SSTC2UINT16(handle, CHIP_VERSION_DEV_REV_PAYLOAD_OFFSET));
 	if (handle->chip_rev != CHIP_REVISION_C0) {
-		LOG_ERR("%s: wrong chip revision %#x\n", __func__, handle->chip_rev);
+		LOG_ERR("%s: wrong chip revision %#x\n", __func__,
+			handle->chip_rev);
 		handle->chip_rev = -1;
 		return -1;
 	}
@@ -229,12 +244,12 @@ int qmrom_c0_probe_device(struct qmrom_handle *handle)
 
 	/* skip the first 4 bytes */
 	soc_lcs_uuid = &(handle->sstc->payload[4]);
-	for (i = 0 ; i < ROM_SOC_ID_LEN ; i++)
+	for (i = 0; i < ROM_SOC_ID_LEN; i++)
 		handle->soc_id[i] = soc_lcs_uuid[ROM_SOC_ID_LEN - i - 1];
 	soc_lcs_uuid += ROM_SOC_ID_LEN;
 	memcpy(&handle->lcs_state, soc_lcs_uuid, sizeof(uint32_t));
 	soc_lcs_uuid += 4;
-	for (i = 0 ; i < ROM_UUID_LEN ; i++)
+	for (i = 0; i < ROM_UUID_LEN; i++)
 		handle->uuid[i] = soc_lcs_uuid[ROM_UUID_LEN - i - 1];
 
 	/* Set rom ops */
@@ -245,18 +260,19 @@ int qmrom_c0_probe_device(struct qmrom_handle *handle)
 	return 0;
 }
 
-static int qmrom_c0_flash_data(struct qmrom_handle *handle,
-	struct firmware *fw, uint8_t cmd, uint8_t resp, bool skip_last_check)
+static int qmrom_c0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
+			       uint8_t cmd, uint8_t resp, bool skip_last_check)
 {
 	int rc, sent = 0;
 	const char *bin_data = (const char *)fw->data;
 
 	while (sent < fw->size) {
 		uint32_t tx_bytes = fw->size - sent;
-		if (tx_bytes > CHUNK_SIZE_C0) tx_bytes = CHUNK_SIZE_C0;
+		if (tx_bytes > CHUNK_SIZE_C0)
+			tx_bytes = CHUNK_SIZE_C0;
 
-		LOG_DBG("%s: sending command %#x with %"PRIu32" bytes\n", __func__,
-					cmd, tx_bytes);
+		LOG_DBG("%s: sending command %#x with %" PRIu32 " bytes\n",
+			__func__, cmd, tx_bytes);
 		rc = qmrom_write_size_cmd32_c0(handle, cmd, tx_bytes, bin_data);
 		if (rc)
 			return rc;
@@ -281,22 +297,25 @@ static int qmrom_c0_flash_data(struct qmrom_handle *handle,
 }
 
 static int qmrom_c0_flash_fw(struct qmrom_handle *handle,
-			  const struct firmware *fw)
+			     const struct firmware *fw)
 {
 	int rc = 0;
 	struct unstitched_firmware all_fws = { 0 };
 	uint8_t flash_cmd = handle->lcs_state == CC_BSV_SECURE_LCS ?
-		ROM_CMD_C0_SEC_LOAD_OEM_IMG_TO_RRAM : ROM_CMD_C0_SEC_LOAD_ICV_IMG_TO_RRAM;
+				    ROM_CMD_C0_SEC_LOAD_OEM_IMG_TO_RRAM :
+				    ROM_CMD_C0_SEC_LOAD_ICV_IMG_TO_RRAM;
 
-	LOG_INFO("Unstitching the fw %p->data %p\n", (void*)fw, (void*)fw->data);
+	LOG_INFO("Unstitching the fw %p->data %p\n", (void *)fw,
+		 (void *)fw->data);
 	rc = qmrom_unstitch_fw(fw, &all_fws, handle->chip_rev);
 	if (rc) {
-		LOG_ERR("%s: Unstitched fw flashing not supported yet\n", __func__);
+		LOG_ERR("%s: Unstitched fw flashing not supported yet\n",
+			__func__);
 		return rc;
 	}
 
 	if (all_fws.key1_crt->data[HBK_LOC] == HBK_2E_ICV &&
-					handle->lcs_state != CC_BSV_CHIP_MANUFACTURE_LCS) {
+	    handle->lcs_state != CC_BSV_CHIP_MANUFACTURE_LCS) {
 		LOG_ERR("%s: Trying to flash an ICV fw on a non ICV platform\n",
 			__func__);
 		rc = -EINVAL;
@@ -304,7 +323,7 @@ static int qmrom_c0_flash_fw(struct qmrom_handle *handle,
 	}
 
 	if (all_fws.key1_crt->data[HBK_LOC] == HBK_2E_OEM &&
-					handle->lcs_state != CC_BSV_SECURE_LCS) {
+	    handle->lcs_state != CC_BSV_SECURE_LCS) {
 		LOG_ERR("%s: Trying to flash an OEM fw on a non OEM platform\n",
 			__func__);
 		rc = -EINVAL;
@@ -335,29 +354,31 @@ static int qmrom_c0_flash_fw(struct qmrom_handle *handle,
 	qmrom_c0_poll_cmd_resp(handle);
 	if (handle->sstc->payload[0] != WAITING_FOR_FIRST_KEY_CERT) {
 		LOG_ERR("%s: Waiting for WAITING_FOR_FIRST_KEY_CERT(%#x) but got %#x\n",
-			__func__, WAITING_FOR_FIRST_KEY_CERT, handle->sstc->payload[0]);
+			__func__, WAITING_FOR_FIRST_KEY_CERT,
+			handle->sstc->payload[0]);
 		goto end;
 	}
 
 	qmrom_c0_poll_soc(handle);
 
-	rc = qmrom_c0_flash_data(handle, all_fws.key1_crt,
-		ROM_CMD_C0_CERT_DATA, WAITING_FOR_SECOND_KEY_CERT, false);
+	rc = qmrom_c0_flash_data(handle, all_fws.key1_crt, ROM_CMD_C0_CERT_DATA,
+				 WAITING_FOR_SECOND_KEY_CERT, false);
 	if (rc)
 		goto end;
 
-	rc = qmrom_c0_flash_data(handle, all_fws.key2_crt,
-		ROM_CMD_C0_CERT_DATA, WAITING_FOR_CONTENT_CERT, false);
+	rc = qmrom_c0_flash_data(handle, all_fws.key2_crt, ROM_CMD_C0_CERT_DATA,
+				 WAITING_FOR_CONTENT_CERT, false);
 	if (rc)
 		goto end;
 
-	rc = qmrom_c0_flash_data(handle, all_fws.fw_crt,
-		ROM_CMD_C0_CERT_DATA, WAITING_FOR_SEC_FILE_DATA, false);
+	rc = qmrom_c0_flash_data(handle, all_fws.fw_crt, ROM_CMD_C0_CERT_DATA,
+				 WAITING_FOR_SEC_FILE_DATA, false);
 	if (rc)
 		goto end;
 
 	rc = qmrom_c0_flash_data(handle, all_fws.fw_img,
-		ROM_CMD_C0_SEC_IMAGE_DATA, WAITING_FOR_SEC_FILE_DATA, true);
+				 ROM_CMD_C0_SEC_IMAGE_DATA,
+				 WAITING_FOR_SEC_FILE_DATA, true);
 
 end:
 	qmrom_free(all_fws.fw_img);
@@ -368,7 +389,7 @@ end:
 }
 
 static int qmrom_c0_flash_debug_cert(struct qmrom_handle *handle,
-			  struct firmware *dbg_cert)
+				     struct firmware *dbg_cert)
 {
 	int rc;
 
@@ -377,7 +398,8 @@ static int qmrom_c0_flash_debug_cert(struct qmrom_handle *handle,
 	if (rc)
 		return rc;
 
-	LOG_DBG("%s: sending ROM_CMD_C0_USE_DIRECT_RRAM_WR command\n", __func__);
+	LOG_DBG("%s: sending ROM_CMD_C0_USE_DIRECT_RRAM_WR command\n",
+		__func__);
 	rc = qmrom_write_cmd32_c0(handle, ROM_CMD_C0_USE_INDIRECT_RRAM_WR);
 	if (rc)
 		return rc;
@@ -394,22 +416,25 @@ static int qmrom_c0_flash_debug_cert(struct qmrom_handle *handle,
 	qmrom_c0_poll_cmd_resp(handle);
 	if (handle->sstc->payload[0] != WAITING_TO_DEBUG_CERTIFICATE_SIZE) {
 		LOG_ERR("%s: Waiting for WAITING_TO_DEBUG_CERTIFICATE_SIZE(%#x) but got %#x\n",
-			__func__, WAITING_TO_DEBUG_CERTIFICATE_SIZE, handle->sstc->payload[0]);
+			__func__, WAITING_TO_DEBUG_CERTIFICATE_SIZE,
+			handle->sstc->payload[0]);
 		return rc;
 	}
 
 	LOG_DBG("%s: sending ROM_CMD_C0_DEBUG_CERT_SIZE command\n", __func__);
 	rc = qmrom_write_size_cmd32_c0(handle, ROM_CMD_C0_DEBUG_CERT_SIZE,
-		sizeof(uint32_t), (const char *)&dbg_cert->size);
+				       sizeof(uint32_t),
+				       (const char *)&dbg_cert->size);
 	qmrom_c0_poll_cmd_resp(handle);
 	if (handle->sstc->payload[0] != WAITING_FOR_DEBUG_CERT_DATA) {
 		LOG_ERR("%s: Waiting for WAITING_FOR_DEBUG_CERT_DATA(%#x) but got %#x\n",
-			__func__, WAITING_FOR_DEBUG_CERT_DATA, handle->sstc->payload[0]);
+			__func__, WAITING_FOR_DEBUG_CERT_DATA,
+			handle->sstc->payload[0]);
 		return rc;
 	}
 
-	rc = qmrom_c0_flash_data(handle, dbg_cert,
-		ROM_CMD_C0_CERT_DATA, WAITING_FOR_DEBUG_CERT_DATA, true);
+	rc = qmrom_c0_flash_data(handle, dbg_cert, ROM_CMD_C0_CERT_DATA,
+				 WAITING_FOR_DEBUG_CERT_DATA, true);
 	return 0;
 }
 

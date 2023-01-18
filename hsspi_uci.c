@@ -107,8 +107,8 @@ static void uci_sent(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 #define UCI_PACKET_HEADER_SIZE (4)
 #define UCI_PACKET_PAYLOAD_SIZE_LOCATION (3)
 
-static void uci_received(struct hsspi_layer *hlayer,
-			 struct hsspi_block *blk, int status)
+static void uci_received(struct hsspi_layer *hlayer, struct hsspi_block *blk,
+			 int status)
 {
 	struct uci_layer *uci = container_of(hlayer, struct uci_layer, hlayer);
 	struct uci_packet *p = container_of(blk, struct uci_packet, blk);
@@ -125,8 +125,8 @@ static void uci_received(struct hsspi_layer *hlayer,
 				// Incomplete UCI header
 				break;
 
-			payload_size = *((u8 *)blk->data + readn
-					 + UCI_PACKET_PAYLOAD_SIZE_LOCATION);
+			payload_size = *((u8 *)blk->data + readn +
+					 UCI_PACKET_PAYLOAD_SIZE_LOCATION);
 
 			if (blk->length - readn <=
 			    UCI_PACKET_HEADER_SIZE + payload_size)

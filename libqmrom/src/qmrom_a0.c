@@ -11,7 +11,7 @@
 #include <spi_rom_protocol.h>
 
 #define DEFAULT_SPI_CLOCKRATE 750000
-#define CHIP_VERSION_CHIP_REV_PAYLOAD_OFFSET  1
+#define CHIP_VERSION_CHIP_REV_PAYLOAD_OFFSET 1
 #define CHUNK_SIZE_A0 1016
 
 enum A0_CMD {
@@ -46,7 +46,7 @@ enum A0_RESP {
 };
 
 static int qmrom_a0_flash_fw(struct qmrom_handle *handle,
-			  const struct firmware *fw);
+			     const struct firmware *fw);
 
 void qmrom_a0_poll_soc(struct qmrom_handle *handle)
 {
@@ -54,9 +54,8 @@ void qmrom_a0_poll_soc(struct qmrom_handle *handle)
 	handle->hstc->all = 0;
 	qmrom_msleep(SPI_READY_TIMEOUT_MS);
 	do {
-		qmrom_spi_transfer(handle->spi_handle,
-			(char *)handle->sstc, (const char *)handle->hstc,
-			1);
+		qmrom_spi_transfer(handle->spi_handle, (char *)handle->sstc,
+				   (const char *)handle->hstc, 1);
 	} while (retries-- && handle->sstc->raw_flags == 0);
 }
 
@@ -65,12 +64,11 @@ int qmrom_a0_wait_ready(struct qmrom_handle *handle)
 	int retries = handle->comms_retries;
 	qmrom_a0_poll_soc(handle);
 
-	while (retries-- &&
-		!handle->sstc->soc_flags.out_waiting)
-	{
+	while (retries-- && !handle->sstc->soc_flags.out_waiting) {
 		qmrom_a0_poll_soc(handle);
 	}
-	return handle->sstc->soc_flags.out_waiting ? 0 : SPI_ERR_WAIT_READY_TIMEOUT;
+	return handle->sstc->soc_flags.out_waiting ? 0 :
+						     SPI_ERR_WAIT_READY_TIMEOUT;
 }
 
 int qmrom_a0_probe_device(struct qmrom_handle *handle)
@@ -101,11 +99,14 @@ int qmrom_a0_probe_device(struct qmrom_handle *handle)
 	qmrom_read(handle);
 
 	LOG_DBG("%s: Set the chip_rev/device_version\n", __func__);
-	handle->chip_rev = bswap_16(SSTC2UINT16(handle,
-				CHIP_VERSION_CHIP_REV_PAYLOAD_OFFSET)) & 0xFF;
+	handle->chip_rev =
+		bswap_16(SSTC2UINT16(handle,
+				     CHIP_VERSION_CHIP_REV_PAYLOAD_OFFSET)) &
+		0xFF;
 
 	if (handle->chip_rev != CHIP_REVISION_A0) {
-		LOG_ERR("%s: wrong chip revision %#x\n", __func__, handle->chip_rev);
+		LOG_ERR("%s: wrong chip revision %#x\n", __func__,
+			handle->chip_rev);
 		handle->chip_rev = -1;
 		return -1;
 	}
@@ -117,8 +118,8 @@ int qmrom_a0_probe_device(struct qmrom_handle *handle)
 	return 0;
 }
 
-int qmrom_a0_write_data(struct qmrom_handle *handle,
-		uint16_t data_size, const char *data)
+int qmrom_a0_write_data(struct qmrom_handle *handle, uint16_t data_size,
+			const char *data)
 {
 	handle->hstc->all = 0;
 	handle->hstc->host_flags.write = 1;
@@ -126,13 +127,13 @@ int qmrom_a0_write_data(struct qmrom_handle *handle,
 	handle->hstc->len = data_size;
 	memcpy(handle->hstc->payload, data, data_size);
 
-	return qmrom_spi_transfer(handle->spi_handle,
-			(char *)handle->sstc, (const char *)handle->hstc,
-			sizeof(struct stc) + data_size);
+	return qmrom_spi_transfer(handle->spi_handle, (char *)handle->sstc,
+				  (const char *)handle->hstc,
+				  sizeof(struct stc) + data_size);
 }
 
 static int qmrom_a0_write_chunks(struct qmrom_handle *handle,
-	const struct firmware *fw)
+				 const struct firmware *fw)
 {
 	int rc, sent = 0;
 	const char *bin_data = (const char *)fw->data;
@@ -140,7 +141,8 @@ static int qmrom_a0_write_chunks(struct qmrom_handle *handle,
 	check_stcs(__func__, __LINE__, handle);
 	while (sent < fw->size) {
 		uint32_t tx_bytes = fw->size - sent;
-		if (tx_bytes > CHUNK_SIZE_A0) tx_bytes = CHUNK_SIZE_A0;
+		if (tx_bytes > CHUNK_SIZE_A0)
+			tx_bytes = CHUNK_SIZE_A0;
 
 		LOG_DBG("%s: poll soc...\n", __func__);
 		check_stcs(__func__, __LINE__, handle);
@@ -148,15 +150,15 @@ static int qmrom_a0_write_chunks(struct qmrom_handle *handle,
 		qmrom_pre_read(handle);
 		handle->sstc->len = bswap_16(handle->sstc->len);
 		qmrom_read(handle);
-		if (handle->sstc->payload[0] != SPI_RSP_WAIT_FOR_IMAGE)
-		{
+		if (handle->sstc->payload[0] != SPI_RSP_WAIT_FOR_IMAGE) {
 			LOG_ERR("%s: wrong data result (%#x vs %#x)!!!\n",
 				__func__, handle->sstc->payload[0] & 0xff,
 				SPI_RSP_WAIT_FOR_IMAGE);
 			return SPI_PROTO_WRONG_RESP;
 		}
 
-		LOG_DBG("%s: sending %"PRIu32" bytes of data\n", __func__, tx_bytes);
+		LOG_DBG("%s: sending %" PRIu32 " bytes of data\n", __func__,
+			tx_bytes);
 		rc = qmrom_a0_write_data(handle, tx_bytes, bin_data);
 		if (rc)
 			return rc;
@@ -168,7 +170,7 @@ static int qmrom_a0_write_chunks(struct qmrom_handle *handle,
 }
 
 static int qmrom_a0_flash_fw(struct qmrom_handle *handle,
-			  const struct firmware *fw)
+			     const struct firmware *fw)
 {
 	int rc = 0, resp;
 
@@ -186,16 +188,16 @@ static int qmrom_a0_flash_fw(struct qmrom_handle *handle,
 
 	rc = qmrom_a0_wait_ready(handle);
 	if (rc) {
-		LOG_ERR("%s: timedout waiting for the device to be ready\n", __func__);
+		LOG_ERR("%s: timedout waiting for the device to be ready\n",
+			__func__);
 		return rc;
 	}
 	qmrom_pre_read(handle);
 	handle->sstc->len = bswap_16(handle->sstc->len);
 	qmrom_read(handle);
-	if (handle->sstc->payload[0] != SPI_RSP_WAIT_DOWNLOAD_MODE)
-	{
-		LOG_ERR("%s: wrong data result (%#x vs %#x)!!!\n",
-			__func__, handle->sstc->payload[0] & 0xff,
+	if (handle->sstc->payload[0] != SPI_RSP_WAIT_DOWNLOAD_MODE) {
+		LOG_ERR("%s: wrong data result (%#x vs %#x)!!!\n", __func__,
+			handle->sstc->payload[0] & 0xff,
 			SPI_RSP_WAIT_DOWNLOAD_MODE);
 		return SPI_PROTO_WRONG_RESP;
 	}
@@ -206,14 +208,13 @@ static int qmrom_a0_flash_fw(struct qmrom_handle *handle,
 	if (rc)
 		return rc;
 
-	for (resp = SPI_RSP_WAIT_FOR_KEY1_CERT ; resp < SPI_RSP_WAIT_FOR_IMAGE ; resp++)
-	{
+	for (resp = SPI_RSP_WAIT_FOR_KEY1_CERT; resp < SPI_RSP_WAIT_FOR_IMAGE;
+	     resp++) {
 		qmrom_a0_poll_soc(handle);
 		qmrom_pre_read(handle);
 		handle->sstc->len = bswap_16(handle->sstc->len);
 		qmrom_read(handle);
-		if (handle->sstc->payload[0] != resp)
-		{
+		if (handle->sstc->payload[0] != resp) {
 			LOG_ERR("%s: wrong data result (%#x vs %#x)!!!\n",
 				__func__, handle->sstc->payload[0] & 0xff,
 				resp);
@@ -228,7 +229,7 @@ static int qmrom_a0_flash_fw(struct qmrom_handle *handle,
 
 	LOG_DBG("%s: sending fw size\n", __func__);
 	rc = qmrom_a0_write_data(handle, sizeof(uint32_t),
-				(const char *)&fw->size);
+				 (const char *)&fw->size);
 	if (rc)
 		return rc;
 

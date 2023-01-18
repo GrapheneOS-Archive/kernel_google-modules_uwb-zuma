@@ -59,10 +59,10 @@ int qmrom_spi_transfer(void *handle, char *rbuf, const char *wbuf, size_t size)
 	rc = spi_sync_transfer(spi, xfer, ARRAY_SIZE(xfer));
 
 	if (trace_spi_xfers) {
-		print_hex_dump(KERN_DEBUG, "tx:", DUMP_PREFIX_NONE,
-			16, 1, wbuf, size, false);
-		print_hex_dump(KERN_DEBUG, "rx:", DUMP_PREFIX_NONE,
-			16, 1, rbuf, size, false);
+		print_hex_dump(KERN_DEBUG, "tx:", DUMP_PREFIX_NONE, 16, 1, wbuf,
+			       size, false);
+		print_hex_dump(KERN_DEBUG, "rx:", DUMP_PREFIX_NONE, 16, 1, rbuf,
+			       size, false);
 	}
 
 	return rc;
@@ -104,10 +104,12 @@ const struct firmware *qmrom_spi_get_firmware(void *handle,
 
 	if (!fwname) {
 		if (revision == CHIP_REVISION_A0)
-			snprintf(_fw_name, sizeof(_fw_name), "qm35_%02x.bin", revision);
+			snprintf(_fw_name, sizeof(_fw_name), "qm35_%02x.bin",
+				 revision);
 		else
 			snprintf(_fw_name, sizeof(_fw_name), "qm35_b0_%.3s.bin",
-				lcs_state == CC_BSV_SECURE_LCS ? "oem" : "icv");
+				 lcs_state == CC_BSV_SECURE_LCS ? "oem" :
+								  "icv");
 	} else {
 		fw_name = fwname;
 	}

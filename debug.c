@@ -123,8 +123,9 @@ static ssize_t debug_log_level_read(struct file *filp, char __user *buff,
 				       sizeof(log_level));
 }
 
-static ssize_t debug_test_hsspi_sleep_write(struct file *filp, const char __user *buff,
-				     size_t count, loff_t *off)
+static ssize_t debug_test_hsspi_sleep_write(struct file *filp,
+					    const char __user *buff,
+					    size_t count, loff_t *off)
 {
 	int sleep_inter_frame_ms;
 
@@ -157,7 +158,8 @@ static ssize_t debug_traces_read(struct file *filp, char __user *buff,
 
 		ret = wait_event_interruptible(
 			debug->wq,
-			(entry_size = debug->trace_ops->trace_get_next_size(debug)));
+			(entry_size =
+				 debug->trace_ops->trace_get_next_size(debug)));
 		if (ret)
 			return ret;
 	}
@@ -247,7 +249,7 @@ static ssize_t debug_coredump_read(struct file *filep, char __user *buff,
 }
 
 static ssize_t debug_coredump_write(struct file *filp, const char __user *buff,
-				  size_t count, loff_t *off)
+				    size_t count, loff_t *off)
 {
 	struct debug *debug;
 	u8 force;
@@ -443,8 +445,8 @@ int debug_init(struct debug *debug)
 		goto unregister;
 	}
 
-	file = debugfs_create_file("test_sleep_hsspi_ms", 0200, debug->fw_dir, debug,
-				   &debug_test_hsspi_sleep_fops);
+	file = debugfs_create_file("test_sleep_hsspi_ms", 0200, debug->fw_dir,
+				   debug, &debug_test_hsspi_sleep_fops);
 	if (!file) {
 		pr_err("qm35: failed to create /sys/kernel/debug/uwb0/fw/test_sleep_hsspi\n");
 		goto unregister;

@@ -96,7 +96,7 @@ static int coredump_send_rcv_status(struct coredump_layer *layer, uint8_t ack)
 	memcpy(p->blk.data + sizeof(hdr), &rcv, sizeof(rcv));
 
 	return hsspi_send(&qm35_hdl->hsspi, &qm35_hdl->coredump_layer.hlayer,
-			 &p->blk);
+			  &p->blk);
 }
 
 static uint16_t coredump_get_checksum(struct coredump_layer *layer)
@@ -146,20 +146,19 @@ static struct hsspi_block *coredump_get(struct hsspi_layer *hlayer, u16 length)
 }
 
 static void coredump_header_ntf_received(struct coredump_layer *layer,
-		struct coredump_hdr_ntf chn)
+					 struct coredump_hdr_ntf chn)
 {
 	void *data;
 
 	pr_info("qm35: coredump: receiving coredump with len: %d and crc: 0x%x\n",
-			chn.size, chn.crc);
+		chn.size, chn.crc);
 
 	layer->coredump_data_wr_idx = 0;
 	layer->coredump_size = chn.size;
 	layer->coredump_crc = chn.crc;
 	layer->coredump_status = COREDUMP_RCV_NACK;
 
-	data = krealloc(layer->coredump_data, layer->coredump_size,
-			GFP_KERNEL);
+	data = krealloc(layer->coredump_data, layer->coredump_size, GFP_KERNEL);
 
 	if (data)
 		layer->coredump_data = data;
@@ -168,7 +167,7 @@ static void coredump_header_ntf_received(struct coredump_layer *layer,
 }
 
 static int coredump_body_ntf_received(struct coredump_layer *layer,
-		uint8_t *cch_body, uint16_t cch_body_size)
+				      uint8_t *cch_body, uint16_t cch_body_size)
 {
 	if (!layer->coredump_data) {
 		pr_err("qm35: failed to save coredump, mem not allocated\n");
@@ -176,15 +175,15 @@ static int coredump_body_ntf_received(struct coredump_layer *layer,
 	}
 
 	if (cch_body_size + layer->coredump_data_wr_idx >
-		layer->coredump_size) {
+	    layer->coredump_size) {
 		pr_err("qm35: failed to save coredump, mem overflow: max size: %d, wr_idx: %d, cd size: %d\n",
-			   layer->coredump_size,
-			   layer->coredump_data_wr_idx, cch_body_size);
+		       layer->coredump_size, layer->coredump_data_wr_idx,
+		       cch_body_size);
 		return 1;
 	}
 
-	memcpy(layer->coredump_data + layer->coredump_data_wr_idx,
-		   cch_body, cch_body_size);
+	memcpy(layer->coredump_data + layer->coredump_data_wr_idx, cch_body,
+	       cch_body_size);
 	layer->coredump_data_wr_idx += cch_body_size;
 
 	return 0;
@@ -233,7 +232,8 @@ static void coredump_received(struct hsspi_layer *hlayer,
 
 	case COREDUMP_BODY_NTF:
 		pr_info("qm35: coredump: saving coredump data with len: %d [%d/%d]\n",
-			cch_body_size, layer->coredump_data_wr_idx + cch_body_size,
+			cch_body_size,
+			layer->coredump_data_wr_idx + cch_body_size,
 			layer->coredump_size);
 
 		if (coredump_body_ntf_received(layer, cch_body, cch_body_size))
@@ -314,9 +314,8 @@ int debug_coredump_force(struct debug *dbg)
 	memcpy(p->blk.data, &hdr, sizeof(hdr));
 
 	return hsspi_send(&qm35_hdl->hsspi, &qm35_hdl->coredump_layer.hlayer,
-			 &p->blk);
+			  &p->blk);
 }
-
 
 static const struct debug_coredump_ops debug_coredump_ops = {
 	.coredump_get = debug_coredump_get,

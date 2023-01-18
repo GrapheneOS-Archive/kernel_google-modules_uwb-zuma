@@ -112,7 +112,7 @@ static int uci_open(struct inode *inode, struct file *file)
 {
 	struct miscdevice *uci_dev = file->private_data;
 	struct qm35_ctx *qm35_hdl =
-	    container_of(uci_dev, struct qm35_ctx, uci_dev);
+		container_of(uci_dev, struct qm35_ctx, uci_dev);
 
 	return hsspi_register(&qm35_hdl->hsspi, &qm35_hdl->uci_layer.hlayer);
 }
@@ -126,17 +126,17 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 	void __user *argp = (void __user *)args;
 	struct miscdevice *uci_dev = filp->private_data;
 	struct qm35_ctx *qm35_hdl =
-	    container_of(uci_dev, struct qm35_ctx, uci_dev);
+		container_of(uci_dev, struct qm35_ctx, uci_dev);
 	int ret;
 
 	switch (cmd) {
-	case QM35_CTRL_GET_STATE:
-	{
+	case QM35_CTRL_GET_STATE: {
 		return copy_to_user(argp, &qm35_hdl->state,
-				    sizeof(qm35_hdl->state)) ? -EFAULT : 0;
+				    sizeof(qm35_hdl->state)) ?
+			       -EFAULT :
+			       0;
 	}
-	case QM35_CTRL_RESET:
-	{
+	case QM35_CTRL_RESET: {
 		qm35_hsspi_stop(qm35_hdl);
 
 		ret = qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
@@ -149,10 +149,11 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 			return ret;
 
 		return copy_to_user(argp, &qm35_hdl->state,
-				    sizeof(qm35_hdl->state)) ? -EFAULT : 0;
+				    sizeof(qm35_hdl->state)) ?
+			       -EFAULT :
+			       0;
 	}
-	case QM35_CTRL_FW_UPLOAD:
-	{
+	case QM35_CTRL_FW_UPLOAD: {
 		qm35_hsspi_stop(qm35_hdl);
 
 		ret = qm_firmware_load(qm35_hdl);
@@ -165,10 +166,11 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 			return ret;
 
 		return copy_to_user(argp, &qm35_hdl->state,
-				    sizeof(qm35_hdl->state)) ? -EFAULT : 0;
+				    sizeof(qm35_hdl->state)) ?
+			       -EFAULT :
+			       0;
 	}
-	case QM35_CTRL_POWER:
-	{
+	case QM35_CTRL_POWER: {
 		unsigned int on;
 
 		ret = get_user(on, (unsigned int __user *)argp);
@@ -206,7 +208,7 @@ static int uci_release(struct inode *inode, struct file *filp)
 {
 	struct miscdevice *uci_dev = filp->private_data;
 	struct qm35_ctx *qm35_hdl =
-	    container_of(uci_dev, struct qm35_ctx, uci_dev);
+		container_of(uci_dev, struct qm35_ctx, uci_dev);
 
 	hsspi_unregister(&qm35_hdl->hsspi, &qm35_hdl->uci_layer.hlayer);
 	return 0;
@@ -284,13 +286,13 @@ static __poll_t uci_poll(struct file *filp, struct poll_table_struct *wait)
 }
 
 static const struct file_operations uci_fops = {
-	.owner		= THIS_MODULE,
-	.open		= uci_open,
-	.release	= uci_release,
-	.unlocked_ioctl	= uci_ioctl,
-	.read		= uci_read,
-	.write		= uci_write,
-	.poll		= uci_poll,
+	.owner = THIS_MODULE,
+	.open = uci_open,
+	.release = uci_release,
+	.unlocked_ioctl = uci_ioctl,
+	.read = uci_read,
+	.write = uci_write,
+	.poll = uci_poll,
 };
 
 static irqreturn_t qm35_irq_handler(int irq, void *qm35_ctx)
@@ -310,8 +312,7 @@ static irqreturn_t qm35_irq_handler(int irq, void *qm35_ctx)
 
 static void reenable_ss_irq(struct hsspi *hsspi)
 {
-	struct qm35_ctx *qm35_hdl =
-		container_of(hsspi, struct qm35_ctx, hsspi);
+	struct qm35_ctx *qm35_hdl = container_of(hsspi, struct qm35_ctx, hsspi);
 
 	enable_irq(qm35_hdl->spi->irq);
 }
@@ -325,9 +326,9 @@ static irqreturn_t qm35_ss_rdy_handler(int irq, void *data)
 
 	current_time = ktime_get();
 
-	if (ktime_after(
-		    ktime_add(old_time, CONFIG_QM35_DEBOUNCE_TIME_US * 1000),
-		    current_time))
+	if (ktime_after(ktime_add(old_time,
+				  CONFIG_QM35_DEBOUNCE_TIME_US * 1000),
+			current_time))
 		return IRQ_HANDLED;
 
 	old_time = current_time;
@@ -340,8 +341,7 @@ static irqreturn_t qm35_ss_rdy_handler(int irq, void *data)
 
 static void qm35_wakeup_enter(struct hsspi *hsspi)
 {
-	struct qm35_ctx *qm35_hdl =
-		container_of(hsspi, struct qm35_ctx, hsspi);
+	struct qm35_ctx *qm35_hdl = container_of(hsspi, struct qm35_ctx, hsspi);
 
 	if (wake_use_csn)
 		gpiod_set_value(qm35_hdl->gpio_csn, 1);
@@ -351,8 +351,7 @@ static void qm35_wakeup_enter(struct hsspi *hsspi)
 
 static void qm35_wakeup_release(struct hsspi *hsspi)
 {
-	struct qm35_ctx *qm35_hdl =
-		container_of(hsspi, struct qm35_ctx, hsspi);
+	struct qm35_ctx *qm35_hdl = container_of(hsspi, struct qm35_ctx, hsspi);
 
 	if (wake_use_csn)
 		gpiod_set_value(qm35_hdl->gpio_csn, 0);
@@ -362,8 +361,7 @@ static void qm35_wakeup_release(struct hsspi *hsspi)
 
 static void qm35_reset_hook(struct hsspi *hsspi)
 {
-	struct qm35_ctx *qm35_hdl =
-		container_of(hsspi, struct qm35_ctx, hsspi);
+	struct qm35_ctx *qm35_hdl = container_of(hsspi, struct qm35_ctx, hsspi);
 
 	if (reset_on_error)
 		qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
@@ -402,7 +400,6 @@ void qm35_hsspi_start(struct qm35_ctx *qm35_hdl)
 	}
 
 	hsspi_start(&qm35_hdl->hsspi);
-
 }
 
 void qm35_hsspi_stop(struct qm35_ctx *qm35_hdl)
@@ -431,11 +428,8 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 
 	qmrom_set_log_device(&spi->dev, LOG_WARN);
 
-	h = qmrom_init(&spi->dev,
-			qm35_hdl,
-			qm35_hdl->gpio_ss_rdy,
-			qmrom_retries,
-			qmrom_spi_reset_device);
+	h = qmrom_init(&spi->dev, qm35_hdl, qm35_hdl->gpio_ss_rdy,
+		       qmrom_retries, qmrom_spi_reset_device);
 	if (!h) {
 		pr_err("qmrom_init failed\n");
 		ret = -1;
@@ -446,8 +440,10 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 	dev_info(&spi->dev, "    dev_id:    deca%04x\n", h->device_version);
 
 	if (h->chip_rev != CHIP_REVISION_A0) {
-		dev_info(&spi->dev, "    soc_id:    %*phN\n", ROM_SOC_ID_LEN, h->soc_id);
-		dev_info(&spi->dev, "    uuid:      %*phN\n", ROM_UUID_LEN, h->uuid);
+		dev_info(&spi->dev, "    soc_id:    %*phN\n", ROM_SOC_ID_LEN,
+			 h->soc_id);
+		dev_info(&spi->dev, "    uuid:      %*phN\n", ROM_UUID_LEN,
+			 h->uuid);
 		dev_info(&spi->dev, "    lcs_state: %hhu\n", h->lcs_state);
 
 		memcpy(&qm_dev_id, &h->device_version, sizeof(qm_dev_id));
@@ -455,12 +451,12 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 
 		debug_soc_info_available(&qm35_hdl->debug);
 	} else {
-		dev_dbg(&spi->dev, "SoC info not supported on chip revision A0\n");
+		dev_dbg(&spi->dev,
+			"SoC info not supported on chip revision A0\n");
 	}
 
 	dev_dbg(&spi->dev, "Starting device flashing!\n");
-	fw = qmrom_spi_get_firmware(&spi->dev,
-					      h->chip_rev, h->lcs_state);
+	fw = qmrom_spi_get_firmware(&spi->dev, h->chip_rev, h->lcs_state);
 	ret = qmrom_flash_fw(h, fw);
 	qmrom_spi_release_firmware(fw);
 
@@ -513,19 +509,21 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 	unsigned long ss_irqflags;
 
 	/* Get READY GPIO */
-	qm35_ctx->gpio_ss_rdy = devm_gpiod_get(&qm35_ctx->spi->dev, "ss-ready", GPIOD_IN);
+	qm35_ctx->gpio_ss_rdy =
+		devm_gpiod_get(&qm35_ctx->spi->dev, "ss-ready", GPIOD_IN);
 	if (IS_ERR(qm35_ctx->gpio_ss_rdy))
 		return PTR_ERR(qm35_ctx->gpio_ss_rdy);
 
-	ret = devm_request_irq(&qm35_ctx->spi->dev, gpiod_to_irq(qm35_ctx->gpio_ss_rdy),
+	ret = devm_request_irq(&qm35_ctx->spi->dev,
+			       gpiod_to_irq(qm35_ctx->gpio_ss_rdy),
 			       &qm35_ss_rdy_handler, IRQF_TRIGGER_RISING,
 			       "hsspi-ss-rdy", qm35_ctx);
 	if (ret)
 		return ret;
 
 	/* get SS_IRQ GPIO */
-	qm35_ctx->gpio_ss_irq = devm_gpiod_get_optional(
-		&qm35_ctx->spi->dev, "ss-irq", GPIOD_IN);
+	qm35_ctx->gpio_ss_irq = devm_gpiod_get_optional(&qm35_ctx->spi->dev,
+							"ss-irq", GPIOD_IN);
 
 	if (qm35_ctx->gpio_ss_irq) {
 		if (IS_ERR(qm35_ctx->gpio_ss_irq))
@@ -543,14 +541,14 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 	qm35_ctx->hsspi.reset_qm35 = qm35_reset_hook;
 
 	ret = devm_request_irq(&qm35_ctx->spi->dev, qm35_ctx->spi->irq,
-			       &qm35_irq_handler, ss_irqflags,
-			       "hsspi-ss-irq", qm35_ctx);
+			       &qm35_irq_handler, ss_irqflags, "hsspi-ss-irq",
+			       qm35_ctx);
 	if (ret)
 		return ret;
 
 	/* Get exton */
-	qm35_ctx->gpio_exton = devm_gpiod_get_optional(
-		&qm35_ctx->spi->dev, "exton", GPIOD_IN);
+	qm35_ctx->gpio_exton =
+		devm_gpiod_get_optional(&qm35_ctx->spi->dev, "exton", GPIOD_IN);
 	if (qm35_ctx->gpio_exton) {
 		if (IS_ERR(qm35_ctx->gpio_exton))
 			return PTR_ERR(qm35_ctx->gpio_exton);
@@ -558,8 +556,8 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 		ret = devm_request_irq(&qm35_ctx->spi->dev,
 				       gpiod_to_irq(qm35_ctx->gpio_exton),
 				       &qm35_exton_handler,
-				       IRQF_TRIGGER_FALLING,
-				       "hsspi-exton", qm35_ctx);
+				       IRQF_TRIGGER_FALLING, "hsspi-exton",
+				       qm35_ctx);
 		if (ret)
 			return ret;
 
@@ -569,16 +567,16 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 
 	/* Get spi csn */
 	if (wake_use_csn) {
-		qm35_ctx->gpio_csn = devm_gpiod_get(
-			&qm35_ctx->spi->dev, "csn", GPIOD_OUT_HIGH);
+		qm35_ctx->gpio_csn = devm_gpiod_get(&qm35_ctx->spi->dev, "csn",
+						    GPIOD_OUT_HIGH);
 		if (IS_ERR(qm35_ctx->gpio_csn))
 			return PTR_ERR(qm35_ctx->gpio_csn);
 	}
 
 	/* Get wakeup */
 	if (wake_use_wakeup) {
-		qm35_ctx->gpio_wakeup = devm_gpiod_get(
-			&qm35_ctx->spi->dev, "wakeup", GPIOD_OUT_LOW);
+		qm35_ctx->gpio_wakeup = devm_gpiod_get(&qm35_ctx->spi->dev,
+						       "wakeup", GPIOD_OUT_LOW);
 		if (IS_ERR(qm35_ctx->gpio_wakeup))
 			return PTR_ERR(qm35_ctx->gpio_wakeup);
 	}
@@ -669,7 +667,8 @@ static int qm35_probe(struct spi_device *spi)
 
 		ret = spi_setup(spi);
 		if (ret) {
-			dev_err(&spi->dev, "spi_setup: requested spi speed=%d ret=%d\n",
+			dev_err(&spi->dev,
+				"spi_setup: requested spi speed=%d ret=%d\n",
 				spi_speed_hz, ret);
 			return ret;
 		}
@@ -684,8 +683,8 @@ static int qm35_probe(struct spi_device *spi)
 
 	spi_set_drvdata(spi, qm35_ctx);
 
-	qm35_ctx->gpio_reset = devm_gpiod_get_optional(&spi->dev, "reset",
-						       GPIOD_OUT_LOW);
+	qm35_ctx->gpio_reset =
+		devm_gpiod_get_optional(&spi->dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(qm35_ctx->gpio_reset)) {
 		ret = PTR_ERR(qm35_ctx->gpio_reset);
 		return ret;
@@ -696,10 +695,10 @@ static int qm35_probe(struct spi_device *spi)
 	/* power on */
 	qm35_regulators_set(qm35_ctx, true);
 
-	uci_misc	 = &qm35_ctx->uci_dev;
-	uci_misc->minor	 = MISC_DYNAMIC_MINOR;
-	uci_misc->name	 = UCI_DEV_NAME;
-	uci_misc->fops	 = &uci_fops;
+	uci_misc = &qm35_ctx->uci_dev;
+	uci_misc->minor = MISC_DYNAMIC_MINOR;
+	uci_misc->name = UCI_DEV_NAME;
+	uci_misc->fops = &uci_fops;
 	uci_misc->parent = &spi->dev;
 
 	qm35_ctx->state = QM35_CTRL_STATE_UNKNOWN;
@@ -738,7 +737,8 @@ static int qm35_probe(struct spi_device *spi)
 	if (ret)
 		goto coredump_layer_deinit;
 
-	ret = hsspi_register(&qm35_ctx->hsspi, &qm35_ctx->coredump_layer.hlayer);
+	ret = hsspi_register(&qm35_ctx->hsspi,
+			     &qm35_ctx->coredump_layer.hlayer);
 	if (ret)
 		goto log_layer_deinit;
 
@@ -759,7 +759,7 @@ static int qm35_probe(struct spi_device *spi)
 	}
 
 	hsspi_set_gpios(&qm35_ctx->hsspi, qm35_ctx->gpio_ss_rdy,
-		qm35_ctx->gpio_exton);
+			qm35_ctx->gpio_exton);
 	hsspi_start(&qm35_ctx->hsspi);
 
 	ret = misc_register(&qm35_ctx->uci_dev);

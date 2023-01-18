@@ -33,15 +33,15 @@
 #include "hsspi.h"
 
 /* STC HOST flags */
-#define STC_HOST_WR     BIT(7)
-#define STC_HOST_PRD    BIT(6)
-#define STC_HOST_RD     BIT(5)
+#define STC_HOST_WR BIT(7)
+#define STC_HOST_PRD BIT(6)
+#define STC_HOST_RD BIT(5)
 
 /* STC SOC flags */
-#define STC_SOC_ODW     BIT(7)
-#define STC_SOC_OA      BIT(6)
-#define STC_SOC_RDY     BIT(5)
-#define STC_SOC_ERR     BIT(4)
+#define STC_SOC_ODW BIT(7)
+#define STC_SOC_OA BIT(6)
+#define STC_SOC_RDY BIT(5)
+#define STC_SOC_ERR BIT(4)
 
 #define SS_READY_TIMEOUT_MS (250)
 
@@ -82,8 +82,8 @@ static struct hsspi_work *get_work(struct hsspi *hsspi)
 
 	spin_lock(&hsspi->lock);
 
-	hw = list_first_entry_or_null(&hsspi->work_list,
-				      struct hsspi_work, list);
+	hw = list_first_entry_or_null(&hsspi->work_list, struct hsspi_work,
+				      list);
 	if (hw)
 		list_del(&hw->list);
 
@@ -119,8 +119,8 @@ static bool is_txrx_waiting(struct hsspi *hsspi)
 	 * know if we need to make an empty TX transfer with PRE_READ
 	 * flag set.
 	 */
-	return !is_empty || ((state == HSSPI_RUNNING)
-			     && test_bit(HSSPI_FLAGS_SS_IRQ, hsspi->flags));
+	return !is_empty || ((state == HSSPI_RUNNING) &&
+			     test_bit(HSSPI_FLAGS_SS_IRQ, hsspi->flags));
 }
 
 /**
@@ -147,9 +147,9 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 	}
 
 	ret = wait_event_interruptible_timeout(
-			hsspi->wq_ready,
-			test_and_clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags),
-			msecs_to_jiffies(SS_READY_TIMEOUT_MS));
+		hsspi->wq_ready,
+		test_and_clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags),
+		msecs_to_jiffies(SS_READY_TIMEOUT_MS));
 	if (ret == 0) {
 		dev_warn(&hsspi->spi->dev,
 			 "timed out waiting for ss_ready(%d)\n",
@@ -157,7 +157,8 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 		return -EAGAIN;
 	}
 	if (ret < 0) {
-		dev_err(&hsspi->spi->dev, "Error %d while waiting for ss_ready\n", ret);
+		dev_err(&hsspi->spi->dev,
+			"Error %d while waiting for ss_ready\n", ret);
 		return ret;
 	}
 	return 0;
@@ -201,16 +202,19 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 		}
 
 		if (test_sleep_after_ss_ready_us > 0)
-			usleep_range(test_sleep_after_ss_ready_us, test_sleep_after_ss_ready_us+1);
+			usleep_range(test_sleep_after_ss_ready_us,
+				     test_sleep_after_ss_ready_us + 1);
 
 		hsspi_set_spi_slave_busy(hsspi);
 		ret = spi_sync_transfer(hsspi->spi, xfers, length ? 2 : 1);
 		hsspi->wakeup_release(hsspi);
 
-		trace_hsspi_spi_xfer(&hsspi->spi->dev, hsspi->host, hsspi->soc, ret);
+		trace_hsspi_spi_xfer(&hsspi->spi->dev, hsspi->host, hsspi->soc,
+				     ret);
 
 		if (ret) {
-			dev_err(&hsspi->spi->dev, "spi_sync_transfer: %d\n", ret);
+			dev_err(&hsspi->spi->dev, "spi_sync_transfer: %d\n",
+				ret);
 			continue;
 		}
 
@@ -282,11 +286,11 @@ static int hsspi_rx(struct hsspi *hsspi, u8 ul, u16 length)
 	if ((hsspi->soc->ul != ul) || (hsspi->soc->length != length))
 		dev_warn(&hsspi->spi->dev,
 			 "%s: received %hhu %hu but expecting %hhu %hu\n",
-			 __func__, hsspi->soc->ul, hsspi->soc->length,
-			 ul, length);
+			 __func__, hsspi->soc->ul, hsspi->soc->length, ul,
+			 length);
 
-	if (!(hsspi->soc->flags & STC_SOC_ODW)
-	    && test_and_clear_bit(HSSPI_FLAGS_SS_IRQ, hsspi->flags))
+	if (!(hsspi->soc->flags & STC_SOC_ODW) &&
+	    test_and_clear_bit(HSSPI_FLAGS_SS_IRQ, hsspi->flags))
 		hsspi->odw_cleared(hsspi);
 
 	return ret;
@@ -370,9 +374,9 @@ static int hsspi_thread_fn(void *data)
 		struct hsspi_work *hw;
 		int ret;
 
-		ret = wait_event_interruptible(
-			hsspi->wq,
-			is_txrx_waiting(hsspi) || kthread_should_stop());
+		ret = wait_event_interruptible(hsspi->wq,
+					       is_txrx_waiting(hsspi) ||
+						       kthread_should_stop());
 		if (ret)
 			return ret;
 
@@ -390,7 +394,8 @@ static int hsspi_thread_fn(void *data)
 				kfree(hw);
 			} else {
 				dev_err(&hsspi->spi->dev,
-					"unknown hsspi_work type: %d\n", hw->type);
+					"unknown hsspi_work type: %d\n",
+					hw->type);
 				continue;
 			}
 		} else
@@ -449,7 +454,8 @@ int hsspi_init(struct hsspi *hsspi, struct spi_device *spi)
 	return 0;
 }
 
-void hsspi_set_gpios(struct hsspi *hsspi, struct gpio_desc *gpio_ss_rdy, struct gpio_desc *gpio_exton)
+void hsspi_set_gpios(struct hsspi *hsspi, struct gpio_desc *gpio_ss_rdy,
+		     struct gpio_desc *gpio_exton)
 {
 	hsspi->gpio_ss_rdy = gpio_ss_rdy;
 	hsspi->gpio_exton = gpio_exton;

@@ -36,15 +36,13 @@
 #include <linux/spi/spi.h>
 #include <linux/wait.h>
 
-enum {
-	UL_RESERVED,
-	UL_BOOT_FLASH,
-	UL_UCI_APP,
-	UL_COREDUMP,
-	UL_LOG,
-	UL_TEST_HSSPI,
-	UL_MAX_IDX
-};
+enum { UL_RESERVED,
+       UL_BOOT_FLASH,
+       UL_UCI_APP,
+       UL_COREDUMP,
+       UL_LOG,
+       UL_TEST_HSSPI,
+       UL_MAX_IDX };
 
 struct stc_header {
 	u8 flags;
@@ -105,8 +103,8 @@ struct hsspi_layer_ops {
 	struct hsspi_block *(*get)(struct hsspi_layer *upper_layer, u16 length);
 	void (*received)(struct hsspi_layer *upper_layer,
 			 struct hsspi_block *blk, int status);
-	void (*sent)(struct hsspi_layer *upper_layer,
-		     struct hsspi_block *blk, int status);
+	void (*sent)(struct hsspi_layer *upper_layer, struct hsspi_block *blk,
+		     int status);
 };
 
 /**

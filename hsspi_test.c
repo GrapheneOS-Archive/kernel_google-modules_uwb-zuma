@@ -35,9 +35,9 @@ int hsspi_test_registered(struct hsspi_layer *upper_layer);
 void hsspi_test_unregistered(struct hsspi_layer *upper_layer);
 struct hsspi_block *hsspi_test_get(struct hsspi_layer *upper_layer, u16 length);
 void hsspi_test_received(struct hsspi_layer *upper_layer,
-			struct hsspi_block *blk, int status);
-void hsspi_test_sent(struct hsspi_layer *upper_layer,
-			struct hsspi_block *blk, int status);
+			 struct hsspi_block *blk, int status);
+void hsspi_test_sent(struct hsspi_layer *upper_layer, struct hsspi_block *blk,
+		     int status);
 
 struct hsspi_layer_ops test_hsspi_layer_ops = {
 	.registered = hsspi_test_registered,
@@ -74,17 +74,18 @@ int hsspi_test_registered(struct hsspi_layer *upper_layer)
 }
 
 void hsspi_test_unregistered(struct hsspi_layer *upper_layer)
-{}
+{
+}
 
 static int check_rx(const u8 *rx, int len)
 {
 	int idx = 0, err = 0;
-	for ( ; idx < len ; idx++) {
+	for (; idx < len; idx++) {
 		if (rx[idx] != (idx & 0xff)) {
-			pr_err("hsspi test: check_rx rx[%u] != %u\n",
-				idx, rx[idx]);
+			pr_err("hsspi test: check_rx rx[%u] != %u\n", idx,
+			       rx[idx]);
 			print_hex_dump(KERN_DEBUG, "rx:", DUMP_PREFIX_ADDRESS,
-				16, 1, rx, len, false);
+				       16, 1, rx, len, false);
 			err = -5963;
 			break;
 		}
@@ -108,8 +109,8 @@ void hsspi_test_set_inter_frame_ms(int ms)
 	sleep_inter_frame_ms = ms;
 }
 
-void hsspi_test_received(struct hsspi_layer *layer,
-			struct hsspi_block *blk, int status)
+void hsspi_test_received(struct hsspi_layer *layer, struct hsspi_block *blk,
+			 int status)
 {
 	static uint64_t bytes, msgs, errors, bytes0, msgs0, errors0;
 	static time64_t last_perf_dump;
@@ -129,7 +130,8 @@ void hsspi_test_received(struct hsspi_layer *layer,
 	 */
 	if (sleep_inter_frame_ms > 0) {
 		static int delay_us = 0;
-		test_sleep_after_ss_ready_us = sleep_inter_frame_ms * 1000 - delay_us;
+		test_sleep_after_ss_ready_us =
+			sleep_inter_frame_ms * 1000 - delay_us;
 		usleep_range(delay_us, delay_us + 1);
 		delay_us += 100;
 		if (delay_us > sleep_inter_frame_ms * 1000)
@@ -142,14 +144,18 @@ void hsspi_test_received(struct hsspi_layer *layer,
 	error |= hsspi_send(ghsspi, layer, blk);
 	if (error || ((msgs % 100) == 0))
 		pr_info("hsspi test: bytes received %llu, msgs %llu, errors %llu\n",
-				bytes, msgs, errors);
+			bytes, msgs, errors);
 	if (now > last_perf_dump) {
-		uint64_t dbytes = bytes >= bytes0 ? bytes - bytes0 : ~0ULL - bytes0 + bytes;
-		uint64_t dmsgs = msgs >= msgs0 ? msgs - msgs0 : ~0ULL - msgs0 + msgs;
-		uint64_t derrors = errors >= errors0 ? errors - errors0 : ~0ULL - errors0 + errors;
+		uint64_t dbytes = bytes >= bytes0 ? bytes - bytes0 :
+						    ~0ULL - bytes0 + bytes;
+		uint64_t dmsgs = msgs >= msgs0 ? msgs - msgs0 :
+						 ~0ULL - msgs0 + msgs;
+		uint64_t derrors = errors >= errors0 ? errors - errors0 :
+						       ~0ULL - errors0 + errors;
 		pr_info("hsspi test perfs: %llu B/s, %llu msgs/s, %llu errors/s\n",
-				dbytes / (now - last_perf_dump), dmsgs / (now - last_perf_dump),
-				derrors / (now - last_perf_dump));
+			dbytes / (now - last_perf_dump),
+			dmsgs / (now - last_perf_dump),
+			derrors / (now - last_perf_dump));
 		bytes0 = bytes;
 		msgs0 = msgs;
 		errors0 = errors;
@@ -157,8 +163,8 @@ void hsspi_test_received(struct hsspi_layer *layer,
 	}
 }
 
-void hsspi_test_sent(struct hsspi_layer *layer,
-			struct hsspi_block *blk, int status)
+void hsspi_test_sent(struct hsspi_layer *layer, struct hsspi_block *blk,
+		     int status)
 {
 	static uint64_t bytes, msgs, errors;
 	errors += status ? 1 : 0;
@@ -166,6 +172,6 @@ void hsspi_test_sent(struct hsspi_layer *layer,
 	bytes += blk->length;
 	if (status || ((msgs % 100) == 0))
 		pr_info("hsspi test: bytes sent %llu, msgs %llu, errors %llu\n",
-				bytes, msgs, errors);
+			bytes, msgs, errors);
 	kfree(blk);
 }

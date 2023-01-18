@@ -14,13 +14,13 @@
 		switch (lvl) {                 \
 		case LOG_ERR:                  \
 			LOG_ERR(__VA_ARGS__);  \
-			break;		       \
+			break;                 \
 		case LOG_WARN:                 \
 			LOG_WARN(__VA_ARGS__); \
-			break;		       \
+			break;                 \
 		case LOG_INFO:                 \
 			LOG_INFO(__VA_ARGS__); \
-			break;		       \
+			break;                 \
 		case LOG_DBG:                  \
 			LOG_DBG(__VA_ARGS__);  \
 			break;                 \

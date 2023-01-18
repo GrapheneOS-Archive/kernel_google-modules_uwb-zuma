@@ -17,7 +17,7 @@
 #include "debug.h"
 
 #define DEBUG_CERTIFICATE_SIZE 2560
-#define QM_RESET_LOW_MS  2
+#define QM_RESET_LOW_MS 2
 /*
  * value found using a SALAE
  */
@@ -31,28 +31,28 @@ struct regulator;
  *
  */
 struct qm35_ctx {
-	unsigned int		state;
-	struct miscdevice	uci_dev;
-	struct spi_device	*spi;
-	struct gpio_desc	*gpio_csn;
-	struct gpio_desc	*gpio_reset;
-	struct gpio_desc	*gpio_ss_rdy;
-	struct gpio_desc	*gpio_ss_irq;
-	struct gpio_desc	*gpio_exton;
-	struct gpio_desc	*gpio_wakeup;
-	spinlock_t		lock;
-	bool			out_data_wait;
-	bool			out_active;
-	bool			soc_error;
-	struct hsspi		hsspi;
-	struct uci_layer	uci_layer;
-	struct coredump_layer	coredump_layer;
-	struct log_layer	log_layer;
-	struct debug		debug;
-	struct regulator	*vdd1;
-	struct regulator	*vdd2;
-	struct regulator	*vdd3;
-	bool                    regulators_enabled;
+	unsigned int state;
+	struct miscdevice uci_dev;
+	struct spi_device *spi;
+	struct gpio_desc *gpio_csn;
+	struct gpio_desc *gpio_reset;
+	struct gpio_desc *gpio_ss_rdy;
+	struct gpio_desc *gpio_ss_irq;
+	struct gpio_desc *gpio_exton;
+	struct gpio_desc *gpio_wakeup;
+	spinlock_t lock;
+	bool out_data_wait;
+	bool out_active;
+	bool soc_error;
+	struct hsspi hsspi;
+	struct uci_layer uci_layer;
+	struct coredump_layer coredump_layer;
+	struct log_layer log_layer;
+	struct debug debug;
+	struct regulator *vdd1;
+	struct regulator *vdd2;
+	struct regulator *vdd3;
+	bool regulators_enabled;
 };
 
 static inline unsigned int qm35_get_state(struct qm35_ctx *qm35_hdl)

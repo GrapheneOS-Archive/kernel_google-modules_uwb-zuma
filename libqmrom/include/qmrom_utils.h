@@ -36,9 +36,9 @@ extern void usleep(unsigned int us);
 #include <linux/delay.h>
 #include <linux/slab.h>
 
-#define qmrom_msleep(ms)                                   \
-	do {                                               \
-		usleep_range(ms * 1000, ms * 1000);        \
+#define qmrom_msleep(ms)                            \
+	do {                                        \
+		usleep_range(ms * 1000, ms * 1000); \
 	} while (0)
 
 #define qmrom_alloc(ptr, size)                   \

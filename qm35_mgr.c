@@ -11,7 +11,7 @@
 
 #define UCI_DEV_FILE "/dev/" UCI_DEV_NAME
 
-static const char * const state[] = {
+static const char *const state[] = {
 	[QM35_CTRL_STATE_UNKNOWN] = "unknown",
 	[QM35_CTRL_STATE_OFF] = "off",
 	[QM35_CTRL_STATE_RESET] = "reset",
@@ -37,25 +37,24 @@ struct qm35_ctx {
 static void print_usage(FILE *stream, int exit_code, const char *path)
 {
 	/* take only the last portion of the path */
-    const char *basename = strrchr(path, '/');
-    basename = basename ? basename + 1 : path;
+	const char *basename = strrchr(path, '/');
+	basename = basename ? basename + 1 : path;
 
 	fprintf(stream, "Usage:  %s [options]\n", basename);
-	fprintf(stream, "Options are:\n"
+	fprintf(stream,
+		"Options are:\n"
 		"  -h  --help             Display this usage information.\n"
 		"  -s  --state            Get device state.\n"
 		"  -r  --reset            Reset the device.\n"
 		"  -u  --upload           Enter firmware upload.\n");
 	fprintf(stream, "Usage:  %s -f buffer\n", basename);
-	fprintf(stream,
-		"  -f  --feed             Feed data to device.\n");
+	fprintf(stream, "  -f  --feed             Feed data to device.\n");
 	fprintf(stream, "Usage:  %s -d length\n", basename);
-	fprintf(stream,
-		"  -d  --dump             Dump data from device.\n");
+	fprintf(stream, "  -d  --dump             Dump data from device.\n");
 	exit(exit_code);
 }
 
-static int get_qm35_dev_fd(struct qm35_ctx * const qm35_hdl)
+static int get_qm35_dev_fd(struct qm35_ctx *const qm35_hdl)
 {
 	int err = 0;
 
@@ -71,8 +70,7 @@ static int get_qm35_dev_fd(struct qm35_ctx * const qm35_hdl)
 	return 0;
 }
 
-
-static int send_ioctl(struct qm35_ctx * const qm35_hdl)
+static int send_ioctl(struct qm35_ctx *const qm35_hdl)
 {
 	int err = 0;
 
@@ -99,7 +97,7 @@ static int send_ioctl(struct qm35_ctx * const qm35_hdl)
 	return 0;
 }
 
-static int feed(struct qm35_ctx * const qm35_hdl)
+static int feed(struct qm35_ctx *const qm35_hdl)
 {
 	int err = 0;
 
@@ -108,7 +106,7 @@ static int feed(struct qm35_ctx * const qm35_hdl)
 		return -1;
 
 	qm35_hdl->len = strlen(qm35_hdl->write_buf);
-	write(qm35_hdl->fd, (void *) qm35_hdl->write_buf, qm35_hdl->len);
+	write(qm35_hdl->fd, (void *)qm35_hdl->write_buf, qm35_hdl->len);
 
 	err = close(qm35_hdl->fd);
 	if (err) {
@@ -121,7 +119,7 @@ static int feed(struct qm35_ctx * const qm35_hdl)
 	return err;
 }
 
-static int dump(struct qm35_ctx * const qm35_hdl)
+static int dump(struct qm35_ctx *const qm35_hdl)
 {
 	int err = 0;
 
@@ -135,9 +133,9 @@ static int dump(struct qm35_ctx * const qm35_hdl)
 		goto err_close_device;
 	}
 
-	read(qm35_hdl->fd, (void *) qm35_hdl->read_buf, qm35_hdl->len);
+	read(qm35_hdl->fd, (void *)qm35_hdl->read_buf, qm35_hdl->len);
 	fprintf(stdout, "QM35 value read: ");
-	for(int i = 0; i < qm35_hdl->len; i++)
+	for (int i = 0; i < qm35_hdl->len; i++)
 		fprintf(stdout, "0x%02X ", qm35_hdl->read_buf[i]);
 	fprintf(stdout, "\n");
 
@@ -161,13 +159,13 @@ int main(int argc, char *argv[])
 	int help_flag = 0;
 
 	static struct option long_options[] = {
-		{"help", no_argument, 0, 'h' },
-		{"state", no_argument, 0, 's' },
-		{"reset", no_argument, 0, 'r' },
-		{"upload", no_argument, 0, 'u'},
-		{"feed", required_argument, 0, 'f' },
-		{"dump", required_argument, 0, 'd' },
-		{0, 0, 0, 0 } /* Required at end of array. */
+		{ "help", no_argument, 0, 'h' },
+		{ "state", no_argument, 0, 's' },
+		{ "reset", no_argument, 0, 'r' },
+		{ "upload", no_argument, 0, 'u' },
+		{ "feed", required_argument, 0, 'f' },
+		{ "dump", required_argument, 0, 'd' },
+		{ 0, 0, 0, 0 } /* Required at end of array. */
 	};
 
 	const char *short_options = "hsrf:d:";
@@ -179,7 +177,8 @@ int main(int argc, char *argv[])
 	qm35_hdl->fd = -1;
 
 	do {
-		c = getopt_long_only(argc, argv, short_options, long_options, NULL);
+		c = getopt_long_only(argc, argv, short_options, long_options,
+				     NULL);
 		if (c == -1)
 			break;
 
@@ -210,7 +209,7 @@ int main(int argc, char *argv[])
 	} while (1);
 
 	if (help_flag) {
-	        print_usage(stdout, 0, argv[0]);
+		print_usage(stdout, 0, argv[0]);
 		goto free_qm35;
 	}
 

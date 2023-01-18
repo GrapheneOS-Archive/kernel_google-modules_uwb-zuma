@@ -36,35 +36,46 @@
 
 #include "hsspi.h"
 
-#define show_work_type(type)						\
-	__print_symbolic(type,						\
-			 { HSSPI_WORK_TX, "TX", },			\
-			 { HSSPI_WORK_COMPLETION, "COMPLETION", },	\
-			 { -1, "no", })
+#define show_work_type(type)                            \
+	__print_symbolic(type,                          \
+			 {                              \
+				 HSSPI_WORK_TX,         \
+				 "TX",                  \
+			 },                             \
+			 {                              \
+				 HSSPI_WORK_COMPLETION, \
+				 "COMPLETION",          \
+			 },                             \
+			 {                              \
+				 -1,                    \
+				 "no",                  \
+			 })
 
 TRACE_DEFINE_ENUM(HSSPI_WORK_TX);
 TRACE_DEFINE_ENUM(HSSPI_WORK_COMPLETION);
 
-TRACE_EVENT(hsspi_get_work,
-	    TP_PROTO(const struct device *dev, int type),
+TRACE_EVENT(hsspi_get_work, TP_PROTO(const struct device *dev, int type),
 	    TP_ARGS(dev, type),
-	    TP_STRUCT__entry(
-		    __string(dev, dev_name(dev))
-		    __field(int, type)
-		    ),
-	    TP_fast_assign(
-		    __assign_str(dev, dev_name(dev));
-		    __entry->type = type;
-		    ),
+	    TP_STRUCT__entry(__string(dev, dev_name(dev)) __field(int, type)),
+	    TP_fast_assign(__assign_str(dev, dev_name(dev));
+			   __entry->type = type;),
 	    TP_printk("[%s]: %s work", __get_str(dev),
-		      show_work_type(__entry->type))
-	);
+		      show_work_type(__entry->type)));
 
-#define show_hsspi_state(state)				\
-	__print_symbolic(state,				\
-			 { HSSPI_RUNNING, "running", },	\
-			 { HSSPI_ERROR, "error", },	\
-			 { HSSPI_STOPPED, "stopped", })
+#define show_hsspi_state(state)                 \
+	__print_symbolic(state,                 \
+			 {                      \
+				 HSSPI_RUNNING, \
+				 "running",     \
+			 },                     \
+			 {                      \
+				 HSSPI_ERROR,   \
+				 "error",       \
+			 },                     \
+			 {                      \
+				 HSSPI_STOPPED, \
+				 "stopped",     \
+			 })
 
 TRACE_DEFINE_ENUM(HSSPI_RUNNING);
 TRACE_DEFINE_ENUM(HSSPI_ERROR);
@@ -74,59 +85,45 @@ TRACE_EVENT(hsspi_is_txrx_waiting,
 	    TP_PROTO(const struct device *dev, bool is_empty,
 		     enum hsspi_state state),
 	    TP_ARGS(dev, is_empty, state),
-	    TP_STRUCT__entry(
-		    __string(dev, dev_name(dev))
-		    __field(bool, is_empty)
-		    __field(enum hsspi_state, state)
-		    ),
-	    TP_fast_assign(
-		    __assign_str(dev, dev_name(dev));
-		    __entry->is_empty = is_empty;
-		    __entry->state = state;
-		    ),
+	    TP_STRUCT__entry(__string(dev, dev_name(dev))
+				     __field(bool, is_empty)
+					     __field(enum hsspi_state, state)),
+	    TP_fast_assign(__assign_str(dev, dev_name(dev));
+			   __entry->is_empty = is_empty;
+			   __entry->state = state;),
 	    TP_printk("[%s]: is_empty: %d state: %s", __get_str(dev),
-		      __entry->is_empty, show_hsspi_state(__entry->state))
-	);
+		      __entry->is_empty, show_hsspi_state(__entry->state)));
 
-#define STC_ENTRY(header)			\
-	__field(u8, header##flags)		\
-	__field(u8, header##ul)			\
-	__field(u16, header##length)
-#define STC_ASSIGN(header, var)			\
-	__entry->header##flags = var->flags;	\
-	__entry->header##ul = var->ul;		\
+#define STC_ENTRY(header)                                  \
+	__field(u8, header##flags) __field(u8, header##ul) \
+		__field(u16, header##length)
+#define STC_ASSIGN(header, var)              \
+	__entry->header##flags = var->flags; \
+	__entry->header##ul = var->ul;       \
 	__entry->header##length = var->length;
 #define STC_FMT "flags:0x%hhx ul:%hhd len:%hd"
-#define STC_ARG(header) __entry->header##flags, __entry->header##ul, \
-		__entry->header##length
+#define STC_ARG(header) \
+	__entry->header##flags, __entry->header##ul, __entry->header##length
 
 TRACE_EVENT(hsspi_spi_xfer,
-	    TP_PROTO(
-		    const struct device *dev,
-		    const struct stc_header *host,
-		    struct stc_header *soc,
-		    int ret),
+	    TP_PROTO(const struct device *dev, const struct stc_header *host,
+		     struct stc_header *soc, int ret),
 	    TP_ARGS(dev, host, soc, ret),
-	    TP_STRUCT__entry(
-		    __string(dev, dev_name(dev))
-		    STC_ENTRY(host)
-		    STC_ENTRY(soc)
-		    __field(int, ret)
-		    ),
-	    TP_fast_assign(
-		    __assign_str(dev, dev_name(dev));
-		    STC_ASSIGN(host, host);
-		    STC_ASSIGN(soc, soc);
-		    __entry->ret = ret;
-		    ),
+	    TP_STRUCT__entry(__string(dev, dev_name(dev)) STC_ENTRY(host)
+				     STC_ENTRY(soc) __field(int, ret)),
+	    TP_fast_assign(__assign_str(dev, dev_name(dev));
+			   STC_ASSIGN(host, host); STC_ASSIGN(soc, soc);
+			   __entry->ret = ret;),
 	    TP_printk("[%s]: host " STC_FMT " | soc " STC_FMT " rc=%d",
-		      __get_str(dev), STC_ARG(host), STC_ARG(soc), __entry->ret)
-	);
+		      __get_str(dev), STC_ARG(host), STC_ARG(soc),
+		      __entry->ret));
 
 #endif /* _QM35_TRACE_H */
 
 /* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .
+// clang-format off
 #define TRACE_INCLUDE_FILE qm35-trace
+// clang-format on
 #include <trace/define_trace.h>
