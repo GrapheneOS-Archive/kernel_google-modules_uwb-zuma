@@ -52,6 +52,7 @@ struct qm35_ctx {
 	struct regulator *vdd1;
 	struct regulator *vdd2;
 	struct regulator *vdd3;
+	struct regulator *vdd4;
 	bool regulators_enabled;
 	bool log_qm_traces;
 };

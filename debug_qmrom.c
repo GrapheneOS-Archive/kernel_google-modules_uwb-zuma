@@ -262,7 +262,8 @@ static ssize_t rom_flash_fw(struct file *filp, const char __user *buff,
 		goto end;
 	}
 
-	pr_info("Flashing image %s (%pK->data %pK)...\n", filename, fw, fw->data);
+	pr_info("Flashing image %s (%pK->data %pK)...\n", filename, fw,
+		fw->data);
 
 	h = qmrom_init(&qm35_hdl->spi->dev, qm35_hdl, qm35_hdl->gpio_ss_rdy,
 		       QMROM_RETRIES, qmrom_spi_reset_device);

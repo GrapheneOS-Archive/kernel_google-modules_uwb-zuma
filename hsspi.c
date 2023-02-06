@@ -249,7 +249,8 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			continue;
 		}
 
-		if (!(hsspi->soc->flags & STC_SOC_RDY)) {
+		if (!(hsspi->soc->flags & STC_SOC_RDY) ||
+		    (hsspi->soc->flags == 0xff)) {
 			dev_err(&hsspi->spi->dev,
 				"FW not ready (flags %#02x)\n",
 				hsspi->soc->flags);

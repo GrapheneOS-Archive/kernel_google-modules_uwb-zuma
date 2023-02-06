@@ -57,6 +57,7 @@
 
 #define QM35_REGULATOR_DELAY_US 1000
 #define QMROM_RETRIES 10
+#define REGULATORS_ENABLED(x) (x->vdd1 || x->vdd2 || x->vdd3 || x->vdd4)
 
 static int qm_firmware_load(struct qm35_ctx *qm35_hdl);
 static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on);
@@ -104,6 +105,12 @@ MODULE_PARM_DESC(reset_on_error, "Reset the QM35 on successive errors");
 int log_qm_traces = 1;
 module_param(log_qm_traces, int, 0444);
 MODULE_PARM_DESC(log_qm_traces, "Logs the QM35 traces in the kernel messages");
+
+bool reset_when_disabled = true;
+module_param(reset_when_disabled, bool, 0444);
+MODULE_PARM_DESC(
+	reset_when_disabled,
+	"Assert reset line when UWB is disabled (if at least one regulator is defined in DTS)");
 
 static uint8_t qm_soc_id[ROM_SOC_ID_LEN];
 static uint16_t qm_dev_id;
@@ -183,17 +190,23 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 
 		qm35_hsspi_stop(qm35_hdl);
 
-		/*
-		 * If there is no regulators, just reset the QM
-		 */
-		if (qm35_hdl->vdd1 || qm35_hdl->vdd2 || qm35_hdl->vdd3)
+		if (REGULATORS_ENABLED(qm35_hdl))
 			qm35_regulators_set(qm35_hdl, on);
-		else
-			ret = qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+
+		/*
+		 * Always reset QM as regulators could be shared with
+		 * other devices and power may not be controlled as
+		 * expected
+		 */
+		if (!reset_when_disabled)
+			qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
 
 		msleep(QM_BOOT_MS);
 
-		qm35_hsspi_start(qm35_hdl);
+		/* if reset or power on */
+		if (!REGULATORS_ENABLED(qm35_hdl) ||
+		    (REGULATORS_ENABLED(qm35_hdl) && on))
+			qm35_hsspi_start(qm35_hdl);
 
 		return 0;
 	}
@@ -384,6 +397,10 @@ void qm35_hsspi_start(struct qm35_ctx *qm35_hdl)
 {
 	int irq;
 
+	/* nothing to do as HSSPI is already started */
+	if (qm35_hdl->hsspi.state == HSSPI_RUNNING)
+		return;
+
 	irq = gpiod_to_irq(qm35_hdl->gpio_ss_rdy);
 	if (irq >= 0) {
 		enable_irq(irq);
@@ -409,6 +426,10 @@ void qm35_hsspi_start(struct qm35_ctx *qm35_hdl)
 void qm35_hsspi_stop(struct qm35_ctx *qm35_hdl)
 {
 	int irq;
+
+	/* nothing to do as HSSPI is already stopped */
+	if (qm35_hdl->hsspi.state == HSSPI_STOPPED)
+		return;
 
 	hsspi_stop(&qm35_hdl->hsspi);
 
@@ -633,6 +654,14 @@ static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on)
 	if (is_enabled == on)
 		return;
 
+	if (reset_when_disabled && !on &&
+	    qm35_get_state(qm35_hdl) != QM35_CTRL_STATE_RESET) {
+		if (qm35_hdl->gpio_reset) {
+			gpiod_set_value(qm35_hdl->gpio_reset, 1);
+		}
+		qm35_set_state(qm35_hdl, QM35_CTRL_STATE_RESET);
+	}
+
 	ret = qm35_regulator_set_one(qm35_hdl->vdd1, on);
 	if (ret)
 		dev_err(dev, str_fmt, on_str, "vdd1", ret);
@@ -645,14 +674,27 @@ static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on)
 	if (ret)
 		dev_err(dev, str_fmt, on_str, "vdd3", ret);
 
+	ret = qm35_regulator_set_one(qm35_hdl->vdd4, on);
+	if (ret)
+		dev_err(dev, str_fmt, on_str, "vdd4", ret);
+
 	/* wait for regulator stabilization */
 	usleep_range(QM35_REGULATOR_DELAY_US, QM35_REGULATOR_DELAY_US + 100);
+
+	if (reset_when_disabled && on &&
+	    qm35_get_state(qm35_hdl) == QM35_CTRL_STATE_RESET) {
+		if (qm35_hdl->gpio_reset) {
+			gpiod_set_value(qm35_hdl->gpio_reset, 0);
+		}
+		qm35_set_state(qm35_hdl, QM35_CTRL_STATE_UNKNOWN);
+	}
 }
 
 static void qm35_regulators_setup_one(struct regulator **reg,
 				      struct device *dev, const char *name)
 {
-	static const char *str_fmt = "failed to get %s regulator: %d\n";
+	static const char *str_fmt =
+		"%s regulator not defined in device tree: %d\n";
 	struct regulator *tmp;
 
 	tmp = devm_regulator_get_optional(dev, name);
@@ -670,8 +712,10 @@ static void qm35_regulators_setup(struct qm35_ctx *qm35_hdl)
 	qm35_regulators_setup_one(&qm35_hdl->vdd1, dev, "qm35-vdd1");
 	qm35_regulators_setup_one(&qm35_hdl->vdd2, dev, "qm35-vdd2");
 	qm35_regulators_setup_one(&qm35_hdl->vdd3, dev, "qm35-vdd3");
+	qm35_regulators_setup_one(&qm35_hdl->vdd4, dev, "qm35-vdd4");
 
 	qm35_hdl->regulators_enabled = false;
+	qm35_hdl->state = QM35_CTRL_STATE_RESET;
 }
 
 static int qm35_probe(struct spi_device *spi)
@@ -715,16 +759,11 @@ static int qm35_probe(struct spi_device *spi)
 
 	qm35_regulators_setup(qm35_ctx);
 
-	/* power on */
-	qm35_regulators_set(qm35_ctx, true);
-
 	uci_misc = &qm35_ctx->uci_dev;
 	uci_misc->minor = MISC_DYNAMIC_MINOR;
 	uci_misc->name = UCI_DEV_NAME;
 	uci_misc->fops = &uci_fops;
 	uci_misc->parent = &spi->dev;
-
-	qm35_ctx->state = QM35_CTRL_STATE_UNKNOWN;
 
 	/* we need the debugfs root initialized here to be able
 	 * to display the soc info populated if flash_on_probe
@@ -776,14 +815,19 @@ static int qm35_probe(struct spi_device *spi)
 		goto log_layer_unregister;
 
 	if (flash_on_probe) {
+		qm35_regulators_set(qm35_ctx, true);
 		ret = qm_firmware_load(qm35_ctx);
+		qm35_regulators_set(qm35_ctx, false);
 		if (ret)
 			goto log_layer_unregister;
 	}
 
 	hsspi_set_gpios(&qm35_ctx->hsspi, qm35_ctx->gpio_ss_rdy,
 			qm35_ctx->gpio_exton);
-	hsspi_start(&qm35_ctx->hsspi);
+
+	/* If regulators not available, QM is powered on */
+	if (!REGULATORS_ENABLED(qm35_ctx))
+		hsspi_start(&qm35_ctx->hsspi);
 
 	ret = misc_register(&qm35_ctx->uci_dev);
 	if (ret) {
