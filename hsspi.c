@@ -219,11 +219,10 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 	hsspi->soc->ul = 0;
 	hsspi->soc->length = 0;
 
+	hsspi->wakeup_enter(hsspi);
 	do {
-		hsspi->wakeup_enter(hsspi);
 		ret = hsspi_wait_ss_ready(hsspi);
 		if (ret < 0) {
-			hsspi->wakeup_release(hsspi);
 			continue;
 		}
 
@@ -238,7 +237,6 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			     HSSPI_MANUAL_CS_SETUP_US);
 #endif
 		ret = spi_sync_transfer(hsspi->spi, xfers, length ? 2 : 1);
-		hsspi->wakeup_release(hsspi);
 
 		trace_hsspi_spi_xfer(&hsspi->spi->dev, hsspi->host, hsspi->soc,
 				     ret);
@@ -251,9 +249,6 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 
 		if (!(hsspi->soc->flags & STC_SOC_RDY) ||
 		    (hsspi->soc->flags == 0xff)) {
-			dev_err(&hsspi->spi->dev,
-				"FW not ready (flags %#02x)\n",
-				hsspi->soc->flags);
 			ret = -EAGAIN;
 			continue;
 		}
@@ -261,6 +256,13 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 		/* All looks good! */
 		break;
 	} while ((ret == -EAGAIN) && (--retry > 0));
+
+	hsspi->wakeup_release(hsspi);
+
+	if (!(hsspi->soc->flags & STC_SOC_RDY) || (hsspi->soc->flags == 0xff)) {
+		dev_err(&hsspi->spi->dev, "FW not ready (flags %#02x)\n",
+			hsspi->soc->flags);
+	}
 
 	return ret;
 }
