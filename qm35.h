@@ -21,7 +21,7 @@
 /*
  * value found using a SALAE
  */
-#define QM_BOOT_MS 1450
+#define QM_BOOT_MS 450
 #define QM_BEFORE_RESET_MS 450
 
 struct regulator;

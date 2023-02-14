@@ -203,7 +203,7 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 
 		msleep(QM_BOOT_MS);
 
-		/* if reset or power on */
+		/* If reset or power on */
 		if (!REGULATORS_ENABLED(qm35_hdl) ||
 		    (REGULATORS_ENABLED(qm35_hdl) && on))
 			qm35_hsspi_start(qm35_hdl);
@@ -350,13 +350,19 @@ static irqreturn_t qm35_ss_rdy_handler(int irq, void *data)
 
 	old_time = current_time;
 #endif
+	/* Should be low already but in case we just woke up QM */
+	if (wake_use_csn)
+		gpiod_set_value(qm35_hdl->gpio_csn, 0);
+	if (wake_use_wakeup)
+		gpiod_set_value(qm35_hdl->gpio_wakeup, 0);
+
 	hsspi_clear_spi_slave_busy(&qm35_hdl->hsspi);
 	hsspi_set_spi_slave_ready(&qm35_hdl->hsspi);
 
 	return IRQ_HANDLED;
 }
 
-static void qm35_wakeup_enter(struct hsspi *hsspi)
+static void qm35_wakeup(struct hsspi *hsspi)
 {
 	struct qm35_ctx *qm35_hdl = container_of(hsspi, struct qm35_ctx, hsspi);
 
@@ -364,16 +370,8 @@ static void qm35_wakeup_enter(struct hsspi *hsspi)
 		gpiod_set_value(qm35_hdl->gpio_csn, 1);
 	if (wake_use_wakeup)
 		gpiod_set_value(qm35_hdl->gpio_wakeup, 1);
-}
 
-static void qm35_wakeup_release(struct hsspi *hsspi)
-{
-	struct qm35_ctx *qm35_hdl = container_of(hsspi, struct qm35_ctx, hsspi);
-
-	if (wake_use_csn)
-		gpiod_set_value(qm35_hdl->gpio_csn, 0);
-	if (wake_use_wakeup)
-		gpiod_set_value(qm35_hdl->gpio_wakeup, 0);
+	/* The wake up will be cleared only when ss-rdy is raised again */
 }
 
 static void qm35_reset_hook(struct hsspi *hsspi)
@@ -388,6 +386,9 @@ static void qm35_reset_hook(struct hsspi *hsspi)
 static irqreturn_t qm35_exton_handler(int irq, void *data)
 {
 	struct qm35_ctx *qm35_hdl = data;
+
+	if (qm35_hdl->hsspi.xfer_ongoing)
+		qm35_wakeup(&qm35_hdl->hsspi);
 
 	hsspi_clear_spi_slave_ready(&qm35_hdl->hsspi);
 	return IRQ_HANDLED;
@@ -579,8 +580,7 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 	}
 
 	qm35_ctx->hsspi.odw_cleared = reenable_ss_irq;
-	qm35_ctx->hsspi.wakeup_enter = qm35_wakeup_enter;
-	qm35_ctx->hsspi.wakeup_release = qm35_wakeup_release;
+	qm35_ctx->hsspi.wakeup = qm35_wakeup;
 	qm35_ctx->hsspi.reset_qm35 = qm35_reset_hook;
 
 	ret = devm_request_irq(&qm35_ctx->spi->dev, qm35_ctx->spi->irq,

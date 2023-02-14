@@ -160,8 +160,7 @@ struct hsspi {
 	void (*odw_cleared)(struct hsspi *hsspi);
 
 	// wakeup QM35
-	void (*wakeup_enter)(struct hsspi *hsspi);
-	void (*wakeup_release)(struct hsspi *hsspi);
+	void (*wakeup)(struct hsspi *hsspi);
 
 	// reset QM35
 	void (*reset_qm35)(struct hsspi *hsspi);
@@ -173,6 +172,8 @@ struct hsspi {
 
 	struct gpio_desc *gpio_ss_rdy;
 	struct gpio_desc *gpio_exton;
+
+	volatile bool xfer_ongoing;
 };
 
 /**

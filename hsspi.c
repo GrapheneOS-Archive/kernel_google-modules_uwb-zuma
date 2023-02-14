@@ -151,6 +151,11 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 		}
 	}
 
+	/* Check if the QM went to sleep and wake it up if it did */
+	if (!gpiod_get_value(hsspi->gpio_exton)) {
+		hsspi->wakeup(hsspi);
+	}
+
 	ret = wait_event_interruptible_timeout(
 		hsspi->wq_ready,
 		test_and_clear_bit(HSSPI_FLAGS_SS_READY, hsspi->flags),
@@ -213,13 +218,13 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			.len = length,
 		},
 	};
-	int ret, retry = 2;
+	int ret, retry = 5;
 
 	hsspi->soc->flags = 0;
 	hsspi->soc->ul = 0;
 	hsspi->soc->length = 0;
+	hsspi->xfer_ongoing = true;
 
-	hsspi->wakeup_enter(hsspi);
 	do {
 		ret = hsspi_wait_ss_ready(hsspi);
 		if (ret < 0) {
@@ -233,8 +238,7 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 		hsspi_set_spi_slave_busy(hsspi);
 #ifdef HSSPI_MANUAL_CS_SETUP
 		hsspi_set_cs_level(hsspi->spi, 0);
-		usleep_range(HSSPI_MANUAL_CS_SETUP_US,
-			     HSSPI_MANUAL_CS_SETUP_US);
+		udelay(HSSPI_MANUAL_CS_SETUP_US);
 #endif
 		ret = spi_sync_transfer(hsspi->spi, xfers, length ? 2 : 1);
 
@@ -249,6 +253,7 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 
 		if (!(hsspi->soc->flags & STC_SOC_RDY) ||
 		    (hsspi->soc->flags == 0xff)) {
+			hsspi->wakeup(hsspi);
 			ret = -EAGAIN;
 			continue;
 		}
@@ -256,8 +261,7 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 		/* All looks good! */
 		break;
 	} while ((ret == -EAGAIN) && (--retry > 0));
-
-	hsspi->wakeup_release(hsspi);
+	hsspi->xfer_ongoing = false;
 
 	if (!(hsspi->soc->flags & STC_SOC_RDY) || (hsspi->soc->flags == 0xff)) {
 		dev_err(&hsspi->spi->dev, "FW not ready (flags %#02x)\n",
