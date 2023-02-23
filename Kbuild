@@ -1,6 +1,6 @@
 ccflags-y := -I$(srctree)/$(src)/libqmrom/include -Werror -DHSSPI_MANUAL_CS_SETUP
 
-obj-m := qm35.o
+obj-$(CONFIG_QM35_SPI) := qm35.o
 
 qm35-y := \
 	qm35-spi.o \
@@ -16,8 +16,8 @@ qm35-y := \
 	hsspi_log.o \
 	hsspi_coredump.o \
 	debug.o \
-	debug_qmrom.o \
 	hsspi_test.o
 
+qm35-$(CONFIG_QM35_SPI_DEBUG_FW) += debug_qmrom.o
 qm35-$(CONFIG_EVENT_TRACING) += qm35-trace.o
 CFLAGS_qm35-trace.o = -I$(srctree)/$(src)

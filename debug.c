@@ -36,7 +36,9 @@
 #include "debug.h"
 #include "hsspi_test.h"
 
+#if IS_ENABLED(CONFIG_QM35_SPI_DEBUG_FW)
 extern void debug_rom_code_init(struct debug *debug);
+#endif
 
 static const struct file_operations debug_enable_fops;
 static const struct file_operations debug_log_level_fops;
@@ -493,7 +495,9 @@ int debug_init(struct debug *debug)
 		goto unregister;
 	}
 
+#if IS_ENABLED(CONFIG_QM35_SPI_DEBUG_FW)
 	debug_rom_code_init(debug);
+#endif
 
 	return 0;
 
