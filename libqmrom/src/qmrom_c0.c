@@ -16,6 +16,10 @@
 #define CHUNK_SIZE_C0 2040
 #define SPI_READY_TIMEOUT_MS_C0 200
 
+#ifdef C0_WRITE_STATS
+#include <linux/ktime.h>
+#endif
+
 #define SPI_SH_READY_CMD_BIT_MASK_C0 \
 	(SPI_SH_READY_CMD_BIT_MASK >> 4 | SPI_SH_READY_CMD_BIT_MASK)
 
@@ -262,11 +266,42 @@ int qmrom_c0_probe_device(struct qmrom_handle *handle)
 	return 0;
 }
 
+#ifdef C0_WRITE_STATS
+static uint64_t total_bytes, total_time_ns;
+static uint32_t max_write_time_ns, min_write_time_ns = ~0;
+
+static void update_write_max_chunk_stats(ktime_t start_time)
+{
+	uint64_t elapsed_time_ns;
+
+	total_bytes += CHUNK_SIZE_C0;
+	elapsed_time_ns = ktime_to_ns(ktime_sub(ktime_get(), start_time));
+	total_time_ns += elapsed_time_ns;
+	if (elapsed_time_ns > max_write_time_ns)
+		max_write_time_ns = elapsed_time_ns;
+	if (elapsed_time_ns < min_write_time_ns)
+		min_write_time_ns = elapsed_time_ns;
+}
+
+static void dump_stats(void)
+{
+	uint32_t nb_chunks = total_bytes / CHUNK_SIZE_C0;
+	LOG_WARN(
+		"C0 flashing time stats: %llu bytes over %llu us (chunk size %u, write timings: mean %u us, min %u us, max %u us)\n",
+		total_bytes, total_time_ns / 1000, CHUNK_SIZE_C0,
+		(uint32_t)((total_time_ns / nb_chunks) / 1000),
+		min_write_time_ns / 1000, max_write_time_ns / 1000);
+}
+#endif
+
 static int qmrom_c0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
 			       uint8_t cmd, uint8_t resp, bool skip_last_check)
 {
 	int rc, sent = 0;
 	const char *bin_data = (const char *)fw->data;
+#ifdef C0_WRITE_STATS
+	ktime_t start_time;
+#endif
 
 	while (sent < fw->size) {
 		uint32_t tx_bytes = fw->size - sent;
@@ -275,6 +310,9 @@ static int qmrom_c0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
 
 		LOG_DBG("%s: sending command %#x with %" PRIu32 " bytes\n",
 			__func__, cmd, tx_bytes);
+#ifdef C0_WRITE_STATS
+		start_time = ktime_get();
+#endif
 		rc = qmrom_write_size_cmd32_c0(handle, cmd, tx_bytes, bin_data);
 		if (rc)
 			return rc;
@@ -285,6 +323,10 @@ static int qmrom_c0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
 			break;
 		}
 		qmrom_c0_poll_soc(handle);
+#ifdef C0_WRITE_STATS
+		if (tx_bytes == CHUNK_SIZE_C0)
+			update_write_max_chunk_stats(start_time);
+#endif
 		qmrom_pre_read_c0(handle);
 		qmrom_read_c0(handle);
 		if (handle->sstc->payload[0] != resp) {
@@ -381,6 +423,10 @@ static int qmrom_c0_flash_fw(struct qmrom_handle *handle,
 	rc = qmrom_c0_flash_data(handle, all_fws.fw_img,
 				 ROM_CMD_C0_SEC_IMAGE_DATA,
 				 WAITING_FOR_SEC_FILE_DATA, true);
+
+#ifdef C0_WRITE_STATS
+	dump_stats();
+#endif
 
 end:
 	qmrom_free(all_fws.fw_img);
