@@ -59,6 +59,10 @@
 #define QMROM_RETRIES 10
 #define REGULATORS_ENABLED(x) (x->vdd1 || x->vdd2 || x->vdd3 || x->vdd4)
 
+#ifndef NO_UWB_HAL
+#define NO_UWB_HAL false
+#endif
+
 static int qm_firmware_load(struct qm35_ctx *qm35_hdl);
 static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on);
 
@@ -106,7 +110,7 @@ int log_qm_traces = 1;
 module_param(log_qm_traces, int, 0444);
 MODULE_PARM_DESC(log_qm_traces, "Logs the QM35 traces in the kernel messages");
 
-bool reset_when_disabled = true;
+bool reset_when_disabled = NO_UWB_HAL ? false : true;
 module_param(reset_when_disabled, bool, 0444);
 MODULE_PARM_DESC(
 	reset_when_disabled,
@@ -643,6 +647,11 @@ static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on)
 	bool is_enabled;
 	int ret;
 
+	if (NO_UWB_HAL) {
+		on = true;
+		on_str = "enable";
+	}
+
 	spin_lock(&qm35_hdl->lock);
 
 	is_enabled = qm35_hdl->regulators_enabled;
@@ -825,9 +834,14 @@ static int qm35_probe(struct spi_device *spi)
 	hsspi_set_gpios(&qm35_ctx->hsspi, qm35_ctx->gpio_ss_rdy,
 			qm35_ctx->gpio_exton);
 
-	/* If regulators not available, QM is powered on */
-	if (!REGULATORS_ENABLED(qm35_ctx))
+	if (!NO_UWB_HAL) {
+		/* If regulators not available, QM is powered on */
+		if (!REGULATORS_ENABLED(qm35_ctx))
+			hsspi_start(&qm35_ctx->hsspi);
+	} else {
+		usleep_range(100000, 100000);
 		hsspi_start(&qm35_ctx->hsspi);
+	}
 
 	ret = misc_register(&qm35_ctx->uci_dev);
 	if (ret) {
