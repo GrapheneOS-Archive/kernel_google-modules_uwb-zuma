@@ -1,4 +1,4 @@
-ccflags-y := -I$(srctree)/$(src)/libqmrom/include -Werror -DHSSPI_MANUAL_CS_SETUP
+ccflags-y := -I$(srctree)/$(src)/libqmrom/include -Werror
 
 obj-$(CONFIG_QM35_SPI) := qm35.o
 
