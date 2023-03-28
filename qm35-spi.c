@@ -391,9 +391,6 @@ static irqreturn_t qm35_exton_handler(int irq, void *data)
 {
 	struct qm35_ctx *qm35_hdl = data;
 
-	if (qm35_hdl->hsspi.xfer_ongoing)
-		qm35_wakeup(&qm35_hdl->hsspi);
-
 	hsspi_clear_spi_slave_ready(&qm35_hdl->hsspi);
 	return IRQ_HANDLED;
 }
@@ -851,7 +848,7 @@ static int qm35_probe(struct spi_device *spi)
 
 	dev_info(&spi->dev, "Registered: [%s] misc device\n", uci_misc->name);
 
-	dev_info(&spi->dev, "QM35 spi driver probed\n");
+	dev_info(&spi->dev, "QM35 spi driver version " DRV_VERSION " probed\n");
 	return 0;
 
 log_layer_unregister:
@@ -914,3 +911,4 @@ module_spi_driver(qm35_spi_driver);
 MODULE_AUTHOR("Qorvo US, Inc.");
 MODULE_DESCRIPTION("QM35 SPI device interface");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(DRV_VERSION);

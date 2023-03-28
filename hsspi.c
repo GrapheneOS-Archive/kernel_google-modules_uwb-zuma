@@ -223,7 +223,6 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 	hsspi->soc->flags = 0;
 	hsspi->soc->ul = 0;
 	hsspi->soc->length = 0;
-	hsspi->xfer_ongoing = true;
 
 	do {
 		ret = hsspi_wait_ss_ready(hsspi);
@@ -252,7 +251,7 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 		}
 
 		if (!(hsspi->soc->flags & STC_SOC_RDY) ||
-		    (hsspi->soc->flags == 0xff)) {
+		    (hsspi->soc->flags & 0x0f)) {
 			hsspi->wakeup(hsspi);
 			ret = -EAGAIN;
 			continue;
@@ -261,9 +260,8 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 		/* All looks good! */
 		break;
 	} while ((ret == -EAGAIN) && (--retry > 0));
-	hsspi->xfer_ongoing = false;
 
-	if (!(hsspi->soc->flags & STC_SOC_RDY) || (hsspi->soc->flags == 0xff)) {
+	if (!(hsspi->soc->flags & STC_SOC_RDY) || (hsspi->soc->flags & 0x0f)) {
 		dev_err(&hsspi->spi->dev, "FW not ready (flags %#02x)\n",
 			hsspi->soc->flags);
 	}
