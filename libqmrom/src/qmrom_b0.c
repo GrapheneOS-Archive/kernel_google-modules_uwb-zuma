@@ -212,7 +212,7 @@ int qmrom_b0_probe_device(struct qmrom_handle *handle)
 }
 
 static int qmrom_b0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
-			       uint8_t cmd, uint8_t resp)
+			       uint8_t cmd, uint8_t exp)
 {
 	int rc, sent = 0;
 	const char *bin_data = (const char *)fw->data;
@@ -228,16 +228,19 @@ static int qmrom_b0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
 		qmrom_b0_poll_soc(handle);
 		qmrom_pre_read(handle);
 		qmrom_read(handle);
+		if (handle->sstc->payload[0] != exp) {
+			LOG_ERR("%s: wrong data expected (%#x vs %#x)!!!\n",
+				__func__, handle->sstc->payload[0] & 0xff, exp);
+			if (handle->sstc->payload[0] ==
+			    ERR_FIRST_KEY_CERT_OR_FW_VER)
+				return PEG_ERR_FIRST_KEY_CERT_OR_FW_VER;
+			else
+				return SPI_PROTO_WRONG_RESP;
+		}
 
 		LOG_DBG("%s: sending %d command with %" PRIu32 " bytes\n",
 			__func__, cmd, tx_bytes);
 		rc = qmrom_write_size_cmd(handle, cmd, tx_bytes, bin_data);
-		if (handle->sstc->payload[0] != resp) {
-			LOG_ERR("%s: wrong data result (%#x vs %#x)!!!\n",
-				__func__, handle->sstc->payload[0] & 0xff,
-				resp);
-			return SPI_PROTO_WRONG_RESP;
-		}
 		if (rc)
 			return rc;
 		sent += tx_bytes;

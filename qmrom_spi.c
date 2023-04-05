@@ -93,23 +93,27 @@ int qmrom_spi_reset_device(void *reset_handle)
 }
 
 const struct firmware *qmrom_spi_get_firmware(void *handle,
-					      enum chip_revision_e revision,
-					      int lcs_state)
+					      struct qmrom_handle *qmrom_h,
+					      bool use_prod_fw)
 {
 	const struct firmware *fw;
 	struct spi_device *spi = handle;
 	char _fw_name[16]; /* enough room to store "qm35_xx_xxx.bin" */
 	const char *fw_name = _fw_name;
 	int ret;
+	enum chip_revision_e revision = qmrom_h->chip_rev;
+	int lcs_state = qmrom_h->lcs_state;
 
 	if (!fwname) {
 		if (revision == CHIP_REVISION_A0)
-			snprintf(_fw_name, sizeof(_fw_name), "qm35_%02x.bin",
-				 revision);
-		else
-			snprintf(_fw_name, sizeof(_fw_name), "qm35_b0_%.3s.bin",
-				 lcs_state == CC_BSV_SECURE_LCS ? "oem" :
-								  "icv");
+			fw_name = "qm35_a0.bin";
+		else if (lcs_state == CC_BSV_SECURE_LCS) {
+			if (use_prod_fw)
+				fw_name = "qm35_b0_oem_prod.bin";
+			else
+				fw_name = "qm35_b0_oem.bin";
+		} else
+			fw_name = "qm35_b0_icv.bin";
 	} else {
 		fw_name = fwname;
 	}

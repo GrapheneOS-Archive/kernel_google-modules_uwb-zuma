@@ -455,11 +455,31 @@ int qm35_reset_sync(struct qm35_ctx *qm35_hdl)
 	return ret;
 }
 
+static int qm_firmware_flashing(void *handle, struct qmrom_handle *h,
+				bool use_prod_fw)
+{
+	struct qm35_ctx *qm35_hdl = (struct qm35_ctx *)handle;
+	struct spi_device *spi = qm35_hdl->spi;
+	const struct firmware *fw;
+	int ret = 0;
+
+	fw = qmrom_spi_get_firmware(&spi->dev, h, use_prod_fw);
+	if (fw == NULL) {
+		dev_err(&spi->dev, "Firmware file not present!\n");
+		return -1;
+	}
+
+	ret = qmrom_flash_fw(h, fw);
+	dev_dbg(&spi->dev, "Return qmrom_flash_fw = %d!\n", ret);
+
+	qmrom_spi_release_firmware(fw);
+	return ret;
+}
+
 static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 {
 	struct spi_device *spi = qm35_hdl->spi;
 	unsigned int state = qm35_get_state(qm35_hdl);
-	const struct firmware *fw;
 	struct qmrom_handle *h;
 	int ret;
 
@@ -495,18 +515,14 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 	}
 
 	dev_dbg(&spi->dev, "Starting device flashing!\n");
-	fw = qmrom_spi_get_firmware(&spi->dev, h->chip_rev, h->lcs_state);
-	if (fw == NULL) {
-		dev_err(&spi->dev, "Firmware file not present!\n");
-		ret = -1;
-		goto out;
+	ret = qm_firmware_flashing(qm35_hdl, h, true);
+	if (ret) {
+		qmrom_reboot_bootloader(h);
+		ret = qm_firmware_flashing(qm35_hdl, h, false);
 	}
 
-	ret = qmrom_flash_fw(h, fw);
-	qmrom_spi_release_firmware(fw);
-
 	if (ret)
-		dev_err(&spi->dev, "Firmware download failed!\n");
+		dev_err(&spi->dev, "Firmware download failed with %d!\n", ret);
 	else
 		dev_info(&spi->dev, "Device flashing completed!\n");
 

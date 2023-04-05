@@ -333,7 +333,11 @@ static int qmrom_c0_flash_data(struct qmrom_handle *handle, struct firmware *fw,
 			LOG_ERR("%s: wrong data result (%#x vs %#x)!!!\n",
 				__func__, handle->sstc->payload[0] & 0xff,
 				resp);
-			return SPI_PROTO_WRONG_RESP;
+			if (handle->sstc->payload[0] ==
+			    ERR_FIRST_KEY_CERT_OR_FW_VER)
+				return PEG_ERR_FIRST_KEY_CERT_OR_FW_VER;
+			else
+				return SPI_PROTO_WRONG_RESP;
 		}
 	}
 	qmrom_msleep(SPI_READY_TIMEOUT_MS_C0);
