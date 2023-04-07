@@ -74,7 +74,7 @@ static const struct of_device_id qm35_dt_ids[] = {
 };
 MODULE_DEVICE_TABLE(of, qm35_dt_ids);
 
-static bool flash_on_probe = false;
+static bool flash_on_probe = NO_UWB_HAL ? true : false;
 module_param(flash_on_probe, bool, 0444);
 MODULE_PARM_DESC(flash_on_probe, "Flash during the module probe");
 
