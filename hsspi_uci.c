@@ -108,7 +108,8 @@ static void uci_sent(struct hsspi_layer *hlayer, struct hsspi_block *blk,
 
 static size_t get_payload_size_from_header(const u8 *header)
 {
-	bool is_control_packet = (header[0] >> 7) == 0;
+	bool is_data_packet = ((header[0] >> 5) & 0x07) == 0;
+	bool is_control_packet = !is_data_packet && ((header[0] >> 7) == 0);
 
 	if (is_control_packet)
 		return header[UCI_CONTROL_PACKET_PAYLOAD_SIZE_LOCATION];
