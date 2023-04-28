@@ -852,6 +852,7 @@ static int qm35_probe(struct spi_device *spi)
 		if (!REGULATORS_ENABLED(qm35_ctx))
 			hsspi_start(&qm35_ctx->hsspi);
 	} else {
+		qm35_regulators_set(qm35_ctx, true);
 		usleep_range(100000, 100000);
 		hsspi_start(&qm35_ctx->hsspi);
 	}
