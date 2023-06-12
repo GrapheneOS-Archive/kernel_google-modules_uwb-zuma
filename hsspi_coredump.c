@@ -159,11 +159,14 @@ static void coredump_header_ntf_received(struct coredump_layer *layer,
 	layer->coredump_status = COREDUMP_RCV_NACK;
 
 	data = krealloc(layer->coredump_data, layer->coredump_size, GFP_KERNEL);
-
-	if (data)
+	if (ZERO_OR_NULL_PTR(data)) {
+		layer->coredump_data = NULL;
+		layer->coredump_size = 0;
+		layer->coredump_crc = 0;
+		pr_err("qm35: failed to allocate coredump mem: %px\n", data);
+	} else {
 		layer->coredump_data = data;
-	else
-		pr_err("qm35: failed to allocate coredump mem\n");
+	}
 }
 
 static int coredump_body_ntf_received(struct coredump_layer *layer,
