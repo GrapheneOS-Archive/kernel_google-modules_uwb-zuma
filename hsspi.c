@@ -139,6 +139,8 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 {
 	int ret;
 
+	hsspi->waiting_ss_rdy = true;
+
 	if (!test_bit(HSSPI_FLAGS_SS_BUSY, hsspi->flags)) {
 		/* The ss_ready went low, so the fw is not busy anymore,
 		 * if the ss_ready is high, we can proceed, else,
@@ -178,6 +180,8 @@ static int hsspi_wait_ss_ready(struct hsspi *hsspi)
 	 */
 	if (!gpiod_get_value(hsspi->gpio_ss_rdy))
 		return -EAGAIN;
+
+	hsspi->waiting_ss_rdy = false;
 	return 0;
 }
 
@@ -266,6 +270,7 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			hsspi->soc->flags);
 	}
 
+	hsspi->waiting_ss_rdy = false;
 	return ret;
 }
 
