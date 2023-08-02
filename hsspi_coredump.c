@@ -234,6 +234,12 @@ static void coredump_received(struct hsspi_layer *hlayer,
 		break;
 
 	case COREDUMP_BODY_NTF:
+		pr_debug(
+			"qm35: coredump: saving coredump data with len: %d [%d/%d]\n",
+			cch_body_size,
+			layer->coredump_data_wr_idx + cch_body_size,
+			layer->coredump_size);
+
 		if (coredump_body_ntf_received(layer, cch_body, cch_body_size))
 			break;
 
@@ -340,5 +346,6 @@ int coredump_layer_init(struct coredump_layer *layer, struct debug *debug)
 
 void coredump_layer_deinit(struct coredump_layer *layer)
 {
+	del_timer_sync(&layer->timer);
 	kfree(layer->coredump_data);
 }

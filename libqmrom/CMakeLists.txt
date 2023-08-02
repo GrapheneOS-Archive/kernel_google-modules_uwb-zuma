@@ -1,8 +1,8 @@
 set(SOURCES
+    src/qm357xx_rom_b0.c
+    src/qm357xx_rom_c0.c
+    src/qm357xx_rom_common.c
     src/qmrom_common.c
-    src/qmrom_a0.c
-    src/qmrom_b0.c
-    src/qmrom_c0.c
     src/qmrom_log.c
 )
 

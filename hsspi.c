@@ -52,6 +52,8 @@
 #define HSSPI_MANUAL_CS_SETUP_US SPI_CS_SETUP_DELAY_US
 #endif
 
+extern int spi_speed_hz;
+
 struct hsspi_work {
 	struct list_head list;
 	enum hsspi_work_type type;
@@ -215,11 +217,13 @@ static int spi_xfer(struct hsspi *hsspi, const void *tx, void *rx,
 			.tx_buf = hsspi->host,
 			.rx_buf = hsspi->soc,
 			.len = sizeof(*(hsspi->host)),
+			.speed_hz = spi_speed_hz,
 		},
 		{
 			.tx_buf = tx,
 			.rx_buf = rx,
 			.len = length,
+			.speed_hz = spi_speed_hz,
 		},
 	};
 	int ret, retry = 5;

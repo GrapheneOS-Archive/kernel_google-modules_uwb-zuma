@@ -10,9 +10,7 @@
 #include <qmrom.h>
 #include <spi_rom_protocol.h>
 
-int qmrom_a0_probe_device(struct qmrom_handle *handle);
-int qmrom_b0_probe_device(struct qmrom_handle *handle);
-int qmrom_c0_probe_device(struct qmrom_handle *handle);
+int qm357xx_rom_probe_device(struct qmrom_handle *handle);
 
 static void qmrom_free_stcs(struct qmrom_handle *h)
 {
@@ -100,93 +98,28 @@ int qmrom_read(struct qmrom_handle *handle)
 				  sizeof(struct stc) + rd_size);
 }
 
-int qmrom_write_cmd(struct qmrom_handle *handle, uint8_t cmd)
-{
-	handle->hstc->all = 0;
-	handle->hstc->host_flags.write = 1;
-	handle->hstc->ul = 1;
-	handle->hstc->len = 1;
-	handle->hstc->payload[0] = cmd;
-
-	return qmrom_spi_transfer(handle->spi_handle, (char *)handle->sstc,
-				  (const char *)handle->hstc,
-				  sizeof(struct stc) + handle->hstc->len);
-}
-
-int qmrom_write_cmd32(struct qmrom_handle *handle, uint32_t cmd)
-{
-	handle->hstc->all = 0;
-	handle->hstc->host_flags.write = 1;
-	handle->hstc->ul = 1;
-	handle->hstc->len = sizeof(cmd);
-	memcpy(handle->hstc->payload, &cmd, sizeof(cmd));
-
-	return qmrom_spi_transfer(handle->spi_handle, (char *)handle->sstc,
-				  (const char *)handle->hstc,
-				  sizeof(struct stc) + handle->hstc->len);
-}
-
-int qmrom_write_size_cmd(struct qmrom_handle *handle, uint8_t cmd,
-			 uint16_t data_size, const char *data)
-{
-	handle->hstc->all = 0;
-	handle->hstc->host_flags.write = 1;
-	handle->hstc->ul = 1;
-	handle->hstc->len = data_size + 1;
-	handle->hstc->payload[0] = cmd;
-	memcpy(&handle->hstc->payload[1], data, data_size);
-
-	return qmrom_spi_transfer(handle->spi_handle, (char *)handle->sstc,
-				  (const char *)handle->hstc,
-				  sizeof(struct stc) + handle->hstc->len);
-}
-
-int qmrom_write_size_cmd32(struct qmrom_handle *handle, uint32_t cmd,
-			   uint16_t data_size, const char *data)
-{
-	handle->hstc->all = 0;
-	handle->hstc->host_flags.write = 1;
-	handle->hstc->ul = 1;
-	handle->hstc->len = data_size + sizeof(cmd);
-	memcpy(handle->hstc->payload, &cmd, sizeof(cmd));
-	memcpy(&handle->hstc->payload[sizeof(cmd)], data, data_size);
-
-	return qmrom_spi_transfer(handle->spi_handle, (char *)handle->sstc,
-				  (const char *)handle->hstc,
-				  sizeof(struct stc) + handle->hstc->len);
-}
-
 /*
  * Unfortunately, A0, B0 and C0 have different
  * APIs to get the chip version...
  *
  */
-int qmrom_probe_device(struct qmrom_handle *handle)
+int qmrom_probe_device(struct qmrom_handle *handle,
+		       enum device_generation_e dev_gen_hint)
 {
-	int rc;
+	int rc = -1;
 
-	/* Test B0 first */
-	rc = qmrom_b0_probe_device(handle);
-	if (!rc)
-		return rc;
+	if (dev_gen_hint == DEVICE_GEN_QM357XX ||
+	    dev_gen_hint == DEVICE_GEN_UNKNOWN)
+		rc = qm357xx_rom_probe_device(handle);
 
-	/* Test C0 next */
-	rc = qmrom_c0_probe_device(handle);
-	if (!rc)
-		return rc;
-
-	/* Finally try A0 */
-	rc = qmrom_a0_probe_device(handle);
-	if (!rc)
-		return rc;
-
-	/* None matched!!! */
-	return -1;
+	return rc;
 }
 
 struct qmrom_handle *qmrom_init(void *spi_handle, void *reset_handle,
-				void *ss_rdy_handle, int comms_retries,
-				reset_device_fn reset)
+				void *ss_rdy_handle, void *ss_irq_handle,
+				int spi_speed, int comms_retries,
+				reset_device_fn reset,
+				enum device_generation_e dev_gen_hint)
 {
 	struct qmrom_handle *handle;
 	int rc;
@@ -207,14 +140,15 @@ struct qmrom_handle *qmrom_init(void *spi_handle, void *reset_handle,
 	handle->spi_handle = spi_handle;
 	handle->reset_handle = reset_handle;
 	handle->ss_rdy_handle = ss_rdy_handle;
+	handle->ss_irq_handle = ss_irq_handle;
 	handle->comms_retries = comms_retries;
 	handle->chip_rev = CHIP_REVISION_UNKNOWN;
 	handle->device_version = -1;
-	handle->lcs_state = -1;
+	handle->spi_speed = spi_speed;
 
 	handle->dev_ops.reset = reset;
 
-	rc = qmrom_probe_device(handle);
+	rc = qmrom_probe_device(handle, dev_gen_hint);
 	if (rc) {
 		LOG_ERR("%s: qmrom_probe_device returned %d!\n", __func__, rc);
 		qmrom_free_stcs(handle);
@@ -231,173 +165,6 @@ void qmrom_deinit(struct qmrom_handle *handle)
 	LOG_DBG("Deinitializing %pK\n", (void *)handle);
 	qmrom_free_stcs(handle);
 	qmrom_free(handle);
-}
-
-int qmrom_flash_dbg_cert(struct qmrom_handle *handle, struct firmware *dbg_cert)
-{
-	if (!handle->rom_ops.flash_debug_cert) {
-		LOG_ERR("%s: flash debug certificate not support on this device\n",
-			__func__);
-		return -EINVAL;
-	}
-	return handle->rom_ops.flash_debug_cert(handle, dbg_cert);
-}
-
-int qmrom_erase_dbg_cert(struct qmrom_handle *handle)
-{
-	if (!handle->rom_ops.erase_debug_cert) {
-		LOG_ERR("%s: erase debug certificate not support on this device\n",
-			__func__);
-		return -EINVAL;
-	}
-	return handle->rom_ops.erase_debug_cert(handle);
-}
-
-int qmrom_flash_fw(struct qmrom_handle *handle, const struct firmware *fw)
-{
-	return handle->rom_ops.flash_fw(handle, fw);
-}
-
-int qmrom_flash_unstitched_fw(struct qmrom_handle *handle,
-			      const struct unstitched_firmware *fw)
-{
-	return handle->rom_ops.flash_unstitched_fw(handle, fw);
-}
-
-int qmrom_unstitch_fw(const struct firmware *fw,
-		      struct unstitched_firmware *unstitched_fw,
-		      enum chip_revision_e revision)
-{
-	uint32_t tot_len = 0;
-	uint32_t fw_img_sz = 0;
-	uint32_t fw_crt_sz = 0;
-	uint32_t key1_crt_sz = 0;
-	uint32_t key2_crt_sz = 0;
-	uint8_t *p_key1;
-	uint8_t *p_key2;
-	uint8_t *p_crt;
-	uint8_t *p_fw;
-	int ret = 0;
-
-	if (revision == CHIP_REVISION_A0) {
-		LOG_ERR("%s: A0, no unstitching!!!\n", __func__);
-		return -EINVAL;
-	}
-	if (fw->size < 2 * sizeof(key1_crt_sz)) {
-		LOG_ERR("%s: Not enough data (%zu) to unstitch\n", __func__,
-			fw->size);
-		return -EINVAL;
-	}
-	LOG_INFO("%s: Unstitching %zu bytes\n", __func__, fw->size);
-
-	/* key1 */
-	key1_crt_sz = *(uint32_t *)&fw->data[tot_len];
-	if (tot_len + key1_crt_sz + sizeof(key1_crt_sz) > fw->size) {
-		LOG_ERR("%s: Invalid or corrupted stitched file at offset \
-				%" PRIu32 " (key1)\n",
-			__func__, tot_len);
-		ret = -EINVAL;
-		goto out;
-	}
-	tot_len += sizeof(key1_crt_sz);
-	p_key1 = (uint8_t *)&fw->data[tot_len];
-	tot_len += key1_crt_sz;
-
-	/* key2 */
-	key2_crt_sz = *(uint32_t *)&fw->data[tot_len];
-	if (tot_len + key2_crt_sz + sizeof(key2_crt_sz) > fw->size) {
-		LOG_ERR("%s: Invalid or corrupted stitched file at offset \
-				%" PRIu32 " (key2)\n",
-			__func__, tot_len);
-		ret = -EINVAL;
-		goto out;
-	}
-	tot_len += sizeof(key2_crt_sz);
-	p_key2 = (uint8_t *)&fw->data[tot_len];
-	tot_len += key2_crt_sz;
-
-	/* cert */
-	fw_crt_sz = *(uint32_t *)&fw->data[tot_len];
-	if (tot_len + fw_crt_sz + sizeof(fw_crt_sz) > fw->size) {
-		LOG_ERR("%s: Invalid or corrupted stitched file at offset \
-				%" PRIu32 " (content cert)\n",
-			__func__, tot_len);
-		ret = -EINVAL;
-		goto out;
-	}
-	tot_len += sizeof(fw_crt_sz);
-	p_crt = (uint8_t *)&fw->data[tot_len];
-	tot_len += fw_crt_sz;
-
-	/* fw */
-	fw_img_sz = *(uint32_t *)&fw->data[tot_len];
-	if (tot_len + fw_img_sz + sizeof(fw_img_sz) != fw->size) {
-		LOG_ERR("%s: Invalid or corrupted stitched file at offset \
-				%" PRIu32 " (firmnware)\n",
-			__func__, tot_len);
-		ret = -EINVAL;
-		goto out;
-	}
-	tot_len += sizeof(fw_img_sz);
-	p_fw = (uint8_t *)&fw->data[tot_len];
-
-	qmrom_alloc(unstitched_fw->fw_img, fw_img_sz + sizeof(struct firmware));
-	if (unstitched_fw->fw_img == NULL) {
-		ret = -ENOMEM;
-		goto out;
-	}
-
-	qmrom_alloc(unstitched_fw->fw_crt, fw_crt_sz + sizeof(struct firmware));
-	if (unstitched_fw->fw_crt == NULL) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	qmrom_alloc(unstitched_fw->key1_crt,
-		    key1_crt_sz + sizeof(struct firmware));
-	if (unstitched_fw->key1_crt == NULL) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	qmrom_alloc(unstitched_fw->key2_crt,
-		    key2_crt_sz + sizeof(struct firmware));
-	if (unstitched_fw->key2_crt == NULL) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	unstitched_fw->key1_crt->data =
-		(const uint8_t *)(unstitched_fw->key1_crt + 1);
-	unstitched_fw->key2_crt->data =
-		(const uint8_t *)(unstitched_fw->key2_crt + 1);
-	unstitched_fw->fw_crt->data =
-		(const uint8_t *)(unstitched_fw->fw_crt + 1);
-	unstitched_fw->fw_img->data =
-		(const uint8_t *)(unstitched_fw->fw_img + 1);
-	unstitched_fw->key1_crt->size = key1_crt_sz;
-	unstitched_fw->key2_crt->size = key2_crt_sz;
-	unstitched_fw->fw_crt->size = fw_crt_sz;
-	unstitched_fw->fw_img->size = fw_img_sz;
-
-	memcpy((void *)unstitched_fw->key1_crt->data, p_key1, key1_crt_sz);
-	memcpy((void *)unstitched_fw->key2_crt->data, p_key2, key2_crt_sz);
-	memcpy((void *)unstitched_fw->fw_crt->data, p_crt, fw_crt_sz);
-	memcpy((void *)unstitched_fw->fw_img->data, p_fw, fw_img_sz);
-	return 0;
-
-err:
-	if (unstitched_fw->fw_img)
-		qmrom_free(unstitched_fw->fw_img);
-	if (unstitched_fw->fw_crt)
-		qmrom_free(unstitched_fw->fw_crt);
-	if (unstitched_fw->key1_crt)
-		qmrom_free(unstitched_fw->key1_crt);
-	if (unstitched_fw->key2_crt)
-		qmrom_free(unstitched_fw->key2_crt);
-
-out:
-	return ret;
 }
 
 int qmrom_reboot_bootloader(struct qmrom_handle *handle)

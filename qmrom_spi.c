@@ -26,12 +26,19 @@
  * QM35 FW ROM protocol SPI ops
  */
 
+#include <linux/interrupt.h>
 #include <linux/spi/spi.h>
 
 #include <qmrom_spi.h>
 #include <spi_rom_protocol.h>
 
 #include "qm35.h"
+
+/* TODO Compile QM358XX code */
+int qm358xx_rom_probe_device(struct qmrom_handle *handle)
+{
+	return -1;
+}
 
 static const char *fwname = NULL;
 static unsigned int speed_hz;
@@ -45,6 +52,7 @@ void qmrom_set_fwname(const char *name)
 int qmrom_spi_transfer(void *handle, char *rbuf, const char *wbuf, size_t size)
 {
 	struct spi_device *spi = (struct spi_device *)handle;
+	struct qm35_ctx *qm35_ctx = spi_get_drvdata(spi);
 	int rc;
 
 	struct spi_transfer xfer[] = {
@@ -56,13 +64,14 @@ int qmrom_spi_transfer(void *handle, char *rbuf, const char *wbuf, size_t size)
 		},
 	};
 
+	qm35_ctx->qmrom_qm_ready = false;
 	rc = spi_sync_transfer(spi, xfer, ARRAY_SIZE(xfer));
 
 	if (trace_spi_xfers) {
-		print_hex_dump(KERN_DEBUG, "tx:", DUMP_PREFIX_NONE, 16, 1, wbuf,
-			       size, false);
-		print_hex_dump(KERN_DEBUG, "rx:", DUMP_PREFIX_NONE, 16, 1, rbuf,
-			       size, false);
+		print_hex_dump(KERN_DEBUG, "qm35 tx:", DUMP_PREFIX_NONE, 16, 1,
+			       wbuf, size, false);
+		print_hex_dump(KERN_DEBUG, "qm35 rx:", DUMP_PREFIX_NONE, 16, 1,
+			       rbuf, size, false);
 	}
 
 	return rc;
@@ -94,26 +103,25 @@ int qmrom_spi_reset_device(void *reset_handle)
 
 const struct firmware *qmrom_spi_get_firmware(void *handle,
 					      struct qmrom_handle *qmrom_h,
+					      bool *is_macro_pkg,
 					      bool use_prod_fw)
 {
 	const struct firmware *fw;
 	struct spi_device *spi = handle;
-	char _fw_name[16]; /* enough room to store "qm35_xx_xxx.bin" */
-	const char *fw_name = _fw_name;
+	const char *fw_name;
 	int ret;
-	enum chip_revision_e revision = qmrom_h->chip_rev;
-	int lcs_state = qmrom_h->lcs_state;
+	uint32_t lcs_state = qmrom_h->qm357xx_soc_info.lcs_state;
 
 	if (!fwname) {
-		if (revision == CHIP_REVISION_A0)
-			fw_name = "qm35_a0.bin";
-		else if (lcs_state == CC_BSV_SECURE_LCS) {
-			if (use_prod_fw)
-				fw_name = "qm35_b0_oem_prod.bin";
-			else
-				fw_name = "qm35_b0_oem.bin";
-		} else
-			fw_name = "qm35_b0_icv.bin";
+		if (lcs_state != CC_BSV_SECURE_LCS) {
+			dev_warn(&spi->dev, "LCS state is not secure.");
+		}
+
+		if (use_prod_fw)
+			fw_name = "qm35_fw_pkg_prod.bin";
+		else
+			fw_name = "qm35_fw_pkg.bin";
+		*is_macro_pkg = true;
 	} else {
 		fw_name = fwname;
 	}
@@ -121,6 +129,24 @@ const struct firmware *qmrom_spi_get_firmware(void *handle,
 
 	ret = request_firmware(&fw, fw_name, &spi->dev);
 	if (ret) {
+		if (lcs_state != CC_BSV_SECURE_LCS) {
+			dev_warn(&spi->dev, "LCS state is not secure.");
+		}
+
+		/* Didn't get the macro package, try the stitched image */
+		*is_macro_pkg = false;
+		if (use_prod_fw)
+			fw_name = "qm35_oem_prod.bin";
+		else
+			fw_name = "qm35_oem.bin";
+		dev_info(&spi->dev, "Requesting fw %s!\n", fw_name);
+		ret = request_firmware(&fw, fw_name, &spi->dev);
+		if (!ret) {
+			dev_info(&spi->dev, "Firmware size is %zu!\n",
+				 fw->size);
+			return fw;
+		}
+
 		release_firmware(fw);
 		dev_err(&spi->dev,
 			"request_firmware failed (ret=%d) for '%s'\n", ret,
@@ -140,11 +166,17 @@ void qmrom_spi_release_firmware(const struct firmware *fw)
 
 int qmrom_spi_wait_for_ready_line(void *handle, unsigned int timeout_ms)
 {
-	int count_down = (int)timeout_ms;
-	while (!gpiod_get_value(handle) && (--count_down >= 0)) {
-		usleep_range(1000, 1100);
-	}
-	return gpiod_get_value(handle) ? 0 : -1;
+	struct qm35_ctx *qm35_ctx = (struct qm35_ctx *)handle;
+
+	wait_event_interruptible_timeout(qm35_ctx->qmrom_wq_ready,
+					 qm35_ctx->qmrom_qm_ready,
+					 msecs_to_jiffies(timeout_ms));
+	return gpiod_get_value(qm35_ctx->gpio_ss_rdy) > 0 ? 0 : -1;
+}
+
+int qmrom_spi_read_irq_line(void *handle)
+{
+	return gpiod_get_value(handle);
 }
 
 void qmrom_spi_set_freq(unsigned int freq)
@@ -152,7 +184,7 @@ void qmrom_spi_set_freq(unsigned int freq)
 	speed_hz = freq;
 }
 
-unsigned int qmrom_spi_get_freq()
+unsigned int qmrom_spi_get_freq(void)
 {
 	return speed_hz;
 }

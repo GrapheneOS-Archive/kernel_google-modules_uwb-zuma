@@ -173,7 +173,6 @@ struct hsspi {
 	struct gpio_desc *gpio_ss_rdy;
 	struct gpio_desc *gpio_exton;
 
-	volatile bool xfer_ongoing;
 	volatile bool waiting_ss_rdy;
 };
 

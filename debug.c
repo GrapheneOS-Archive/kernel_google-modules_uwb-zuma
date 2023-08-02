@@ -390,14 +390,14 @@ static int debug_devid_show(struct seq_file *s, void *unused)
 static int debug_socid_show(struct seq_file *s, void *unused)
 {
 	struct debug *debug = (struct debug *)s->private;
-	uint8_t soc_id[ROM_SOC_ID_LEN];
+	uint8_t soc_id[QM357XX_ROM_SOC_ID_LEN];
 	int rc;
 
 	if (debug->trace_ops && debug->trace_ops->get_soc_id) {
 		rc = debug->trace_ops->get_soc_id(debug, soc_id);
 		if (rc < 0)
 			return -EIO;
-		seq_printf(s, "%*phN\n", ROM_SOC_ID_LEN, soc_id);
+		seq_printf(s, "%*phN\n", QM357XX_ROM_SOC_ID_LEN, soc_id);
 	}
 	return 0;
 }
