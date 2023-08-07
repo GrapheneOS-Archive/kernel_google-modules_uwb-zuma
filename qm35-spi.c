@@ -392,6 +392,10 @@ static irqreturn_t qm35_exton_handler(int irq, void *data)
 	struct qm35_ctx *qm35_hdl = data;
 
 	hsspi_clear_spi_slave_ready(&qm35_hdl->hsspi);
+
+	if (qm35_hdl->hsspi.waiting_ss_rdy)
+		qm35_wakeup(&qm35_hdl->hsspi);
+
 	return IRQ_HANDLED;
 }
 
