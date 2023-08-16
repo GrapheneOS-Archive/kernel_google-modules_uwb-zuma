@@ -89,7 +89,7 @@ int qmrom_spi_reset_device(void *reset_handle)
 {
 	struct qm35_ctx *qm35_hdl = (struct qm35_ctx *)reset_handle;
 
-	return qm35_reset(qm35_hdl, SPI_RST_LOW_DELAY_MS);
+	return qm35_reset(qm35_hdl, SPI_RST_LOW_DELAY_MS, true);
 }
 
 const struct firmware *qmrom_spi_get_firmware(void *handle,
