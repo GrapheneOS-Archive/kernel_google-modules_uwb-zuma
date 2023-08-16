@@ -110,12 +110,6 @@ int log_qm_traces = 1;
 module_param(log_qm_traces, int, 0444);
 MODULE_PARM_DESC(log_qm_traces, "Logs the QM35 traces in the kernel messages");
 
-bool reset_when_disabled = NO_UWB_HAL ? false : true;
-module_param(reset_when_disabled, bool, 0444);
-MODULE_PARM_DESC(
-	reset_when_disabled,
-	"Assert reset line when UWB is disabled (if at least one regulator is defined in DTS)");
-
 static uint8_t qm_soc_id[ROM_SOC_ID_LEN];
 static uint16_t qm_dev_id;
 
@@ -154,7 +148,7 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 	case QM35_CTRL_RESET: {
 		qm35_hsspi_stop(qm35_hdl);
 
-		ret = qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+		ret = qm35_reset(qm35_hdl, QM_RESET_LOW_MS, true);
 
 		msleep(QM_BOOT_MS);
 
@@ -202,9 +196,7 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 		 * other devices and power may not be controlled as
 		 * expected
 		 */
-		if (!reset_when_disabled)
-			qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
-
+		qm35_reset(qm35_hdl, QM_RESET_LOW_MS, on);
 		msleep(QM_BOOT_MS);
 
 		/* If reset or power on */
@@ -383,7 +375,7 @@ static void qm35_reset_hook(struct hsspi *hsspi)
 	struct qm35_ctx *qm35_hdl = container_of(hsspi, struct qm35_ctx, hsspi);
 
 	if (reset_on_error)
-		qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+		qm35_reset(qm35_hdl, QM_RESET_LOW_MS, true);
 	usleep_range(QM_BEFORE_RESET_MS * 1000, QM_BEFORE_RESET_MS * 1000);
 }
 
@@ -452,7 +444,7 @@ int qm35_reset_sync(struct qm35_ctx *qm35_hdl)
 	int ret;
 
 	qm35_hsspi_stop(qm35_hdl);
-	ret = qm35_reset(qm35_hdl, QM_RESET_LOW_MS);
+	ret = qm35_reset(qm35_hdl, QM_RESET_LOW_MS, true);
 	msleep(QM_BOOT_MS);
 	qm35_hsspi_start(qm35_hdl);
 
@@ -680,14 +672,6 @@ static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on)
 	if (is_enabled == on)
 		return;
 
-	if (reset_when_disabled && !on &&
-	    qm35_get_state(qm35_hdl) != QM35_CTRL_STATE_RESET) {
-		if (qm35_hdl->gpio_reset) {
-			gpiod_set_value(qm35_hdl->gpio_reset, 1);
-		}
-		qm35_set_state(qm35_hdl, QM35_CTRL_STATE_RESET);
-	}
-
 	ret = qm35_regulator_set_one(qm35_hdl->vdd1, on);
 	if (ret)
 		dev_err(dev, str_fmt, on_str, "vdd1", ret);
@@ -706,14 +690,6 @@ static void qm35_regulators_set(struct qm35_ctx *qm35_hdl, bool on)
 
 	/* wait for regulator stabilization */
 	usleep_range(QM35_REGULATOR_DELAY_US, QM35_REGULATOR_DELAY_US + 100);
-
-	if (reset_when_disabled && on &&
-	    qm35_get_state(qm35_hdl) == QM35_CTRL_STATE_RESET) {
-		if (qm35_hdl->gpio_reset) {
-			gpiod_set_value(qm35_hdl->gpio_reset, 0);
-		}
-		qm35_set_state(qm35_hdl, QM35_CTRL_STATE_UNKNOWN);
-	}
 }
 
 static void qm35_regulators_setup_one(struct regulator **reg,
