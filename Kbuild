@@ -4,6 +4,7 @@ obj-$(CONFIG_QM35_SPI) := qm35.o
 
 qm35-y := \
 	qm35-spi.o \
+	qm35-sscd.o \
 	qm35_rb.o \
 	qmrom_spi.o \
 	libqmrom/src/qmrom_common.o \

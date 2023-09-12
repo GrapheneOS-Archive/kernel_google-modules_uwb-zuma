@@ -53,6 +53,7 @@
 #include <fwupdater.h>
 
 #include "qm35.h"
+#include "qm35-sscd.h"
 #include "uci_ioctls.h"
 #include "hsspi.h"
 #include "hsspi_uci.h"
@@ -1011,6 +1012,11 @@ static int qm35_probe(struct spi_device *spi)
 		goto log_layer_unregister;
 	}
 
+	dev_dbg(&spi->dev, "SSCD device init\n");
+	ret = register_coredump(spi, qm35_ctx);
+	if (ret)
+		goto sscd_unregister;
+
 	dev_info(&spi->dev, "Registered: [%s] misc device\n", uci_misc->name);
 
 	dev_info(&spi->dev, "QM35 spi driver version " DRV_VERSION " probed\n");
@@ -1032,6 +1038,8 @@ uci_layer_deinit:
 	uci_layer_deinit(&qm35_ctx->uci_layer);
 hsspi_deinit:
 	hsspi_deinit(&qm35_ctx->hsspi);
+sscd_unregister:
+	unregister_coredump(qm35_ctx->sscd);
 poweroff:
 	qm35_regulators_set(qm35_ctx, false);
 	return ret;

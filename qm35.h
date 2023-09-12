@@ -61,6 +61,7 @@ struct qm35_ctx {
 	struct regulator *vdd4;
 	bool regulators_enabled;
 	bool log_qm_traces;
+	struct sscd_desc *sscd;
 
 	/* qmrom support */
 	struct wait_queue_head qmrom_wq_ready;
