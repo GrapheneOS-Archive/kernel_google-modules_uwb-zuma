@@ -1012,10 +1012,9 @@ static int qm35_probe(struct spi_device *spi)
 		goto log_layer_unregister;
 	}
 
-	dev_dbg(&spi->dev, "SSCD device init\n");
-	ret = register_coredump(spi, qm35_ctx);
+	ret = qm35_register_coredump(qm35_ctx);
 	if (ret)
-		goto sscd_unregister;
+		dev_warn(&spi->dev, "SSCD registration failed: %d\n", ret);
 
 	dev_info(&spi->dev, "Registered: [%s] misc device\n", uci_misc->name);
 
@@ -1038,8 +1037,6 @@ uci_layer_deinit:
 	uci_layer_deinit(&qm35_ctx->uci_layer);
 hsspi_deinit:
 	hsspi_deinit(&qm35_ctx->hsspi);
-sscd_unregister:
-	unregister_coredump(qm35_ctx->sscd);
 poweroff:
 	qm35_regulators_set(qm35_ctx, false);
 	return ret;
@@ -1061,6 +1058,8 @@ static int qm35_remove(struct spi_device *spi)
 	hsspi_test_deinit(&qm35_hdl->hsspi);
 	debug_deinit(&qm35_hdl->debug);
 	uci_layer_deinit(&qm35_hdl->uci_layer);
+
+	qm35_unregister_coredump(qm35_hdl);
 
 	hsspi_deinit(&qm35_hdl->hsspi);
 

@@ -257,7 +257,7 @@ static void coredump_received(struct hsspi_layer *hlayer,
 				layer->coredump_status = COREDUMP_RCV_ACK;
 
 			if (qm35_hdl->sscd)
-				report_coredump(qm35_hdl);
+				qm35_report_coredump(qm35_hdl);
 
 			coredump_send_rcv_status(layer, layer->coredump_status);
 

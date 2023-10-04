@@ -4,11 +4,11 @@
 
 #define NAME "uwb"
 
-void release_coredump(struct device *dev)
+void qm35_release_coredump(struct device *dev)
 {
 }
 
-int report_coredump(struct qm35_ctx *qm35_ctx)
+int qm35_report_coredump(struct qm35_ctx *qm35_ctx)
 {
 	struct coredump_layer *layer = &qm35_ctx->coredump_layer;
 	struct sscd_platform_data *sscd_pdata = &qm35_ctx->sscd->sscd_pdata;
@@ -28,9 +28,13 @@ int report_coredump(struct qm35_ctx *qm35_ctx)
 					"qm35 coredump");
 }
 
-int register_coredump(struct spi_device *spi, struct qm35_ctx *qm35_ctx)
+int qm35_register_coredump(struct qm35_ctx *qm35_ctx)
 {
+	int ret;
+	struct spi_device *spi;
 	struct sscd_desc *sscd;
+
+	spi = qm35_ctx->spi;
 	sscd = devm_kzalloc(&spi->dev, sizeof(*sscd), GFP_KERNEL);
 	if (!sscd)
 		return -ENOMEM;
@@ -39,13 +43,19 @@ int register_coredump(struct spi_device *spi, struct qm35_ctx *qm35_ctx)
 	sscd->sscd_dev.driver_override = SSCD_NAME;
 	sscd->sscd_dev.id = -1;
 	sscd->sscd_dev.dev.platform_data = &sscd->sscd_pdata;
-	sscd->sscd_dev.dev.release = release_coredump;
+	sscd->sscd_dev.dev.release = qm35_release_coredump;
 
+	ret = platform_device_register(&sscd->sscd_dev);
+	if (ret) {
+		devm_kfree(&spi->dev, sscd);
+		return ret;
+	}
 	qm35_ctx->sscd = sscd;
-	return platform_device_register(&qm35_ctx->sscd->sscd_dev);
+	return 0;
 }
 
-void unregister_coredump(struct sscd_desc *sscd)
+void qm35_unregister_coredump(struct qm35_ctx *qm35_ctx)
 {
-	platform_device_unregister(&sscd->sscd_dev);
+	if (qm35_ctx->sscd)
+		platform_device_unregister(&qm35_ctx->sscd->sscd_dev);
 }
