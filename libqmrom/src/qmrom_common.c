@@ -145,6 +145,7 @@ struct qmrom_handle *qmrom_init(void *spi_handle, void *reset_handle,
 	handle->chip_rev = CHIP_REVISION_UNKNOWN;
 	handle->device_version = -1;
 	handle->spi_speed = spi_speed;
+	handle->skip_check_fw_boot = false;
 
 	handle->dev_ops.reset = reset;
 

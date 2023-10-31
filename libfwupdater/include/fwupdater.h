@@ -17,8 +17,8 @@
 #include <qmrom.h>
 #include <qm357xx_fwpkg.h>
 
-#ifndef CONFIG_NB_RETRIES
-#define CONFIG_NB_RETRIES 10
+#ifndef CONFIG_FWUPDATER_CHUNK_FLASHING_RETRIES
+#define CONFIG_FWUPDATER_CHUNK_FLASHING_RETRIES 10
 #endif
 
 // #define CONFIG_INJECT_ERROR 1
@@ -70,6 +70,7 @@ struct fw_updater_status_t {
 #define FWUPDATER_STATUS_MAGIC 0xCAFECAFE
 
 void run_fwupdater_unit_tests(void *spi_handle);
-int run_fwupdater(struct qmrom_handle *handle, char *fwpkg_bin, size_t size);
+int run_fwupdater(struct qmrom_handle *handle, const char *fwpkg_bin,
+		  size_t size);
 
 #endif /* __FWUPDATER_H__ */

@@ -1,5 +1,9 @@
 ccflags-y := -I$(srctree)/$(src)/libqmrom/include -I$(srctree)/$(src)/libfwupdater/include -Werror
 
+ccflags-y += -DCONFIG_FLASHING_RETRIES=10 -DCONFIG_CHUNK_FLASHING_RETRIES=10
+ccflags-y += -DCONFIG_GLOBAL_CHUNK_FLASHING_RETRIES=50 -DCONFIG_FWUPDATER_CHUNK_FLASHING_RETRIES=3
+ccflags-y += -DCONFIG_FWUPDATER_GLOBAL_CHUNK_FLASHING_RETRIES=60
+
 obj-$(CONFIG_QM35_SPI) := qm35.o
 
 qm35-y := \

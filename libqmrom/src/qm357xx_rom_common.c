@@ -166,6 +166,8 @@ int qm357xx_rom_unstitch_fw(const struct firmware *fw,
 	uint8_t *p_key2;
 	uint8_t *p_crt;
 	uint8_t *p_fw;
+	uint32_t combined_data_size = 0;
+	uint8_t *unstitched_data_buffer = NULL;
 	int ret = 0;
 
 	if (fw->size < 2 * sizeof(key1_crt_sz)) {
@@ -229,67 +231,48 @@ int qm357xx_rom_unstitch_fw(const struct firmware *fw,
 	tot_len += sizeof(fw_img_sz);
 	p_fw = (uint8_t *)&fw->data[tot_len];
 
-	qmrom_alloc(unstitched_fw->fw_img, fw_img_sz + sizeof(struct firmware));
-	if (unstitched_fw->fw_img == NULL) {
+	combined_data_size = key1_crt_sz + key2_crt_sz + fw_crt_sz + fw_img_sz +
+			     4 * sizeof(struct firmware);
+	qmrom_alloc(unstitched_data_buffer, combined_data_size);
+	if (!unstitched_data_buffer) {
 		ret = -ENOMEM;
 		goto out;
 	}
 
-	qmrom_alloc(unstitched_fw->fw_crt, fw_crt_sz + sizeof(struct firmware));
-	if (unstitched_fw->fw_crt == NULL) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	qmrom_alloc(unstitched_fw->key1_crt,
-		    key1_crt_sz + sizeof(struct firmware));
-	if (unstitched_fw->key1_crt == NULL) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	qmrom_alloc(unstitched_fw->key2_crt,
-		    key2_crt_sz + sizeof(struct firmware));
-	if (unstitched_fw->key2_crt == NULL) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	unstitched_fw->key1_crt->data =
-		(const uint8_t *)(unstitched_fw->key1_crt + 1);
-	unstitched_fw->key2_crt->data =
-		(const uint8_t *)(unstitched_fw->key2_crt + 1);
-	unstitched_fw->fw_crt->data =
-		(const uint8_t *)(unstitched_fw->fw_crt + 1);
-	unstitched_fw->fw_img->data =
-		(const uint8_t *)(unstitched_fw->fw_img + 1);
+	/* Assign struct firmware for key1 and point to data */
+	unstitched_fw->key1_crt = (struct firmware *)(unstitched_data_buffer);
 	unstitched_fw->key1_crt->size = key1_crt_sz;
-	unstitched_fw->key2_crt->size = key2_crt_sz;
-	unstitched_fw->fw_crt->size = fw_crt_sz;
-	unstitched_fw->fw_img->size = fw_img_sz;
+	unstitched_fw->key1_crt->data = p_key1;
+	unstitched_data_buffer += sizeof(struct firmware);
 
-	memcpy((void *)unstitched_fw->key1_crt->data, p_key1, key1_crt_sz);
-	memcpy((void *)unstitched_fw->key2_crt->data, p_key2, key2_crt_sz);
-	memcpy((void *)unstitched_fw->fw_crt->data, p_crt, fw_crt_sz);
-	memcpy((void *)unstitched_fw->fw_img->data, p_fw, fw_img_sz);
+	/* Assign struct firmware for key2 and point to data */
+	unstitched_fw->key2_crt = (struct firmware *)(unstitched_data_buffer);
+	unstitched_fw->key2_crt->size = key2_crt_sz;
+	unstitched_fw->key2_crt->data = p_key2;
+	unstitched_data_buffer += sizeof(struct firmware);
+
+	/* Assign struct firmware for cert and point to data */
+	unstitched_fw->fw_crt = (struct firmware *)(unstitched_data_buffer);
+	unstitched_fw->fw_crt->size = fw_crt_sz;
+	unstitched_fw->fw_crt->data = p_crt;
+	unstitched_data_buffer += sizeof(struct firmware);
+
+	/* Assign struct firmware for firmware image and point to data */
+	unstitched_fw->fw_img = (struct firmware *)(unstitched_data_buffer);
+	unstitched_fw->fw_img->size = fw_img_sz;
+	unstitched_fw->fw_img->data = p_fw;
+
 	return 0;
 
-err:
-	if (unstitched_fw->fw_img)
-		qmrom_free(unstitched_fw->fw_img);
-	if (unstitched_fw->fw_crt)
-		qmrom_free(unstitched_fw->fw_crt);
-	if (unstitched_fw->key1_crt)
-		qmrom_free(unstitched_fw->key1_crt);
-	if (unstitched_fw->key2_crt)
-		qmrom_free(unstitched_fw->key2_crt);
-
 out:
+	if (unstitched_data_buffer)
+		qmrom_free(unstitched_data_buffer);
 	return ret;
 }
 
 int qm357xx_rom_fw_macro_pkg_get_fw_idx(const struct firmware *fw, int idx,
-					uint32_t *fw_size, char **fw_data)
+					uint32_t *fw_size,
+					const uint8_t **fw_data)
 {
 	struct fw_macro_pkg_hdr_t *fw_macro_pkg_hdr =
 		(struct fw_macro_pkg_hdr_t *)fw->data;
@@ -309,7 +292,7 @@ int qm357xx_rom_fw_macro_pkg_get_fw_idx(const struct firmware *fw, int idx,
 		return -EINVAL;
 	}
 	*fw_size = fw_pkg->length;
-	*fw_data = (char *)&fw->data[fw_pkg->offset];
+	*fw_data = &fw->data[fw_pkg->offset];
 	return 0;
 }
 
@@ -317,7 +300,7 @@ int qm357xx_rom_unpack_fw_macro_pkg(const struct firmware *fw,
 				    struct unstitched_firmware *all_fws)
 {
 	int rc = 0;
-	char *fw_data;
+	const uint8_t *fw_data;
 	uint32_t fw_size;
 	struct firmware fw_pkg;
 
@@ -336,10 +319,8 @@ int qm357xx_rom_unpack_fw_pkg(const struct firmware *fw_pkg,
 			      struct unstitched_firmware *all_fws)
 {
 	int rc = 0;
-	uint8_t *p_key1;
-	uint8_t *p_key2;
-	uint8_t *p_crt;
-	uint8_t *p_fw;
+	uint8_t *unstitched_firmware_buffer;
+	uint32_t allocated_buffer_size;
 	struct fw_pkg_img_hdr_t *fw_pkg_img_hdr;
 
 	fw_pkg_img_hdr =
@@ -351,64 +332,44 @@ int qm357xx_rom_unpack_fw_pkg(const struct firmware *fw_pkg,
 			__func__, fw_pkg_img_hdr->magic);
 		return -EINVAL;
 	}
-	qmrom_alloc(all_fws->fw_img,
-		    fw_pkg_img_hdr->descs[0].length + sizeof(struct firmware));
-	if (all_fws->fw_img == NULL) {
-		rc = -ENOMEM;
-		goto err;
-	}
-	qmrom_alloc(all_fws->key1_crt,
-		    CRYPTO_IMAGES_CERT_KEY_SIZE + sizeof(struct firmware));
-	if (all_fws->key1_crt == NULL) {
+
+	allocated_buffer_size = sizeof(struct firmware) * 4 +
+				fw_pkg_img_hdr->descs[0].length +
+				CRYPTO_IMAGES_CERT_KEY_SIZE * 2 +
+				CRYPTO_IMAGES_CERT_CONTENT_SIZE;
+
+	qmrom_alloc(unstitched_firmware_buffer, allocated_buffer_size);
+	if (!unstitched_firmware_buffer) {
 		rc = -ENOMEM;
 		goto err;
 	}
 
-	qmrom_alloc(all_fws->key2_crt,
-		    CRYPTO_IMAGES_CERT_KEY_SIZE + sizeof(struct firmware));
-	if (all_fws->key2_crt == NULL) {
-		rc = -ENOMEM;
-		goto err;
-	}
-
-	qmrom_alloc(all_fws->fw_crt,
-		    CRYPTO_IMAGES_CERT_CONTENT_SIZE + sizeof(struct firmware));
-	if (all_fws->fw_crt == NULL) {
-		rc = -ENOMEM;
-		goto err;
-	}
-
-	all_fws->key1_crt->data = (const uint8_t *)(all_fws->key1_crt + 1);
-	all_fws->key2_crt->data = (const uint8_t *)(all_fws->key2_crt + 1);
-	all_fws->fw_crt->data = (const uint8_t *)(all_fws->fw_crt + 1);
-	all_fws->fw_img->data = (const uint8_t *)(all_fws->fw_img + 1);
+	all_fws->key1_crt = (struct firmware *)(unstitched_firmware_buffer);
+	all_fws->key1_crt->data = (const uint8_t *)fw_pkg_img_hdr +
+				  fw_pkg_img_hdr->cert_chain_offset;
 	all_fws->key1_crt->size = CRYPTO_IMAGES_CERT_KEY_SIZE;
+
+	all_fws->key2_crt = (struct firmware *)(unstitched_firmware_buffer +
+						sizeof(struct firmware));
+	all_fws->key2_crt->data =
+		all_fws->key1_crt->data + CRYPTO_IMAGES_CERT_KEY_SIZE;
 	all_fws->key2_crt->size = CRYPTO_IMAGES_CERT_KEY_SIZE;
+
+	all_fws->fw_crt = (struct firmware *)(unstitched_firmware_buffer +
+					      2 * sizeof(struct firmware));
+	all_fws->fw_crt->data =
+		all_fws->key2_crt->data + CRYPTO_IMAGES_CERT_KEY_SIZE;
 	all_fws->fw_crt->size = CRYPTO_IMAGES_CERT_CONTENT_SIZE;
+
+	all_fws->fw_img = (struct firmware *)(unstitched_firmware_buffer +
+					      3 * sizeof(struct firmware));
+	all_fws->fw_img->data = (const uint8_t *)fw_pkg_img_hdr +
+				fw_pkg_img_hdr->descs[0].offset;
 	all_fws->fw_img->size = fw_pkg_img_hdr->descs[0].length;
 
-	p_key1 = (uint8_t *)fw_pkg_img_hdr + fw_pkg_img_hdr->cert_chain_offset;
-	p_key2 = p_key1 + CRYPTO_IMAGES_CERT_KEY_SIZE;
-	p_crt = p_key2 + CRYPTO_IMAGES_CERT_KEY_SIZE;
-	p_fw = (uint8_t *)fw_pkg_img_hdr + fw_pkg_img_hdr->descs[0].offset;
-
-	memcpy((void *)all_fws->key1_crt->data, p_key1,
-	       all_fws->key1_crt->size);
-	memcpy((void *)all_fws->key2_crt->data, p_key2,
-	       all_fws->key2_crt->size);
-	memcpy((void *)all_fws->fw_crt->data, p_crt, all_fws->fw_crt->size);
-	memcpy((void *)all_fws->fw_img->data, p_fw, all_fws->fw_img->size);
 	return 0;
 
 err:
-	if (all_fws->fw_img)
-		qmrom_free(all_fws->fw_img);
-	if (all_fws->fw_crt)
-		qmrom_free(all_fws->fw_crt);
-	if (all_fws->key1_crt)
-		qmrom_free(all_fws->key1_crt);
-	if (all_fws->key2_crt)
-		qmrom_free(all_fws->key2_crt);
-
+	qmrom_free(unstitched_firmware_buffer);
 	return rc;
 }

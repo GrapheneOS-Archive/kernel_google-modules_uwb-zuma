@@ -6,7 +6,7 @@ set(SOURCES
     src/qmrom_log.c
 )
 
-add_library(qmrom SHARED ${SOURCES})
+add_library(qmrom ${SOURCES})
 
 target_include_directories(qmrom PUBLIC
     include

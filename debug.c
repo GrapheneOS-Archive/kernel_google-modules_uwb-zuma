@@ -145,12 +145,10 @@ static ssize_t debug_traces_read(struct file *filp, char __user *buff,
 {
 	char *entry;
 	rb_entry_size_t entry_size;
-	struct qm35_ctx *qm35_hdl;
 	uint16_t ret;
 	struct debug *debug;
 
 	debug = priv_from_file(filp);
-	qm35_hdl = container_of(debug, struct qm35_ctx, debug);
 
 	if (!debug->trace_ops)
 		return -ENOSYS;

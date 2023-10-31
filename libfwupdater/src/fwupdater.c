@@ -18,6 +18,7 @@
 /* Extract from C0 rom code */
 #define MAX_CERTIFICATE_SIZE 0x400
 #define MAX_CHUNK_SIZE 3072
+#define WAIT_REBOOT_DELAY_MS 450
 #define WAIT_SS_RDY_CHUNK_TIMEOUT 100
 #define WAIT_SS_RDY_STATUS_TIMEOUT 10
 #define RESULT_RETRIES 3
@@ -34,19 +35,27 @@ _Static_assert(MAX_CHUNK_SIZE >= CRYPTO_IMAGES_CERT_PKG_SIZE);
 _Static_assert(TRANPORT_HEADER_SIZE + MAX_CERTIFICATE_SIZE < MAX_CHUNK_SIZE);
 #endif
 
+#ifndef CONFIG_FWUPDATER_GLOBAL_CHUNK_FLASHING_RETRIES
+#define CONFIG_FWUPDATER_GLOBAL_CHUNK_FLASHING_RETRIES 50
+#endif
+
 /* local stats */
 static int gstats_spi_errors;
 static int gstats_ss_rdy_timeouts;
 
-static int send_data_chunks(struct qmrom_handle *handle, char *data,
+static int send_data_chunks(struct qmrom_handle *handle, const char *data,
 			    size_t size);
+static int check_fw_boot(struct qmrom_handle *handle);
 
-int run_fwupdater(struct qmrom_handle *handle, char *fwpkg_bin, size_t size)
+int run_fwupdater(struct qmrom_handle *handle, const char *fwpkg_bin,
+		  size_t size)
 {
 	int rc;
 
 	gstats_spi_errors = 0;
 	gstats_ss_rdy_timeouts = 0;
+	handle->nb_global_retry =
+		CONFIG_FWUPDATER_GLOBAL_CHUNK_FLASHING_RETRIES;
 
 	if (size < sizeof(struct fw_pkg_hdr_t) +
 			   sizeof(struct fw_pkg_img_hdr_t) +
@@ -138,18 +147,15 @@ static CKSUM_TYPE checksum(const void *data, const size_t size)
 	if (!remainder)
 		return cksum;
 
-	cksum += ((uint8_t *)data)[size - 1];
-	if (remainder > 1) {
-		cksum += ((uint8_t *)data)[size - 2];
-		if (remainder > 2) {
-			cksum += ((uint8_t *)data)[size - 3];
-		}
+	while (remainder) {
+		cksum += ((uint8_t *)data)[size - remainder];
+		remainder--;
 	}
 
 	return cksum;
 }
 
-static void prepare_hstc(struct stc *hstc, char *data, size_t len)
+static void prepare_hstc(struct stc *hstc, const char *data, size_t len)
 {
 	CKSUM_TYPE *cksum = (CKSUM_TYPE *)(hstc + 1);
 	void *payload = cksum + 1;
@@ -167,9 +173,9 @@ static void prepare_hstc(struct stc *hstc, char *data, size_t len)
 static int xfer_payload_prep_next(struct qmrom_handle *handle,
 				  const char *step_name, struct stc *hstc,
 				  struct stc *sstc, struct stc *hstc_next,
-				  char **data, size_t *size)
+				  const char **data, size_t *size)
 {
-	int rc = 0, nb_retry = CONFIG_NB_RETRIES;
+	int rc = 0, nb_retry = CONFIG_FWUPDATER_CHUNK_FLASHING_RETRIES;
 	CKSUM_TYPE *cksum = (CKSUM_TYPE *)(hstc + 1);
 
 	do {
@@ -204,7 +210,7 @@ static int xfer_payload_prep_next(struct qmrom_handle *handle,
 #if IS_ENABLED(CONFIG_INJECT_ERROR)
 		(*cksum)--;
 #endif
-	} while (rc && --nb_retry > 0);
+	} while (rc && --nb_retry > 0 && --handle->nb_global_retry > 0);
 	if (rc) {
 		LOG_ERR("%s transfer failed with %d - (sstc 0x%08x)\n",
 			step_name, rc, sstc->all);
@@ -219,7 +225,7 @@ static int xfer_payload(struct qmrom_handle *handle, const char *step_name,
 				      NULL);
 }
 
-static int send_data_chunks(struct qmrom_handle *handle, char *data,
+static int send_data_chunks(struct qmrom_handle *handle, const char *data,
 			    size_t size)
 {
 	struct fw_updater_status_t status;
@@ -330,6 +336,9 @@ exit:
 				LOG_INFO(
 					"Flashing succeeded without any errors\n");
 			}
+
+			if (!handle->skip_check_fw_boot)
+				rc = check_fw_boot(handle);
 		}
 	} else {
 		LOG_ERR("run_fwupdater_get_status returned %d\n", rc);
@@ -340,4 +349,30 @@ exit_nomem:
 	if (tx)
 		qmrom_free(tx);
 	return rc;
+}
+
+static int check_fw_boot(struct qmrom_handle *handle)
+{
+	uint8_t raw_flags;
+	struct stc hstc, sstc;
+
+	handle->dev_ops.reset(handle->reset_handle);
+
+	qmrom_msleep(WAIT_REBOOT_DELAY_MS);
+
+	// Poll the QM
+	sstc.all = 0;
+	hstc.all = 0;
+	while (sstc.all == 0)
+		qmrom_spi_transfer(handle->spi_handle, (char *)&sstc,
+				   (const char *)&hstc, sizeof(hstc));
+
+	raw_flags = sstc.raw_flags;
+	/* The ROM code sends the same quartets for the first byte of each xfers */
+	if (((raw_flags & 0xf0) >> 4) == (raw_flags & 0xf)) {
+		LOG_ERR("%s: firmware not properly started: %#x\n", __func__,
+			raw_flags);
+		return -2;
+	}
+	return 0;
 }

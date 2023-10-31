@@ -381,7 +381,8 @@ static int hsspi_tx(struct hsspi *hsspi, struct hsspi_layer *layer,
 	/* Ignore tx check flags */
 	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, true);
 
-	if (hsspi->host->flags & STC_HOST_PRD)
+	if ((hsspi->host->flags & STC_HOST_PRD) &&
+	    (hsspi->soc->flags & STC_SOC_ODW))
 		return hsspi_rx(hsspi, hsspi->soc->ul, hsspi->soc->length);
 
 	return ret;
@@ -411,7 +412,11 @@ static int hsspi_pre_read(struct hsspi *hsspi)
 	/* Ignore pre-read check flags */
 	check_soc_flag(&hsspi->spi->dev, __func__, hsspi->soc->flags, true);
 
-	return hsspi_rx(hsspi, hsspi->soc->ul, hsspi->soc->length);
+	if (hsspi->soc->flags & STC_SOC_ODW)
+		return hsspi_rx(hsspi, hsspi->soc->ul, hsspi->soc->length);
+	else
+		/* Pre-read error. Maybe FW is a little late to setup HSSPI header. */
+		return -1;
 }
 
 /**

@@ -61,7 +61,11 @@
 
 #define QM35_REGULATOR_DELAY_US 1000
 #define QMROM_RETRIES 10
-#define FLASHING_RETRIES 10 /* Intentionaly high value */
+
+#ifndef CONFIG_FLASHING_RETRIES
+#define CONFIG_FLASHING_RETRIES 10 /* Intentionally high value */
+#endif
+
 /* Redefine certificate error here since original definitions are separate */
 #define REGULATORS_ENABLED(x) (x->vdd1 || x->vdd2 || x->vdd3 || x->vdd4)
 
@@ -113,7 +117,7 @@ int qmrom_retries = QMROM_RETRIES;
 module_param(qmrom_retries, int, 0644);
 MODULE_PARM_DESC(qmrom_retries, "QMROM retries");
 
-int flashing_retries = FLASHING_RETRIES;
+int flashing_retries = CONFIG_FLASHING_RETRIES;
 module_param(flashing_retries, int, 0644);
 MODULE_PARM_DESC(flashing_retries, "Flashing retries");
 
@@ -220,6 +224,7 @@ static long uci_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 		 * expected
 		 */
 		qm35_reset(qm35_hdl, QM_RESET_LOW_MS, on);
+
 		msleep(QM_BOOT_MS);
 
 		/* If reset or power on */
@@ -281,6 +286,9 @@ static ssize_t uci_write(struct file *filp, const char __user *buf, size_t len,
 	struct uci_packet *p;
 	DECLARE_COMPLETION_ONSTACK(comp);
 	int ret;
+
+	if (len > U16_MAX)
+		return -ENOMEM;
 
 	p = uci_packet_alloc(len);
 	if (!p)
@@ -421,50 +429,40 @@ static irqreturn_t qm35_exton_handler(int irq, void *data)
 
 void qm35_hsspi_start(struct qm35_ctx *qm35_hdl)
 {
-	int irq;
-
 	/* nothing to do as HSSPI is already started */
 	if (qm35_hdl->hsspi.state == HSSPI_RUNNING)
 		return;
 
-	irq = gpiod_to_irq(qm35_hdl->gpio_ss_rdy);
-	if (irq >= 0) {
-		enable_irq(irq);
+	enable_irq(qm35_hdl->ss_rdy_irq);
 #ifdef CONFIG_QM35_RISING_IRQ_NOT_TRIGGERED
-		/* Some IRQ controller will trigger a rising edge if
-		 * the gpio is high when enabling the IRQ, some will
-		 * not (RPI board for example). In the second case we
-		 * can miss an event depending on if the level rise
-		 * before or after enable_irq. Besides, the handler
-		 * can also run *after* hsspi_start, breaking the
-		 * hsspi thread with a false information. So let's
-		 * sleep and force the SS_READY bit after.
-		 */
+	/* Some IRQ controller will trigger a rising edge if
+	 * the gpio is high when enabling the IRQ, some will
+	 * not (RPI board for example). In the second case we
+	 * can miss an event depending on if the level rise
+	 * before or after enable_irq. Besides, the handler
+	 * can also run *after* hsspi_start, breaking the
+	 * hsspi thread with a false information. So let's
+	 * sleep and force the SS_READY bit after.
+	 */
 
-		if (gpiod_get_value(qm35_hdl->gpio_ss_rdy))
-			hsspi_set_spi_slave_ready(&qm35_hdl->hsspi);
+	if (gpiod_get_value(qm35_hdl->gpio_ss_rdy))
+		hsspi_set_spi_slave_ready(&qm35_hdl->hsspi);
 #endif
-	}
 
 	hsspi_start(&qm35_hdl->hsspi);
 }
 
 void qm35_hsspi_stop(struct qm35_ctx *qm35_hdl)
 {
-	int irq;
-
 	/* nothing to do as HSSPI is already stopped */
 	if (qm35_hdl->hsspi.state == HSSPI_STOPPED)
 		return;
 
 	hsspi_stop(&qm35_hdl->hsspi);
 
-	irq = gpiod_to_irq(qm35_hdl->gpio_ss_rdy);
-	if (irq >= 0) {
-		disable_irq_nosync(irq);
+	disable_irq_nosync(qm35_hdl->ss_rdy_irq);
 
-		clear_bit(HSSPI_FLAGS_SS_READY, qm35_hdl->hsspi.flags);
-	}
+	clear_bit(HSSPI_FLAGS_SS_READY, qm35_hdl->hsspi.flags);
 }
 
 int qm35_reset_sync(struct qm35_ctx *qm35_hdl)
@@ -483,7 +481,7 @@ static int qm_firmware_flash_fw(struct qm35_ctx *qm35_hdl,
 				struct qmrom_handle *h,
 				const struct firmware *fw)
 {
-	int rc = 0, nb_retries = FLASHING_RETRIES;
+	int rc = 0, nb_retries = flashing_retries;
 	do {
 		/* If the previous flashing failed, re-enter the QM
 		 * rom code so it will be in the same initial state
@@ -494,8 +492,8 @@ static int qm_firmware_flash_fw(struct qm35_ctx *qm35_hdl,
 		rc = qm357xx_rom_flash_fw(h, fw);
 		if (rc)
 			dev_err(&qm35_hdl->spi->dev,
-				"Attempt %d: flashing failed with %d!\n",
-				FLASHING_RETRIES - nb_retries, rc);
+				"Attempt %d: ROM flashing failed with %d!\n",
+				flashing_retries - nb_retries, rc);
 		if (rc == PEG_ERR_FIRST_KEY_CERT_OR_FW_VER)
 			break;
 	} while (rc && --nb_retries > 0);
@@ -506,8 +504,8 @@ static int qm_firmware_flash_macro_pkg(struct qm35_ctx *qm35_hdl,
 				       struct qmrom_handle *h,
 				       const struct firmware *fw)
 {
-	int rc, nb_retries = FLASHING_RETRIES;
-	char *fw_data;
+	int rc, nb_retries = flashing_retries;
+	const uint8_t *fw_data;
 	uint32_t fw_size;
 
 	rc = qm357xx_rom_fw_macro_pkg_get_fw_idx(fw, 1, &fw_size, &fw_data);
@@ -540,11 +538,13 @@ static int qm_firmware_flash_macro_pkg(struct qm35_ctx *qm35_hdl,
 		 * simply flash the first and provide the second to
 		 * the updater lib
 		 */
+		h->skip_check_fw_boot = true;
 		rc = qm357xx_rom_flash_fw(h, fw);
+		h->skip_check_fw_boot = false;
 		if (rc) {
 			dev_err(&qm35_hdl->spi->dev,
 				"Attempt %d: fw updater flashing failed with %d!\n",
-				FLASHING_RETRIES - nb_retries, rc);
+				flashing_retries - nb_retries, rc);
 			if (rc == PEG_ERR_FIRST_KEY_CERT_OR_FW_VER)
 				break;
 			continue;
@@ -559,7 +559,7 @@ static int qm_firmware_flash_macro_pkg(struct qm35_ctx *qm35_hdl,
 		if (rc) {
 			dev_err(&qm35_hdl->spi->dev,
 				"Attempt %d: fw app flashing failed with %d!\n",
-				FLASHING_RETRIES - nb_retries, rc);
+				flashing_retries - nb_retries, rc);
 		}
 	} while (rc && --nb_retries > 0);
 	return rc;
@@ -596,7 +596,7 @@ static int qm_firmware_flashing(void *handle, struct qmrom_handle *h,
 #ifdef C0_WRITE_STATS
 	elapsed_time_ns = ktime_to_ns(ktime_sub(ktime_get(), start_time));
 	if (!rc)
-		dev_warn(&spi->dev, "Fw_updater flashed in %llu us\n",
+		dev_warn(&spi->dev, "Firmware flashed in %llu us\n",
 			 div_u64(elapsed_time_ns, 1000));
 #endif
 
@@ -614,14 +614,15 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 	unsigned int state = qm35_get_state(qm35_hdl);
 	struct qmrom_handle *h;
 	bool is_macro_pkg = false;
-	int ret, irq = gpiod_to_irq(qm35_hdl->gpio_ss_rdy);
+	int ret;
 
 	qm35_set_state(qm35_hdl, QM35_CTRL_STATE_FW_DOWNLOADING);
 
 	qmrom_set_log_device(&spi->dev, LOG_WARN);
 
-	if (irq >= 0)
-		enable_irq(irq);
+	enable_irq(qm35_hdl->ss_rdy_irq);
+
+	qm35_hdl->flashing = true;
 
 	h = qmrom_init(&spi->dev, qm35_hdl, qm35_hdl, qm35_hdl->gpio_ss_irq,
 		       qmrom_spi_speed_hz, qmrom_retries,
@@ -631,6 +632,8 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 		ret = -1;
 		goto out;
 	}
+
+	qm35_hdl->flashing = false;
 
 	dev_info(&spi->dev, "    chip_ver:  %x\n", h->chip_rev);
 	dev_info(&spi->dev, "    dev_id:    deca%04x\n", h->device_version);
@@ -666,10 +669,11 @@ static int qm_firmware_load(struct qm35_ctx *qm35_hdl)
 		dev_info(&spi->dev, "Device flashing succeeded!\n");
 
 out:
-	if (irq >= 0)
-		disable_irq_nosync(irq);
+	disable_irq_nosync(qm35_hdl->ss_rdy_irq);
 
 	qm35_set_state(qm35_hdl, state);
+
+	qm35_hdl->flashing = false;
 
 	return ret;
 }
@@ -719,9 +723,10 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 	irq = gpiod_to_irq(qm35_ctx->gpio_ss_rdy);
 	if (irq < 0) {
 		dev_err(&qm35_ctx->spi->dev,
-			"%s: gpiod_to_irq(ss-ready) returns %d", __func__, irq);
+			"gpiod_to_irq(ss-ready) returns %d", irq);
 		return irq;
 	}
+	qm35_ctx->ss_rdy_irq = irq;
 	ret = devm_request_irq(&qm35_ctx->spi->dev, irq, &qm35_ss_rdy_handler,
 			       IRQF_TRIGGER_RISING, "hsspi-ss-rdy", qm35_ctx);
 	if (ret) {
@@ -739,14 +744,13 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 		devm_gpiod_get(&qm35_ctx->spi->dev, "ss-irq", GPIOD_IN);
 	if (IS_ERR(qm35_ctx->gpio_ss_irq)) {
 		dev_err(&qm35_ctx->spi->dev,
-			"%s: gpiod_get_index(ss-irq) returned %pK", __func__,
+			"gpiod_get_index(ss-irq) returned %pK",
 			qm35_ctx->gpio_ss_irq);
 	}
 
 	qm35_ctx->spi->irq = gpiod_to_irq(qm35_ctx->gpio_ss_irq);
 	if (qm35_ctx->spi->irq < 0) {
-		dev_err(&qm35_ctx->spi->dev,
-			"%s: gpiod_to_irq(ss-irq) returned %d", __func__,
+		dev_err(&qm35_ctx->spi->dev, "gpiod_to_irq(ss-irq) returned %d",
 			qm35_ctx->spi->irq);
 		return qm35_ctx->spi->irq;
 	}
@@ -777,8 +781,14 @@ static int hsspi_irqs_setup(struct qm35_ctx *qm35_ctx)
 		if (IS_ERR(qm35_ctx->gpio_exton))
 			return PTR_ERR(qm35_ctx->gpio_exton);
 
-		ret = devm_request_irq(&qm35_ctx->spi->dev,
-				       gpiod_to_irq(qm35_ctx->gpio_exton),
+		irq = gpiod_to_irq(qm35_ctx->gpio_exton);
+		if (irq < 0) {
+			dev_err(&qm35_ctx->spi->dev,
+				"gpiod_to_irq(exton) returned %d", irq);
+			return irq;
+		}
+
+		ret = devm_request_irq(&qm35_ctx->spi->dev, irq,
 				       &qm35_exton_handler,
 				       IRQF_TRIGGER_FALLING, "hsspi-exton",
 				       qm35_ctx);

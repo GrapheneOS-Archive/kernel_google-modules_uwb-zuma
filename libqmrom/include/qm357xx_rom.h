@@ -72,7 +72,8 @@ int qm357xx_rom_unstitch_fw(const struct firmware *fw,
 			    struct unstitched_firmware *unstitched_fw,
 			    enum chip_revision_e revision);
 int qm357xx_rom_fw_macro_pkg_get_fw_idx(const struct firmware *fw, int idx,
-					uint32_t *fw_size, char **fw_fata);
+					uint32_t *fw_size,
+					const uint8_t **fw_fata);
 int qm357xx_rom_unpack_fw_macro_pkg(const struct firmware *fw,
 				    struct unstitched_firmware *all_fws);
 int qm357xx_rom_unpack_fw_pkg(const struct firmware *fw_pkg,

@@ -5,7 +5,7 @@ set(SOURCES
     tests/fwpkg_tests.c
 )
 
-add_library(fwupdater SHARED ${SOURCES})
+add_library(fwupdater ${SOURCES})
 
 target_include_directories(fwupdater PUBLIC
     include

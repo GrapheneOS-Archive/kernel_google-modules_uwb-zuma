@@ -85,6 +85,8 @@ struct qmrom_handle {
 	struct stc *sstc;
 	struct qm357xx_soc_infos qm357xx_soc_info;
 	bool is_be;
+	bool skip_check_fw_boot;
+	int nb_global_retry;
 };
 
 struct qmrom_handle *qmrom_init(void *spi_handle, void *reset_handle,

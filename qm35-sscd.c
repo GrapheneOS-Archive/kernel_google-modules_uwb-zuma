@@ -24,8 +24,8 @@ int qm35_report_coredump(struct qm35_ctx *qm35_ctx)
 	sscd_info->seg_count = 1;
 
 	return sscd_pdata->sscd_report(&qm35_ctx->sscd->sscd_dev,
-					sscd_info->segs, sscd_info->seg_count, 0,
-					"qm35 coredump");
+				       sscd_info->segs, sscd_info->seg_count, 0,
+				       "qm35 coredump");
 }
 
 int qm35_register_coredump(struct qm35_ctx *qm35_ctx)
