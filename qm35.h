@@ -28,7 +28,7 @@
 #define QM_BOOT_MS 450
 #define QM_BEFORE_RESET_MS 450
 
-#define DRV_VERSION "7.2.3-rc1"
+#define DRV_VERSION "7.2.0-rc6"
 
 struct regulator;
 
@@ -46,7 +46,6 @@ struct qm35_ctx {
 	struct gpio_desc *gpio_ss_irq;
 	struct gpio_desc *gpio_exton;
 	struct gpio_desc *gpio_wakeup;
-	int ss_rdy_irq;
 	spinlock_t lock;
 	bool out_data_wait;
 	bool out_active;
@@ -92,7 +91,7 @@ static inline int qm35_reset(struct qm35_ctx *qm35_hdl, int timeout_ms,
 		gpiod_set_value(qm35_hdl->gpio_reset, 1);
 		if (!run)
 			return 0;
-		usleep_range(timeout_ms * 1000UL, timeout_ms * 1000UL);
+		usleep_range(timeout_ms * 1000, timeout_ms * 1000);
 		gpiod_set_value(qm35_hdl->gpio_reset, 0);
 		qm35_set_state(qm35_hdl, QM35_CTRL_STATE_UNKNOWN);
 		return 0;

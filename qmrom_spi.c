@@ -111,7 +111,6 @@ const struct firmware *qmrom_spi_get_firmware(void *handle,
 	const char *fw_name;
 	int ret;
 	uint32_t lcs_state = qmrom_h->qm357xx_soc_info.lcs_state;
-	*is_macro_pkg = true;
 
 	if (!fwname) {
 		if (lcs_state != CC_BSV_SECURE_LCS) {
@@ -122,6 +121,7 @@ const struct firmware *qmrom_spi_get_firmware(void *handle,
 			fw_name = "qm35_fw_pkg_prod.bin";
 		else
 			fw_name = "qm35_fw_pkg.bin";
+		*is_macro_pkg = true;
 	} else {
 		fw_name = fwname;
 	}
