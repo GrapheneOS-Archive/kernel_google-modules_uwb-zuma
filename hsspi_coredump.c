@@ -28,7 +28,6 @@
 
 #include "qm35.h"
 #include "hsspi_coredump.h"
-#include "qm35-sscd.h"
 
 #define COREDUMP_HEADER_NTF 0x00
 #define COREDUMP_BODY_NTF 0x01
@@ -207,9 +206,6 @@ static void coredump_received(struct hsspi_layer *hlayer,
 	struct coredump_layer *layer =
 		container_of(hlayer, struct coredump_layer, hlayer);
 
-	struct qm35_ctx *qm35_hdl =
-		container_of(layer, struct qm35_ctx, coredump_layer);
-
 	if (status)
 		goto out;
 
@@ -255,9 +251,6 @@ static void coredump_received(struct hsspi_layer *hlayer,
 
 			if (crc == layer->coredump_crc)
 				layer->coredump_status = COREDUMP_RCV_ACK;
-
-			if (qm35_hdl->sscd)
-				report_coredump(qm35_hdl);
 
 			coredump_send_rcv_status(layer, layer->coredump_status);
 
