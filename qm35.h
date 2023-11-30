@@ -4,7 +4,6 @@
 #define __QM35_H___
 
 #include <linux/gpio.h>
-#include <linux/wait.h>
 #include <linux/delay.h>
 #include <linux/spi/spi.h>
 #include <linux/spinlock.h>
@@ -17,9 +16,6 @@
 #include "hsspi_log.h"
 #include "debug.h"
 
-#define FWUPDATER_SPI_SPEED_HZ 20000000
-#define DEFAULT_SPI_CLOCKRATE 3000000
-
 #define DEBUG_CERTIFICATE_SIZE 2560
 #define QM_RESET_LOW_MS 2
 /*
@@ -28,7 +24,7 @@
 #define QM_BOOT_MS 450
 #define QM_BEFORE_RESET_MS 450
 
-#define DRV_VERSION "7.2.0-rc6"
+#define DRV_VERSION "6.3.8-rc1"
 
 struct regulator;
 
@@ -61,11 +57,6 @@ struct qm35_ctx {
 	struct regulator *vdd4;
 	bool regulators_enabled;
 	bool log_qm_traces;
-
-	/* qmrom support */
-	struct wait_queue_head qmrom_wq_ready;
-	bool qmrom_qm_ready;
-	bool flashing;
 };
 
 static inline unsigned int qm35_get_state(struct qm35_ctx *qm35_hdl)

@@ -114,7 +114,6 @@ void hsspi_test_received(struct hsspi_layer *layer, struct hsspi_block *blk,
 {
 	static uint64_t bytes, msgs, errors, bytes0, msgs0, errors0;
 	static time64_t last_perf_dump;
-	uint32_t rem;
 	int error = check_rx(blk->data, blk->length) ? 1 : 0;
 	time64_t now;
 	errors += error;
@@ -143,8 +142,7 @@ void hsspi_test_received(struct hsspi_layer *layer, struct hsspi_block *blk,
 	bytes += blk->length;
 	msgs++;
 	error |= hsspi_send(ghsspi, layer, blk);
-	div_u64_rem(msgs, 100, &rem);
-	if (error || (rem == 0))
+	if (error || ((msgs % 100) == 0))
 		pr_info("hsspi test: bytes received %llu, msgs %llu, errors %llu\n",
 			bytes, msgs, errors);
 	if (now > last_perf_dump) {
@@ -155,9 +153,9 @@ void hsspi_test_received(struct hsspi_layer *layer, struct hsspi_block *blk,
 		uint64_t derrors = errors >= errors0 ? errors - errors0 :
 						       ~0ULL - errors0 + errors;
 		pr_info("hsspi test perfs: %llu B/s, %llu msgs/s, %llu errors/s\n",
-			div_u64(dbytes, (now - last_perf_dump)),
-			div_u64(dmsgs, (now - last_perf_dump)),
-			div_u64(derrors, (now - last_perf_dump)));
+			dbytes / (now - last_perf_dump),
+			dmsgs / (now - last_perf_dump),
+			derrors / (now - last_perf_dump));
 		bytes0 = bytes;
 		msgs0 = msgs;
 		errors0 = errors;
@@ -169,12 +167,10 @@ void hsspi_test_sent(struct hsspi_layer *layer, struct hsspi_block *blk,
 		     int status)
 {
 	static uint64_t bytes, msgs, errors;
-	uint32_t rem;
 	errors += status ? 1 : 0;
 	msgs++;
 	bytes += blk->length;
-	div_u64_rem(msgs, 100, &rem);
-	if (status || (rem == 0))
+	if (status || ((msgs % 100) == 0))
 		pr_info("hsspi test: bytes sent %llu, msgs %llu, errors %llu\n",
 			bytes, msgs, errors);
 	kfree(blk);

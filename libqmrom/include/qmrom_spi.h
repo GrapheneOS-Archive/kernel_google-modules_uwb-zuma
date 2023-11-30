@@ -50,13 +50,9 @@ int qmrom_spi_set_cs_level(void *handle, int level);
 int qmrom_spi_reset_device(void *reset_handle);
 const struct firmware *qmrom_spi_get_firmware(void *handle,
 					      struct qmrom_handle *qmrom_h,
-					      bool *is_fw_updater,
 					      bool use_prod_fw);
-const struct firmware *qmrom_spi_get_firmware_package(void *handle,
-						      int lcs_state);
 void qmrom_spi_release_firmware(const struct firmware *fw);
 int qmrom_spi_wait_for_ready_line(void *handle, unsigned int timeout_ms);
-int qmrom_spi_read_irq_line(void *handle);
 void qmrom_spi_set_freq(unsigned int freq);
 unsigned int qmrom_spi_get_freq(void);
 

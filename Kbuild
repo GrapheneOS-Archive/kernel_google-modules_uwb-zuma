@@ -1,4 +1,4 @@
-ccflags-y := -I$(srctree)/$(src)/libqmrom/include -I$(srctree)/$(src)/libfwupdater/include -Werror
+ccflags-y := -I$(srctree)/$(src)/libqmrom/include -Werror
 
 obj-$(CONFIG_QM35_SPI) := qm35.o
 
@@ -7,11 +7,10 @@ qm35-y := \
 	qm35_rb.o \
 	qmrom_spi.o \
 	libqmrom/src/qmrom_common.o \
-	libqmrom/src/qm357xx_rom_common.o \
-	libqmrom/src/qm357xx_rom_b0.o \
-	libqmrom/src/qm357xx_rom_c0.o \
+	libqmrom/src/qmrom_a0.o \
+	libqmrom/src/qmrom_b0.o \
+	libqmrom/src/qmrom_c0.o \
 	libqmrom/src/qmrom_log.o \
-	libfwupdater/src/fwupdater.o \
 	hsspi.o \
 	hsspi_uci.o \
 	hsspi_log.o \

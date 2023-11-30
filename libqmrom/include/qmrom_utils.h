@@ -31,26 +31,21 @@ extern void usleep(unsigned int us);
 	} while (0)
 
 #define qmrom_free free
-
-#define qmrom_data_dma_able(d) true
 #else
 
 #include <linux/delay.h>
 #include <linux/slab.h>
-#include <linux/mm.h>
 
 #define qmrom_msleep(ms)                            \
 	do {                                        \
 		usleep_range(ms * 1000, ms * 1000); \
 	} while (0)
 
-#define qmrom_alloc(ptr, size)                             \
-	do {                                               \
-		ptr = kzalloc(size, GFP_KERNEL | GFP_DMA); \
+#define qmrom_alloc(ptr, size)                   \
+	do {                                     \
+		ptr = kzalloc(size, GFP_KERNEL); \
 	} while (0)
 
 #define qmrom_free kfree
-
-#define qmrom_data_dma_able(d) !is_vmalloc_addr(d)
 #endif
 #endif /* __QMROM_UTILS_H__ */
