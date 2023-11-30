@@ -10,9 +10,9 @@
 #define QM35_COREDUMP_SEGMENTS 1
 
 struct sscd_info {
-	const char *name;
-	u16 seg_count;
+	char *name;
 	struct sscd_segment segs[QM35_COREDUMP_SEGMENTS];
+	u16 seg_count;
 };
 
 struct sscd_desc {
@@ -21,8 +21,8 @@ struct sscd_desc {
 	struct platform_device sscd_dev;
 };
 
-int qm35_report_coredump(struct qm35_ctx *qm35_ctx);
-int qm35_register_coredump(struct qm35_ctx *qm35_ctx);
-void qm35_unregister_coredump(struct qm35_ctx *qm35_ctx);
+int report_coredump(struct qm35_ctx *qm35_ctx);
+int register_coredump(struct spi_device *spi, struct qm35_ctx *qm35_ctx);
+void unregister_coredump(struct sscd_desc *sscd);
 
 #endif /* __QM35_SSCD__ */
